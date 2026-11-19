@@ -173,6 +173,39 @@ state; the Setups and learning tab lists every hand-made rules step. These
 fixes were picked from the same history they are scored on, so the live
 record is the real test.
 
+### Paper trials (rules 4 on Reversion, 2026-11-19)
+
+A paper trial is a setup the history test did not prove but that may do
+better live. It runs on paper beside the engine, labeled unproven, behind its
+own switch, so the live record can decide. The first one comes from the
+2026-11-19 strategy test series (553 variants tried on 2007-2026 bars with
+real Cboe implied volatility; no idea cleared the trials-adjusted bar of
+t 3.9):
+
+| Trial | Rule | What the history showed | Switch (Owner Settings → Data & desks) |
+|---|---|---|---|
+| RSI(2) dip in an uptrend (`rsi2-dip`, Reversion) | Above the 200-day with a 2-day RSI under 5. Buys $5,000 of stock (never options: calls on these dips lost money on real option prices) and sells on a close back above the 5-day average, after 10 sessions, or at the usual 2 ATR stop / 3 ATR target | +0.62% a trade, t 3.0 against random days in the same names and t 5.1 against SPY, alike in 2007-16 and 2017-26; weak on sector funds (+0.21%). Through the engine code: 2,439 trades, +0.4%, 64% wins, at or above zero in 18 of 20 years (2008 and 2018 lost) | `ENGINES_TRIAL_RSI2_DIP` |
+
+How a trial is kept apart (`trial: true` on the setup, `trial` on each trade):
+
+- **Own slots.** The trial has its own 4 open trades and 2 new ones a run,
+  outside the engine's slots, the per-run cap of five and `bestPerSymbol`, so
+  it never takes a place from a proven setup (the history test's option lines
+  are unchanged with the trial on). It is offered after every engine's own
+  turn.
+- **No learning.** Its closes are not fed to the engine's learning and a loss
+  starts no cooldown, so an unproven rule cannot pause or mute a proven one.
+- **Shares only.** With `ENGINES_SHARES=0` it opens nothing.
+- **Rules version.** Turning the trial on or off is a rules change on
+  Reversion (`trialRules`, rules 4 with it on), so the record splits there.
+  Off marks the setup `retired` for new trades; open trial trades run to
+  their exits.
+- **Webull.** Share trades reach the paper account only once the mirror
+  handles shares; until then the trial lives in the engine record.
+
+The trial survived a test on the same history it came from, and the stocks
+are today's names (survivor bias). The live record is the real test.
+
 How they differ from Top Picks, on purpose:
 
 - **No shared grade.** Top Picks sums four pillars into one score. Each engine
@@ -545,6 +578,7 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_BOUNCE` | Owner Settings → Data & desks | Unset / on = the washout bounce buys ~0.3-delta calls about 21 days out with a -60% stop. `0` = the engine's 0.6-delta calls and -35% stop |
 | `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys the record's `qty` (1 to 10) unless Owner Settings `WEBULL_QTY` is off |
 | `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
+| `ENGINES_TRIAL_RSI2_DIP` | Owner Settings → Data & desks | Unset / on = Reversion's RSI(2) dip paper trial buys shares (own 4 slots, 2 a run, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
 
 ## Not in scope
 
