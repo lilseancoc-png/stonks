@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { webullReviewFixture } from './fixtures/webull-review.mjs';
+import { statusView } from '../lib/webull-data/runner.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const cases = new Set(['standard', 'edge', 'empty', 'open', 'retry', 'execution']);
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
@@ -24,6 +25,13 @@ const server = createServer(async (req, res) => {
     if (url.searchParams.get('format') === 'orders') { res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="synthetic-webull-orders.csv"' }); return res.end(fixture.ordersCsv || 'trade_id,phase,attempt\n'); }
     if (url.searchParams.get('format') === 'csv') { res.writeHead(200, { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="synthetic-webull-trades.csv"' }); return res.end(fixture.csv || 'trade_id,symbol,state,paper_pnl_pct\n' + fixture.mirror.trades.map(t => [t.tradeId, t.symbol, t.state, t.paperPnlPct ?? ''].join(',')).join('\n')); }
     return json(fixture.mirror);
+  }
+  // Webull daily data status (synthetic counts; the real one is lib/webull-data/runner.mjs statusView).
+  if (url.pathname === '/api/auth/webull-data') {
+    if (previewCase === 'empty') return json(statusView(null, { switches: { WEBULL_DATA: false, WEBULL_OPTION_SAVER: true } }));
+    const day = { v: 1, dayKey: '2026-11-18:close', date: '2026-11-18', phase: 'close', startedAtIso: '2026-11-18T21:40:05Z', finishedAtIso: '2026-11-18T22:21:40Z', updatedAtIso: '2026-11-18T22:21:40Z',
+      invocations: 41, msUsed: 1500000, counts: { calls: 980, 'snapshot-names': 92, 'snapshot-contracts': 11800, 'expired-saved': 640, 'expired-gone': 3, misses: 2 }, misses: { 'option-snapshots: network': 2 }, jobs: {}, rate: {}, history: [] };
+    return json(statusView(day, { switches: { WEBULL_DATA: true, WEBULL_OPTION_SAVER: true } }));
   }
   if (url.pathname === '/api/auth/picks-fills') return json({ rows: [] });
   if (url.pathname === '/api/auth/track-record-data') {
