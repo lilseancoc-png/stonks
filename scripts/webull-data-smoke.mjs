@@ -16,9 +16,9 @@ import { researchUniverse } from "../lib/site-catalog/universe.mjs";
 import { createWebullClient, WebullError } from "../lib/webull-client.mjs";
 import { webullDataTriggerToken } from "../lib/webull-data/trigger.mjs";
 import { mirrorTriggerToken } from "../lib/webull-mirror.mjs";
-import { routeRun } from "./webull-data-trigger.mjs";
+import { routeRun, LABELS as TRIGGER_LABELS } from "./webull-data-trigger.mjs";
 import { exportWebullOptions } from "./webull-options-export.mjs";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -274,5 +274,16 @@ eq(routeRun({ eventName: "schedule", schedule: "40 20 * * 1-5", nowMs: at("2026-
 eq(routeRun({ eventName: "schedule", schedule: "40 20 * * 1-5", nowMs: at("2026-07-15T20:41:00Z") }).run, true, "EDT slot runs in July");
 eq(routeRun({ eventName: "schedule", schedule: "40 21 * * 1-5", nowMs: at("2026-11-26T21:41:00Z") }).run, false, "Thanksgiving skipped");
 eq(routeRun({ eventName: "schedule", schedule: "40 21 * * 1-5", nowMs: at("2026-11-20T03:30:00Z") }).run, true, "a late start after midnight ET keeps its session");
+
+// --- the trigger log prints every count a job records -------------------------------
+{
+  const dir = new URL("../lib/webull-data/", import.meta.url);
+  const files = ["runner.mjs", ...readdirSync(new URL("jobs/", dir)).map((f) => "jobs/" + f)].filter((f) => f.endsWith(".mjs"));
+  const used = new Set();
+  for (const f of files) for (const m of readFileSync(new URL(f, dir), "utf8").matchAll(/count\((?:ctx, )?"([a-z0-9-]+)"/g)) used.add(m[1]);
+  const missing = [...used].filter((k) => !TRIGGER_LABELS.includes(k));
+  ok(used.size >= 10, "found the jobs' count labels");
+  eq(missing, [], "every job count label is printed by the trigger log");
+}
 
 console.log(`webull-data smoke: ${checks} checks passed`);

@@ -36,7 +36,11 @@ export function routeRun({ eventName, schedule, nowMs = Date.now() }) {
   return { run: true, why: "scheduled after the close" };
 }
 
-const LABELS = ["calls", "snapshot-names", "snapshot-contracts", "snapshot-wide", "snapshot-stale", "expired-due", "expired-saved", "expired-gone", "backfill-none", "registry-writes", "rate-limited", "errors", "misses", "bytes"];
+// Every count a job records (webull-data-smoke checks this list against the
+// jobs, so a new job's counts show in the log). Labels only, never a ticker.
+export const LABELS = ["calls", "chain-contracts", "spot-missing", "snapshot-names", "snapshot-contracts", "snapshot-wide", "snapshot-stale", "snapshot-missing", "snapshot-empty",
+  "expired-due", "expired-saved", "expired-already", "expired-gone", "backfill-none", "registry-writes",
+  "flow-names", "flow-misses", "breadth-records", "backup-records", "rate-limited", "errors", "misses", "bytes"];
 const fmtCounts = (c = {}) => LABELS.filter((k) => c[k]).map((k) => `${k} ${Number(c[k]) || 0}`).join(", ") || "none";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
