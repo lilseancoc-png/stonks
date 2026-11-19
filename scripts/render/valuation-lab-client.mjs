@@ -152,7 +152,7 @@ export function renderValuationLabJs() {
       if (m.key === 'peg' && vlFin(v)) detail = 'Fair P/E ' + vlNum(x.fairPE) + 'x = PEG ' + vlNum(r.inputs.targetPeg, 2) + ' x ' + vlNum(r.inputs.epsGrowth) + '% EPS growth';
       if (m.key === 'book' && vlFin(v)) detail = 'Book ' + vlMoney(x.bookPerShare) + ' a share; return on equity ' + (x.spreadPct >= 0 ? vlNum(x.spreadPct) + ' points above' : vlNum(-x.spreadPct) + ' points below') + ' the cost of equity';
       if (m.key === 'power' && vlFin(v)) detail = 'Justified P/E ' + vlNum(x.justifiedPE) + 'x at a ' + vlNum(r.rates.ke, 2) + '% cost of equity, ROE ' + vlNum(r.inputs.roe) + '%';
-      if (m.key === 'street' && vlFin(v)) detail = vlMoney(x.low) + ' to ' + vlMoney(x.high) + (x.n ? ' · ' + x.n + ' analysts' : '') + (row.street.rating ? ' · ' + escapeHtml(row.street.rating) : '');
+      if (m.key === 'street' && vlFin(v)) detail = vlMoney(x.low) + ' to ' + vlMoney(x.high) + (x.n ? ' · ' + x.n + ' analysts' : '') + (row.street.rating ? ' · ' + escapeHtml(row.street.rating) : '') + (row.street.source === 'webull-backup' ? ' · backup source (Webull)' : '');
       if (!vlFin(v)) detail = escapeHtml(x.reason || 'Not available');
       return '<tr><td><span class="vl-sw" style="background:' + VL_COLORS[m.key] + '"></span>' + escapeHtml(m.label) + '<div class="vl-detail">' + detail + '</div></td>' +
         '<td class="num">' + vlMoney(v) + '</td><td class="num ' + vlGapCls(gap) + '">' + vlPct(gap) + '</td>' +
@@ -251,7 +251,7 @@ export function renderValuationLabJs() {
     if (vlFin(an.revision30)) chips.push('EPS estimate ' + vlPct(an.revision30) + ' in 30 days' + (vlFin(an.revision90) ? ', ' + vlPct(an.revision90) + ' in 90' : ''));
     if (vlFin(an.up30) || vlFin(an.down30)) chips.push((an.up30 || 0) + ' raised, ' + (an.down30 || 0) + ' cut (30 days)');
     if (vlFin(an.upgrades) || vlFin(an.downgrades)) chips.push((an.upgrades || 0) + ' upgrades, ' + (an.downgrades || 0) + ' downgrades' + (an.ratingWindowDays ? ' (' + an.ratingWindowDays + ' days)' : ''));
-    if (row.street && vlFin(row.street.mean)) chips.push('Target ' + vlMoney(row.street.low) + ' / ' + vlMoney(row.street.mean) + ' / ' + vlMoney(row.street.high) + (row.street.n ? ' · ' + row.street.n + ' analysts' : ''));
+    if (row.street && vlFin(row.street.mean)) chips.push('Target ' + vlMoney(row.street.low) + ' / ' + vlMoney(row.street.mean) + ' / ' + vlMoney(row.street.high) + (row.street.n ? ' · ' + row.street.n + ' analysts' : '') + (row.street.source === 'webull-backup' ? ' · backup source (Webull)' : ''));
     if (st.ourForecast && (vlFin(st.ourForecast.vsStreetRevPct) || vlFin(st.ourForecast.vsStreetEpsPct))) chips.push('Our forecast vs street, quarter to ' + st.ourForecast.quarterEnd + ': revenue ' + vlPct(st.ourForecast.vsStreetRevPct) + ', EPS ' + vlPct(st.ourForecast.vsStreetEpsPct));
     if (st.capital && vlFin(st.capital.shareholderYield)) chips.push('Shareholder yield ' + vlNum(st.capital.shareholderYield) + '% (buybacks ' + vlNum(st.capital.buybackYield) + '%, dividends ' + vlNum(st.capital.dividendYield) + '%)');
     o += '<div><h4 class="slp-h4">The analysts\\' record</h4>' + (beatRows ? '<div class="acc-tscroll"><table class="acc-qtable vl-beats" data-nosort><thead><tr><th>Quarter</th><th class="num">Estimate</th><th class="num">Actual</th><th class="num">Surprise</th></tr></thead><tbody>' + beatRows + '</tbody></table></div>' : '<p class="hint">No recent EPS estimates on file.</p>') +

@@ -1,0 +1,58 @@
+name: Webull data
+
+# The daily Webull data runner (docs/webull-data.md): after the 16:00 ET
+# close, and after the 16:10 bake and the mirror's closing window, it pings
+# the Vercel action /api/auth/webull-data in a loop (each ping works ~40 s
+# under Webull's per-minute caps) until the day's saves are done or 50
+# minutes pass. Webull keys stay in Vercel; this job holds only the store
+# secret that derives the bearer token. Logs print counts and fixed labels.
+# The paired UTC crons make 16:40 ET DST-safe; the trigger routes by the cron
+# line and skips NYSE holidays (lib/us-equity-calendar.mjs).
+on:
+  schedule:
+    - cron: "40 20 * * 1-5"
+    - cron: "40 21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Recently expired contracts backfill: empty = only on the first run, 1 = again, 0 = skip"
+        required: false
+        default: ""
+      minutes:
+        description: "Most minutes to keep pinging (1-55)"
+        required: false
+        default: "50"
+
+concurrency:
+  group: stonks-webull-data
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            lib/webull-data/trigger.mjs
+            lib/us-equity-calendar.mjs
+            scripts/webull-data-trigger.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Save today's Webull data
+        timeout-minutes: 56
+        env:
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
+          WEBULL_DATA_BACKFILL: ${{ inputs.backfill || '' }}
+          WEBULL_DATA_MINUTES: ${{ inputs.minutes || '50' }}
+          WEBULL_DATA_STRICT: '1'
+        run: node scripts/webull-data-trigger.mjs

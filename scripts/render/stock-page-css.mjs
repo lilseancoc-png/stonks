@@ -27,6 +27,16 @@ export function renderStockPageCss() {
 .stp-page { display: grid; gap: 20px; min-width: 0; }
 .stp-loading, .stp-empty { color: var(--muted); margin: 8px 0; }
 .stp-missing { padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.stp-wide { display: grid; gap: 14px; }
+.stp-wide-name { font-weight: 600; color: var(--text-strong); }
+.stp-wide-note { margin: 0; color: var(--text-muted); max-width: 70ch; }
+.stp-wide-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 0; }
+.stp-wide-grid > div { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); min-width: 0; }
+.stp-wide-grid dt { font-size: 12px; color: var(--text-muted); }
+.stp-wide-grid dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stp-wide-grid dd small { display: block; font-weight: 400; color: var(--text-muted); font-size: 12px; }
+.stp-wide-perf { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.stp-wide-perf b { font-weight: 600; color: var(--text-muted); margin-right: 4px; }
 .stp-head { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "id actions" "price actions"; gap: 4px 16px; align-items: center; }
 .stp-id { grid-area: id; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .stp-ticker { font: 700 13px/1 var(--font-code); padding: 4px 8px; border-radius: 4px; background: var(--surface-2); color: var(--text-strong); border: 1px solid var(--border); }

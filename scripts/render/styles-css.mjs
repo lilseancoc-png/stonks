@@ -32,6 +32,7 @@ import { renderPredictionCss } from './prediction-css.mjs';
 import { renderAiDisruptionCss } from './ai-disruption-css.mjs';
 import { renderHistoryRhymesCss } from './history-rhymes-css.mjs';
 import { renderEnginesHistoryCss } from './engines-history-css.mjs';
+import { renderWebullDataCss } from './webull-data-css.mjs';
 import { renderEdgeOddsCss } from './edge-odds-css.mjs';
 import { renderEvidenceCss } from './evidence-css.mjs';
 import { renderRegimeLabCss } from './regime-lab-css.mjs';
@@ -16686,6 +16687,12 @@ body.tape-axm-open { overflow: hidden; }
 .wb-review-nav .acc-seg { flex-wrap: wrap; }
 .wb-refresh { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); padding: 8px 12px; font: inherit; font-size: 12px; cursor: pointer; }
 .wb-refresh:hover { border-color: var(--accent); }
+.wb-data { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 14px; margin: 10px 0 14px; }
+.wb-data-title { margin: 0 0 6px; font-size: 13px; }
+.wb-data-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
+.wb-data-list dt { color: var(--muted); }
+.wb-data-list dd { margin: 0; font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .wb-data-list { grid-template-columns: 1fr; } .wb-data-list dd { margin-bottom: 4px; } }
 .wb-sample-note { margin: 18px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .wb-review-warning { padding: 12px 14px; border: 1px solid var(--accent); border-left-width: 3px; border-radius: 6px; margin: 12px 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .wb-review-warning p { margin: 5px 0; }
@@ -25626,6 +25633,7 @@ ${renderPredictionCss()}
 ${renderAiDisruptionCss()}
 ${renderHistoryRhymesCss()}
 ${renderEnginesHistoryCss()}
+${renderWebullDataCss()}
 ${renderEdgeOddsCss()}
 ${renderEvidenceCss()}
 ${renderRegimeLabCss()}

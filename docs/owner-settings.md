@@ -42,7 +42,7 @@ to a default never needs it.
 | Data & desks | Prediction-market odds, crowd data, IBKR borrow fees, LEAPS desk, stock picks shown (1-24), Earnings Forecast refresh, Earnings Forecast: use the history test winner (off keeps the current rule; the Top Picks grader reads the current rule either way), annual report text from the SEC (Quant labs), strategy engines (On / Manage open trades only / Frozen; engines act at the next Top Picks run), the engines' Allocator and shares switches, and the four engine money-leak fixes (retire two put setups, washout-bounce calls, $2,000 of premium a trade, Technicals' 3 ATR share stop; each on by default, off puts that part back for new engine trades) | next build |
 | Research | Run archive, Regime Lab, self-improving loop, Quant labs (big impact: days while it is off are missing from its logs) | next build |
 | Engine hooks | Crowd squeeze veto, crowd lines in the grader, prediction odds in the grader, Cboe put/call source, self-tuning (shadow / off / on) | next Top Picks run; all off by default, each is big impact (confirm). These were refused before 2026-12-07 until the Owner lifted that lock on 2026-11-16 |
-| Account limits | Owner controls (the kill switch for Stop new trades, Avoid, Watch closely, catalysts and the risk dial; off = nothing saved applies, the file is kept), cap on open option premium, daily loss stop, cap per stock across engines, most new trades a day (all 0 = off; strategy engines and the Webull paper mirror; see [owner-controls.md](owner-controls.md)) | engines from the next Top Picks run; the Webull mirror at its next run (it reads the saved value, a Vercel value wins) |
+| Account limits | Owner controls (the kill switch for Stop new trades, Avoid, Watch closely, catalysts and the risk dial; off = nothing saved applies, the file is kept), cap on open option premium, daily loss stop, cap per stock across engines, most new trades a day (all 0 = off; strategy engines and the Webull paper mirror; see [owner-controls.md](owner-controls.md)); smallest and largest engine stock order at Webull (`WEBULL_STOCK_MIN_USD` $2,000, `WEBULL_STOCK_MAX_USD` $25,000; Webull paper mirror only, see [webull-paper-controls.md](webull-paper-controls.md) "Stock order range") | engines from the next Top Picks run; the Webull mirror at its next run (it reads the saved value, a Vercel value wins) |
 | Live site | Message box, public MCP tools, Sports, MCP server, Webull paper mirror | within 30 seconds; these can only turn a feature OFF on top of Vercel |
 | Display (this device) | Theme, text size, layout density, motion, start page | at once, this browser only (`stonks-display-v1` + `stonks-theme` in localStorage, applied by `ownerDisplayBoot` at the top of app.js) |
 | History | The newest 50 changes | |
@@ -101,8 +101,15 @@ Picks per run is capped at today's 6 so the AI grader never reads more names.
   per Top Pick). They change only new trades; the mirror's Top Picks risk
   budget reuses `ENGINES_RISK_USD` when it is saved here. See
   docs/webull-paper-controls.md "Quantities and order recovery".
+- Webull data switches (2026-11-19): `WEBULL_CONTRACT_CHECK`,
+  `WEBULL_REAL_FEES` and `WEBULL_STOCK_QUOTES` are live site switches read by
+  `webull-mirror` (on by default; off = no contract lookup before option
+  orders, no order-history fee sweep, share orders priced off Yahoo only). The
+  contract check and stock quotes are marked high impact because they change
+  which orders the mirror sends or at what price. See
+  docs/webull-paper-controls.md "Webull's own data".
 
-No AI call, no new fetch, serverless function or workflow. The only env variables added since are the three optional Webull sizing switches above (`0` in Vercel does what the switch does).
+No AI call, no new fetch, serverless function or workflow. The only env variables added since are the six optional Webull switches above (three sizing, three data) (`0` in Vercel does what the switch does).
 
 Tests: `npm run test:owner-settings` (catalog, rules, route) and `npm run
 test:owner-settings-browser` (tabs, filters, warnings, the are-you-sure box,
