@@ -59266,6 +59266,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   var wbData = { loaded: false, loading: false, data: null, error: null };
   function loadWebullData(){
     if (wbData.loaded || wbData.loading) return;
+    if (typeof fetch !== 'function'){ wbData.loaded = true; wbData.error = 'off'; return; }
     wbData.loading = true;
     fetch('/api/auth/webull-data', { cache: 'no-store', credentials: 'same-origin' })
       .then(function(r){ if (!r.ok){ var err = new Error('HTTP ' + r.status); err.status = r.status; throw err; } return r.json(); })
