@@ -28,6 +28,8 @@ import YahooFinance from "yahoo-finance2";
 import { TICKERS, computeSectorRotation } from "./build.mjs";
 import { cumFracExpected, etMinutesSinceOpen } from "../lib/volume-flags.mjs";
 import { updatePremarketMovers } from "../lib/premarket-movers.mjs";
+import { refreshWideIntraday, wideSymbols, unusualSymbols, WIDE_TIER_KEY } from "../lib/wide-tier.mjs";
+import { SECTOR_GROUP_ORDER } from "../lib/sector-groups.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -465,6 +467,37 @@ async function main() {
   console.log(
     `[heatmap] wrote ${HEATMAP_FILE} — ${refreshed} refreshed, ${stale} kept stale, marketState=${marketState || "—"}, eod=${eodSummary ? eodSummary.date : "—"}, rotation=${sectorRotation?.alerts?.length || 0} alert(s), movers=${premarketMovers?.summary?.state || "none"}, ${json.length} bytes`,
   );
+  await refreshWideTier({ quotes, volumeCurve, scanNow });
+}
+
+// Wide tier (lib/wide-tier.mjs): re-mark the ~530-name wide heat map from the
+// same kind of batched quote call. Names already quoted above are reused, so
+// this adds about ten calls an hour. Skipped when the bake wrote the off stub
+// (WIDE_TIER=0) or no file exists yet. Non-fatal: the heat map above is
+// already written.
+async function refreshWideTier({ quotes, volumeCurve, scanNow }) {
+  try {
+    const path = resolve(DATA_DIR, WIDE_TIER_KEY);
+    let prior;
+    try { prior = JSON.parse(await readFile(path, "utf8")); } catch { console.log("[wide] no wide-tier.json yet; the next full bake writes it"); return; }
+    if (!prior || prior.enabled === false) { console.log("[wide] switched off; left as is"); return; }
+    const symbols = wideSymbols(prior);
+    const missing = symbols.filter((s) => !quotes[s]);
+    const extra = missing.length ? await fetchQuotesChunked(missing) : {};
+    const all = { ...quotes, ...extra };
+    let unusual = null;
+    try { unusual = JSON.parse(await readFile(resolve(DATA_DIR, "unusual.json"), "utf8")); } catch { unusual = null; }
+    const expectedFrac = cumFracExpected(etMinutesSinceOpen(scanNow), volumeCurve);
+    const out = refreshWideIntraday(prior, all, {
+      nowIso: scanNow.toISOString(), expectedFrac,
+      unusual: unusualSymbols(unusual, scanNow.getTime()),
+      groupOrder: SECTOR_GROUP_ORDER.filter((g) => g !== "ETF"),
+    });
+    await writeFile(path, JSON.stringify(out.payload), "utf8");
+    console.log(`[wide] wrote ${WIDE_TIER_KEY} — ${out.refreshed} refreshed, ${out.stale} kept, ${Math.ceil(missing.length / CHUNK_SIZE)} extra quote call(s)`);
+  } catch (err) {
+    console.warn(`[wide] refresh failed (prior file kept): ${String(err?.message || err)}`);
+  }
 }
 
 main().catch((err) => {

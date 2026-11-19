@@ -32,7 +32,8 @@ const output = process.env.VIEWS_NEXT_BROWSER_OUT || resolve(tmpdir(), 'stonks-v
 await mkdir(output, { recursive: true });
 
 // --- fixtures ----------------------------------------------------------------
-const SYMS = ['NVDA', 'AAPL', 'MSFT', 'AMD', 'MU', 'TSLA', 'AMZN', 'GOOGL', 'META', 'JPM', 'XOM', 'LLY', 'CAT', 'DIS', 'NFLX', 'AVGO', 'ORCL', 'SMCI', 'WDC', 'CRM', 'BA', 'UNH', 'GS', 'COST', 'SPY', 'QQQ', 'IWM']
+// DIS and SMCI left TICKERS on 2026-11-19 (wide tier); NKE and DELL hold their places so the fixture keeps 24 stocks.
+const SYMS = ['NVDA', 'AAPL', 'MSFT', 'AMD', 'MU', 'TSLA', 'AMZN', 'GOOGL', 'META', 'JPM', 'XOM', 'LLY', 'CAT', 'NKE', 'NFLX', 'AVGO', 'ORCL', 'DELL', 'WDC', 'CRM', 'BA', 'UNH', 'GS', 'COST', 'SPY', 'QQQ', 'IWM']
   .filter((s) => TICKERS.includes(s));
 const ETFS = new Set(['SPY', 'QQQ', 'IWM']);
 const dates = [];
