@@ -522,6 +522,15 @@ tab and in the CSV column `webull_contract_check`). A failed or
 over-budget lookup never blocks an order: the trade is sent as before and the
 run log warns "contract list unavailable - contract not checked".
 
+"Not listed" needs proof that the lookup worked. A leg the symbol lookup
+misses gets one more call for its underlying's whole expiry (no type or
+strike filter). The leg is blocked as "contract not listed" only when that
+answer holds other rows of the same underlying and expiry (Webull lists the
+expiry but not this strike). An empty answer sends the order as before and
+warns "contract list unconfirmed - contract not checked"; the run summary
+counts it under that warning. Positive evidence
+(`CO`, `NT`, delisting, non-standard, not 100 shares) still blocks.
+
 The same reply's Penny Pilot flag (`ppind`) sets the price step: in the
 program $0.01 under $3 and $0.05 from $3; outside it $0.05 under $3 and
 $0.10 from $3 (Cboe penny interval rules); spreads keep $0.01; a rejected

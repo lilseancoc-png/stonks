@@ -32,7 +32,7 @@ const row = (symbol, o = {}) => ({ symbol, underlying_symbol: symbol.replace(/\d
   option_type: "CALL", strike_price: "100", multiplier: "100", def_type: "STANDARD", ppind: true, ...o });
 
 // Fake Webull with a contract list (one row set per OCC symbol).
-function fakeWebull({ contracts = {}, listError = null, history = null, snapshots = {} } = {}) {
+function fakeWebull({ contracts = {}, listError = null, history = null, snapshots = {}, fieldsFn = null } = {}) {
   const orders = new Map(), placed = [], listCalls = [], snapCalls = [], historyCalls = [];
   return {
     placed, listCalls, snapCalls, historyCalls, orders,
@@ -57,7 +57,8 @@ function fakeWebull({ contracts = {}, listError = null, history = null, snapshot
       listCalls.push(q);
       if (listError) throw listError;
       if (q.option_symbols) return { data: q.option_symbols.split(",").map((s) => contracts[s]).filter(Boolean) };
-      return { data: Object.values(contracts).filter((r) => r.underlying_symbol === q.underlying_symbols && r.expiration_date === q.start_date && Number(r.strike_price) === Number(q.strike_price_gte)) };
+      if (fieldsFn) return fieldsFn(q);
+      return { data: Object.values(contracts).filter((r) => r.underlying_symbol === q.underlying_symbols && r.expiration_date === q.start_date) };
     },
     stockSnapshots: async (symbols, category) => { snapCalls.push([symbols.join(","), category]); const r = snapshots[`${symbols[0]}|${category}`]; if (r instanceof Error) throw r; return r ? [r] : []; },
     orderHistory: async (acct, q) => { historyCalls.push(q); if (history instanceof Error) throw history; return history; },
@@ -106,7 +107,8 @@ await ok("price step: Penny Pilot keeps the old rule; standard classes step $0.0
   assert.equal(executionPrice({ ...base, engineEntryPrice: 2.02 }, { phase: "entry", stage: 0, quote: { bid: 2.0, ask: 2.2 } }).limit, 2.06, "penny rule unchanged");
 });
 await ok("checker: one batched lookup, a field lookup for a missed symbol, unknown on error", async () => {
-  const wb = fakeWebull({ contracts: { [OCC]: row(OCC), BBB270115C00100000: row("BBB270115C00100000", { tradable_status: "NT" }) } });
+  const wb = fakeWebull({ contracts: { [OCC]: row(OCC), BBB270115C00100000: row("BBB270115C00100000", { tradable_status: "NT" }),
+    CCC270115C00105000: row("CCC270115C00105000", { strike_price: "105" }) } });
   const cc = makeContractCheck(wb);
   const tA = { symbol: "AAA", legs: [{ type: "CALL", strike: 100, expiry: "2027-01-15" }] }, tB = { ...tA, symbol: "BBB" }, tC = { ...tA, symbol: "CCC" };
   await cc.prefetch([tA, tB, tC]);
@@ -121,11 +123,36 @@ await ok("checker: one batched lookup, a field lookup for a missed symbol, unkno
   assert.equal(bad.stats().denied, true);
   const capped = makeContractCheck(fakeWebull({ contracts: {} }), { maxCalls: 1 });
   assert.equal((await capped.check(tC)).ok, null, "out of calls is unknown, never a miss");
+  assert.equal(wb.listCalls[1].option_type, undefined, "no type filter"); assert.equal(wb.listCalls[1].strike_price_gte, undefined, "no strike filter");
+});
+await ok("checker: 'not listed' needs proof the lookup worked", async () => {
+  const tA = { symbol: "AAA", legs: [{ type: "CALL", strike: 100, expiry: "2027-01-15" }] };
+  // Comma list empty and the expiry lookup empty: unconfirmed, never a miss.
+  const empty = makeContractCheck(fakeWebull({ contracts: {} }));
+  const e = await empty.check(tA);
+  assert.equal(e.ok, null); assert.equal(e.reason, "contract list unconfirmed"); assert.equal(empty.stats().unconfirmed, 1);
+  // Rows of another underlying or another expiry prove nothing.
+  const off = makeContractCheck(fakeWebull({ fieldsFn: () => ({ data: [row("BBB270115C00100000"), row("AAA270122C00100000", { expiration_date: "2027-01-22" })] }) }));
+  assert.equal((await off.check(tA)).reason, "contract list unconfirmed");
+  // Other strikes of the same expiry: Webull lists the expiry, not this strike.
+  const other = makeContractCheck(fakeWebull({ fieldsFn: () => ({ data: [row("AAA270115C00105000", { strike_price: "105" }), row("AAA270115P00095000", { option_type: "PUT", strike_price: "95" })] }) }));
+  const o = await other.check(tA);
+  assert.equal(o.ok, false); assert.equal(o.reason, "contract not listed");
+  // A cut-short page without our strike proves nothing either.
+  const paged = makeContractCheck(fakeWebull({ fieldsFn: () => ({ data: [row("AAA270115C00105000", { strike_price: "105" })], pagination_key: "k" }) }));
+  assert.equal((await paged.check(tA)).reason, "contract list unconfirmed");
+  // The expiry lookup itself finds the leg (adjusted root): checked normally.
+  const adj = makeContractCheck(fakeWebull({ fieldsFn: () => ({ data: [row("AAA1270115C00100000", { underlying_symbol: "AAA", tradable_status: "CO" })] }) }));
+  assert.equal((await adj.check(tA)).reason, "closing orders only");
+  // The expiry lookup answering 417: unknown, never a miss.
+  const err = makeContractCheck(fakeWebull({ fieldsFn: () => { throw Object.assign(new Error("x"), { status: 417 }); } }));
+  const r = await err.check(tA);
+  assert.equal(r.ok, null); assert.equal(r.reason, "contract list unavailable");
 });
 
 // --- 2. Contract check inside the mirror ---------------------------------------------
 await ok("mirror: a contract Webull does not list gets no order and a labeled miss", async () => {
-  const wb = fakeWebull({ contracts: {} });
+  const wb = fakeWebull({ contracts: { AAA270115C00105000: row("AAA270115C00105000", { strike_price: "105" }) } });
   const { ledger, summary } = await run({ client: wb, acc: { builtAtIso: BUILT, open: [flag("AAA")], closed: [] }, ledger: ledger0(), contractCheck: makeContractCheck(wb) });
   const t = Object.values(ledger.trades)[0];
   assert.equal(wb.placed.length, 0); assert.equal(t.state, "missed");
@@ -152,6 +179,19 @@ await ok("mirror: an unreadable contract list sends the order as before, with a 
   const wb = fakeWebull({ listError: Object.assign(new Error("boom"), { status: 500 }) });
   const { ledger, summary } = await run({ client: wb, acc: { builtAtIso: BUILT, open: [flag("AAA")], closed: [] }, ledger: ledger0(), contractCheck: makeContractCheck(wb) });
   assert.equal(wb.placed.length, 1); assert.equal(Object.values(ledger.trades)[0].contractCheck, undefined);
+  assert.equal(summary.warnings["contract list unavailable - contract not checked"], 1);
+});
+await ok("mirror: an empty contract list (unconfirmed) sends the order as before, with a warning", async () => {
+  const wb = fakeWebull({ contracts: {} });
+  const { ledger, summary } = await run({ client: wb, acc: { builtAtIso: BUILT, open: [flag("AAA")], closed: [] }, ledger: ledger0(), contractCheck: makeContractCheck(wb) });
+  assert.equal(wb.placed.length, 1); assert.equal(Object.values(ledger.trades)[0].contractCheck, undefined);
+  assert.equal(summary.warnings["contract list unconfirmed - contract not checked"], 1);
+  assert.equal(wb.listCalls.length, 2, "the comma list, then one expiry lookup");
+});
+await ok("mirror: an expiry lookup answering 417 sends the order as before", async () => {
+  const wb = fakeWebull({ fieldsFn: () => { throw Object.assign(new Error("x"), { status: 417 }); } });
+  const { summary } = await run({ client: wb, acc: { builtAtIso: BUILT, open: [flag("AAA")], closed: [] }, ledger: ledger0(), contractCheck: makeContractCheck(wb) });
+  assert.equal(wb.placed.length, 1);
   assert.equal(summary.warnings["contract list unavailable - contract not checked"], 1);
 });
 await ok("mirror: switch off (no checker) never calls the contract list", async () => {
