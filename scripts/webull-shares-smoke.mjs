@@ -6,6 +6,10 @@
 //   WB_PRICE      option mid of the test trades (default 4)
 //   WB_STOCK      stock price of the share trades (default 150)
 //   WB_SPREAD     stock bid/ask half-spread in dollars (default 0.05)
+//   WB_STOCK_MIN / WB_STOCK_MAX   the engine stock order range checked in
+//                 section 8 (default $2,000 / $25,000, the Owner Settings
+//                 defaults). Sections 1-7 run with the range wide open so
+//                 each checks its own subject at the record's share count.
 // Every scenario uses a fake Webull (no network, no store, never a real or
 // paper order) that keeps option and stock positions from its own fills.
 import assert from "node:assert/strict";
@@ -13,7 +17,9 @@ import {
   runWebullMirror as runActual, mergeEngineTrades, picksRiskQty, mirrorQty, buildOrder, newTrade, fillOutcome,
   ledgerToTestTrades, ledgerToFillRows, fillRowsToCsv, makeQuoteFn, isStockTrade, positionText,
   LIVE_SIZING, DEFAULT_SIZING, MIRROR_MAX_QTY, describeKindCounts, CASH_NOTE, parseCashPower, openingCash,
+  STOCK_MIN_USD, STOCK_MAX_USD, stockOrderShares, stockRangeFromSettings, stockSizeNote,
 } from "../lib/webull-mirror.mjs";
+import { ownerSettingDef, cleanValue } from "../lib/owner-settings.mjs";
 import { executionPrice } from "../lib/webull-execution-policy.mjs";
 import { reconcilePositions, parsePositions, expectedEquities } from "../lib/webull-reconciliation.mjs";
 import { mirrorHealth } from "../lib/webull-mirror-health.mjs";
@@ -26,6 +32,9 @@ const RISK = Number(process.env.WB_RISK_USD || 2000);
 const PX = Number(process.env.WB_PRICE || 4);
 const STOCK = Number(process.env.WB_STOCK || 150);
 const HALF = Number(process.env.WB_SPREAD || 0.05);
+const SMIN = Number(process.env.WB_STOCK_MIN ?? STOCK_MIN_USD);
+const SMAX = Number(process.env.WB_STOCK_MAX ?? STOCK_MAX_USD);
+const OPEN_RANGE = { stockMinUsd: 0, stockMaxUsd: 1e12 };
 
 let passed = 0, failed = 0;
 const ok = async (name, fn) => { try { await fn(); passed++; } catch (err) { failed++; console.error(`FAIL ${name}\n  ${err?.stack || err}`); process.exitCode = 1; } };
@@ -99,8 +108,8 @@ const closedRow = (e, o = {}) => ({ ...e, status: "rotate", exitDate: "2026-11-2
 const quote = async (t) => isStockTrade(t)
   ? { bid: r2((t.engineExitPrice || t.engineEntryPrice) - HALF), ask: r2((t.engineExitPrice || t.engineEntryPrice) + HALF), spot: t.engineEntryPrice }
   : { bid: t.engineExitPrice || t.engineEntryPrice, ask: t.engineExitPrice || t.engineEntryPrice };
-const run = (args) => runActual({ clock: () => 0, quoteFn: quote, sizing: { ...LIVE_SIZING, riskUsd: RISK }, ...args });
-const live = (o = {}) => ({ ...LIVE_SIZING, riskUsd: RISK, ...o });
+const run = (args) => runActual({ clock: () => 0, quoteFn: quote, sizing: { ...LIVE_SIZING, riskUsd: RISK, ...OPEN_RANGE }, ...args });
+const live = (o = {}) => ({ ...LIVE_SIZING, riskUsd: RISK, ...OPEN_RANGE, ...o });
 const noShort = (wb) => wb.placed.every((o) => o.side !== "SHORT" && (o.instrument_type !== "EQUITY" || ["BUY", "SELL"].includes(o.side)));
 
 // --- 1. Sizing rules ----------------------------------------------------------------
@@ -141,7 +150,8 @@ await ok("mirrorQty: engine qty, cap, missing qty, switches, shares", () => {
   assert.equal(mirrorQty(shr("technicals", "S", 33), live({ quantities: false })).qty, 33, "shares are the trade itself");
   assert.equal(mirrorQty(shr("technicals", "S", 0), live()).qty, null);
   assert.equal(mirrorQty(flag("A")).qty, 1, "no sizing passed = the old one-contract path");
-  assert.deepEqual({ ...DEFAULT_SIZING, riskUsd: 0 }, { quantities: false, picksSizing: false, shares: false, riskUsd: 0 });
+  assert.deepEqual({ ...DEFAULT_SIZING, riskUsd: 0 }, { quantities: false, picksSizing: false, shares: false, riskUsd: 0, stockMinUsd: 2000, stockMaxUsd: 25000 });
+  assert.equal(LIVE_SIZING.stockMinUsd, 2000); assert.equal(LIVE_SIZING.stockMaxUsd, 25000);
 });
 
 // --- 2. Stock order body and prices ----------------------------------------------------
@@ -574,6 +584,114 @@ await ok("cash: exits are never held back, even with no cash at all", async () =
   ({ ledger } = await run({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf([], [], "2026-11-20T16:02:00.000Z"), er, ledger, { shares: true }), ledger, nowMs: T0 + 24 * H }));
   assert.equal(wb.placed.at(-1).side, "SELL"); assert.equal(wb.placed.at(-1).quantity, "40");
   assert.equal(reads.length, 0, "a run with only exits never reads the balance");
+});
+
+// --- 8. Engine stock order range (Owner rule, 2026-11-19) ------------------------------
+// Every engine stock order at Webull is $2,000 to $25,000 at the engine's
+// price unless Owner Settings changes the range; the engine record keeps its
+// own share count. Expected counts are worked out here from the rule, not
+// read back from the code.
+const expectShares = (n, px, lo, hi) => {
+  const fit = Math.floor(hi / px + 1e-9);
+  if (fit < 1) return null;
+  if (n * px > hi) return fit;
+  if (n * px < lo) return Math.min(Math.ceil(lo / px - 1e-9), fit);
+  return n;
+};
+const shrAt = (engine, symbol, shares, price, o = {}) => eng(engine, symbol, { tradeId: `${ENGINES[engine].tag}:${symbol}-S-11/19/26-11:00`,
+  contract: { structure: "shares", optionType: "call", shares, mid: price, usd: Math.round(shares * price), costPct: 0.1 }, ...o });
+const RANGE = { stockMinUsd: SMIN, stockMaxUsd: SMAX };
+const runRange = (args, range = RANGE) => runActual({ clock: () => 0, quoteFn: quote, sizing: { ...LIVE_SIZING, riskUsd: RISK, ...range }, ...args });
+
+await ok("stock range: the share count rule at the edges", () => {
+  assert.deepEqual(stockOrderShares(20, 150), { qty: 20, basis: "shares" }, "$3,000 is inside the range");
+  assert.deepEqual(stockOrderShares(5, 150), { qty: 14, basis: "shares-min" }, "$750 is raised to 14 shares ($2,100)");
+  assert.deepEqual(stockOrderShares(100, 600), { qty: 41, basis: "shares-max" }, "$60,000 is cut to 41 shares ($24,600)");
+  assert.deepEqual(stockOrderShares(2, 30000), { qty: null, basis: "shares-over-max" }, "one share over the maximum is not bought");
+  assert.deepEqual(stockOrderShares(1, 2000), { qty: 1, basis: "shares" }, "exactly the minimum stays");
+  assert.deepEqual(stockOrderShares(125, 200), { qty: 125, basis: "shares" }, "exactly the maximum stays");
+  assert.deepEqual(stockOrderShares(126, 200), { qty: 125, basis: "shares-max" });
+  assert.deepEqual(stockOrderShares(1, 1300, 2000, 2500), { qty: 1, basis: "shares-min" }, "raising stops at the maximum");
+  assert.deepEqual(stockOrderShares(3, 100, 0, 25000), { qty: 3, basis: "shares" }, "0 = no minimum");
+  assert.deepEqual(stockOrderShares(3, 100, 9000, 5000), { qty: 50, basis: "shares-min" }, "a minimum above the maximum is read as the maximum");
+  assert.deepEqual(stockOrderShares(7, null), { qty: 7, basis: "shares" }, "no price = the record's count");
+  assert.equal(stockOrderShares(0, 150).qty, null);
+  for (const n of [1, 3, 10, 40, 70, 400]) for (const px of [STOCK, 12, 45, 150, 600, 900, 2600]) {
+    const want = expectShares(n, px, Math.min(SMIN, SMAX), SMAX), got = stockOrderShares(n, px, SMIN, SMAX).qty;
+    assert.equal(got, want, `${n} shares at $${px}`);
+    if (got != null) assert.ok(got * px <= SMAX + 1e-6 && (got * px >= Math.min(SMIN, SMAX) - 1e-6 || got === Math.floor(SMAX / px)), `${n} at $${px} lands inside the range`);
+  }
+});
+await ok("stock range: Owner Settings values, Vercel values and bad values", () => {
+  assert.deepEqual(stockRangeFromSettings({}, {}), { stockMinUsd: 2000, stockMaxUsd: 25000 }, "nothing saved = the defaults");
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 500, WEBULL_STOCK_MAX_USD: 10000 }, {}), { stockMinUsd: 500, stockMaxUsd: 10000 });
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 500 }, { WEBULL_STOCK_MIN_USD: "3000", WEBULL_STOCK_MAX_USD: " " }), { stockMinUsd: 3000, stockMaxUsd: 25000 }, "a Vercel value wins; a blank one does not");
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: "abc", WEBULL_STOCK_MAX_USD: -5 }, {}), { stockMinUsd: 2000, stockMaxUsd: 25000 }, "bad values fall back");
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 0 }, {}), { stockMinUsd: 0, stockMaxUsd: 25000 }, "0 = no minimum");
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 40000, WEBULL_STOCK_MAX_USD: 30000 }, {}), { stockMinUsd: 30000, stockMaxUsd: 30000 });
+  const lo = ownerSettingDef("WEBULL_STOCK_MIN_USD"), hi = ownerSettingDef("WEBULL_STOCK_MAX_USD");
+  assert.equal(lo.default, 2000); assert.equal(hi.default, 25000); assert.equal(lo.impact, "high"); assert.equal(hi.impact, "high");
+  assert.equal(cleanValue(lo, 2500), 2500); assert.equal(cleanValue(lo, 2550), undefined, "off the $100 step");
+  assert.equal(cleanValue(hi, 500), undefined, "the maximum is at least $1,000"); assert.equal(cleanValue(hi, 300000), undefined);
+});
+await ok("stock range: a small lot is raised, bought, labeled and sold whole", async () => {
+  const wb = fakeWebull(), px = 150, s = shrAt("technicals", "SML", 5, px);
+  const want = expectShares(5, px, Math.min(SMIN, SMAX), SMAX);
+  let { ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([s]), null, { shares: true }), ledger: null, nowMs: T0 });
+  const t0 = ledger.trades[s.tradeId];
+  assert.equal(t0.recordQty, 5); assert.equal(t0.requestedQty, want);
+  assert.equal(wb.placed.length, 1); assert.equal(wb.placed[0].quantity, String(want)); assert.equal(wb.placed[0].side, "BUY");
+  wb.fillOpen();
+  ({ ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([s]), ledger, { shares: true }), ledger, nowMs: T0 + 3 * MIN }));
+  const t1 = ledger.trades[s.tradeId];
+  assert.equal(t1.openQty, want); assert.equal(fillOutcome(t1), "filled", "the raised count is the full fill");
+  if (want !== 5) {
+    assert.equal(t1.qtyBasis, "shares-min"); assert.deepEqual(t1.stockRange, { minUsd: Math.min(SMIN, SMAX), maxUsd: SMAX });
+    assert.ok(t1.labels.includes(stockSizeNote(t1)) && /minimum: \d+ shares \(record 5\)/.test(stockSizeNote(t1)), "labeled on the trade");
+    assert.equal(ledgerToTestTrades(ledger)[0].stockRange.minUsd, Math.min(SMIN, SMAX), "the page sees the range");
+  }
+  assert.equal(ledger.reconciliation.status, "matched", "holdings match the raised count");
+  const er = engOf([], [closedRow(s, { exitMid: r2(px * 1.02) })], "2026-11-20T16:02:00.000Z");
+  ({ ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf([], [], "2026-11-20T16:02:00.000Z"), er, ledger, { shares: true }), ledger, nowMs: T0 + 24 * H }));
+  const sell = wb.placed.at(-1);
+  assert.equal(sell.side, "SELL"); assert.equal(sell.quantity, String(want), "sells exactly what was bought");
+  assert.ok(noShort(wb));
+});
+await ok("stock range: a big core lot is cut to the maximum and the cash check sees the cut size", async () => {
+  const wb = fakeWebull(), px = 600, trd = shrAt("trend", "SPY", 100, px, { setup: "core" });
+  const want = expectShares(100, px, Math.min(SMIN, SMAX), SMAX);
+  const { ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([trd]), null, { shares: true }), ledger: null, nowMs: T0 });
+  const t = ledger.trades[trd.tradeId];
+  assert.equal(t.requestedQty, want); assert.equal(t.recordQty, 100);
+  if (want != null) { assert.equal(wb.placed[0].quantity, String(want)); assert.ok(want * px <= SMAX); }
+  // Cash for the cut lot fits; the record's whole lot would not.
+  const cash = r2((want || 1) * (px + HALF) + 50);
+  const wb2 = fakeWebull(); wb2.balance = async () => ({ account_currency_assets: [{ currency: "USD", settled_cash: String(cash) }] });
+  const r = await runRange({ client: wb2, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([trd]), null, { shares: true }), ledger: null, nowMs: T0 });
+  if (want != null) { assert.equal(wb2.placed.length, 1, "the cut lot fits the cash"); assert.equal(r.ledger.trades[trd.tradeId].cashHold, undefined); }
+});
+await ok("stock range: a share over the maximum is never bought, now or later", async () => {
+  const wb = fakeWebull(), s = shrAt("technicals", "DEAR", 2, SMAX + 1000);
+  let { ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([s]), null, { shares: true }), ledger: null, nowMs: T0 });
+  const t = ledger.trades[s.tradeId];
+  assert.equal(t.state, "skipped"); assert.equal(fillOutcome(t), "not-bought"); assert.equal(wb.placed.length, 0);
+  assert.match(t.note, /One share costs more than the \$[\d,]+ stock order maximum/);
+  ({ ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([s]), ledger, { shares: true }), ledger, nowMs: T0 + 3 * MIN, endOfDayOnly: true }));
+  assert.equal(wb.placed.length, 0, "not revived at the end of the day");
+});
+await ok("stock range: a changed range reaches new trades only; options are untouched", async () => {
+  const wb = fakeWebull(), a = shrAt("technicals", "RNA", 5, 150), o = eng("flow", "RNO", { contract: { structure: "long", optionType: "call", strike: 100, expiry: EXP, mid: PX, qty: 3 } });
+  let { ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([a, o]), null, { shares: true }), ledger: null, nowMs: T0 },
+    { stockMinUsd: 5000, stockMaxUsd: 10000 });
+  assert.equal(ledger.trades[a.tradeId].requestedQty, 34, "$5,000 / $150 = 33.3, raised to 34");
+  assert.equal(ledger.trades[o.tradeId].requestedQty, 3, "an option trade keeps its own quantity");
+  wb.fillOpen();
+  const b = shrAt("technicals", "RNB", 5, 150);
+  ({ ledger } = await runRange({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf([a, o, b]), ledger, { shares: true }), ledger, nowMs: T0 + 3 * MIN },
+    { stockMinUsd: 0, stockMaxUsd: 500 }));
+  assert.equal(ledger.trades[a.tradeId].requestedQty, 34, "a trade already sent keeps its size");
+  assert.equal(ledger.trades[a.tradeId].openQty, 34);
+  assert.equal(ledger.trades[b.tradeId].requestedQty, 3, "the new trade reads the new range ($500 / $150 = 3)");
 });
 
 console.log(`Webull quantities and shares: ${passed} checks passed${failed ? `, ${failed} FAILED` : ""} (risk $${RISK}, option $${PX}, stock $${STOCK}, half-spread $${HALF}).`);

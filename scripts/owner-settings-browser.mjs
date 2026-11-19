@@ -130,6 +130,18 @@ try {
     check(!(await page.$('#os-ask-host')) && doc.values.MCP_ENABLED === undefined, tag + ' Back closes the box unsaved');
     check(await page.evaluate(() => document.querySelector('.os-ask-back') === null), tag + ' box removed from the page');
 
+    // Webull engine stock order range (2026-11-19): two numbers on the
+    // Account limits tab, $2,000 and $25,000 by default, behind the box.
+    await page.click('[data-os-tab="Account limits"]');
+    check(await page.inputValue('#os-WEBULL_STOCK_MIN_USD') === '2000' && await page.inputValue('#os-WEBULL_STOCK_MAX_USD') === '25000', tag + ' stock order range defaults');
+    check(/Webull paper stock orders/.test(await page.textContent('#os-root, body')), tag + ' stock order range group');
+    await page.fill('#os-WEBULL_STOCK_MAX_USD', '20000'); await page.click('[data-os-save="WEBULL_STOCK_MAX_USD"]'); await page.waitForSelector('[role=alertdialog]');
+    check(/cut to this much/.test(await page.textContent('[role=alertdialog]')), tag + ' stock range box explains');
+    await page.click('[data-os-ask-no]');
+    check(doc?.values?.WEBULL_STOCK_MAX_USD === undefined, tag + ' stock range unsaved after cancel');
+    if (w === 1440 && scheme === 'light') await page.screenshot({ path: resolve(output, 'account-limits-1440-light.png'), fullPage: false });
+    if (w === 390 && scheme === 'dark') await page.screenshot({ path: resolve(output, 'account-limits-390-dark.png'), fullPage: false });
+
     // Search + filters.
     await page.click('#os-search'); await page.keyboard.type('borrow');
     check(await page.isVisible('[data-os-row="CROWD_BORROW"]'), tag + ' search finds borrow fees');
