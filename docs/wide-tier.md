@@ -103,6 +103,12 @@ profile read (up to 40 per bake), mapped to GICS.
 | `wide-tier-state.json` | Owner-internal (`lib/premium-keys.mjs`) | bake | bar store (520 sessions × ~545 names), member list, sector profiles (~3.9 MB, ~1.7 MB gzipped) |
 
 Both are read before the bake's wipe. A failed wide step keeps the prior pair.
+
+The Update Checker checks `wide-tier.json` with the Heatmap page (its second
+file, `also` in `lib/update-checker-catalog.mjs`): the hourly `refreshedAtIso`
+must keep up with the heat map's own refresh slots, a missing or stale file
+marks the Heatmap row, and the switched-off stub (`enabled: false`) is not an
+issue.
 The page file never carries a grade, a pick or an engine field.
 
 ## Switch

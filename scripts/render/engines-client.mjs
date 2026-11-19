@@ -789,7 +789,7 @@ export function renderEnginesJs() {
       if ((hl.noChain || []).length) miss.push('no option chain this build: ' + hl.noChain.map(escapeHtml).join(', '));
       if ((hl.thinBars || []).length) miss.push('too little price history: ' + hl.thinBars.map(escapeHtml).join(', '));
       if ((hl.staleBars || []).length) miss.push('price history out of date: ' + hl.staleBars.map(escapeHtml).join(', '));
-      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + '</p>';
+      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + ((hl.earnBackup || []).length ? ' Report date from Webull (the main source had none; used only to hold back new entries near the report, never to open one): ' + hl.earnBackup.map(escapeHtml).join(', ') + '.' : '') + '</p>';
     }
 
     var R = d.research, hist = '';

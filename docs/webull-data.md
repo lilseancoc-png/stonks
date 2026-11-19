@@ -156,7 +156,13 @@ tracker row, a backup street target) before any MCP tool sees them.
     Nasdaq date and a Webull date in the next 30 days). It is applied on a copy
     of the chains map passed to the Top Picks build, so no public file carries
     it. **This can change which trades open** (the earnings-window rules read
-    it), which is why it ships behind its own switch.
+    it), which is why it ships behind its own switch. Since the data
+    integration pass (2026-11-19) the strategy engines read the same date
+    (`earningsBackupMap`, passed to `runEngines` as `earningsBackup`) for a
+    stock whose earnings history has no upcoming report: it only holds back
+    new engine entries near the report (Reversion stands aside two sessions
+    before it, Fundamentals holds off six), never opens the Earnings engine's
+    run-in trade on its own, and is listed on the engines page's data check.
   - **Street target** on the Valuation lab when Yahoo has no mean target
     (source `webull-backup`, shown "backup source (Webull)"; the MCP drops it).
   - **Fear & Greed** stands in for CNN's reading only in the strategy engines,

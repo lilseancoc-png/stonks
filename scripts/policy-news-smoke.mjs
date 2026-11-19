@@ -10,7 +10,7 @@ import {
 } from "../lib/policy-news/gdelt.mjs";
 import { normalizeDoc, tagDoc, parseDocsPage, docsUrl, readFederalRegister, FR_DOCS_URL, FR_PI_URL } from "../lib/policy-news/federal-register.mjs";
 import {
-  updatePolicyNews, policyNewsDue, policyNewsShadow, policyNewsSummary, foldGdelt, foldFederalRegister,
+  updatePolicyNews, policyNewsDue, policyNewsShadow, policyNewsSummary, heldPolicyNews, foldGdelt, foldFederalRegister,
   cleanPolicyNews, writePolicyNewsFile, readPolicyNewsPrior, POLICY_NEWS_KEY,
 } from "../lib/policy-news/index.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
@@ -171,6 +171,11 @@ ok("shadow: news ratio per stock, tone change only on the spike", sh.rows.NFLX.n
 ok("shadow: presidential documents counted; spikes need 10+ stocks read", sh.mkt.frp === 2 && sh.mkt.nvs === undefined);
 const old = policyNewsShadow(run1.state, { nowMs: NOW + 4 * 24 * H, symbols: syms });
 ok("shadow: an old read logs nothing", Object.keys(old.rows).length === 0 && Object.keys(old.mkt).length === 0);
+const heldNews = heldPolicyNews(run1.state, ["nflx", "MSFT", "UNH", "AAPL", "NFLX"], { nowMs: NOW });
+ok("held names: the spike first, Register docs per name, quiet names left out", heldNews[0].symbol === "NFLX" && heldNews[0].spike.ratio === 5 && heldNews[0].spike.tone === -3.5 && heldNews.some((r) => r.symbol === "UNH" && r.docs.length >= 1) && !heldNews.some((r) => r.symbol === "AAPL") && heldNews.filter((r) => r.symbol === "NFLX").length === 1);
+ok("held names: at most two docs each, no abstracts", heldNews.every((r) => r.docs.length <= 2 && r.docs.every((d) => !("abstract" in d))));
+ok("held names: an old read says nothing", heldPolicyNews(run1.state, ["NFLX", "UNH"], { nowMs: NOW + 4 * 24 * H }).length === 0);
+ok("held names: nothing held, nothing shown", heldPolicyNews(run1.state, [], { nowMs: NOW }).length === 0);
 const sum = policyNewsSummary(run1.state, { nowMs: NOW });
 ok("summary: recent docs and the spike list", sum.federalRegister.recent.length === 5 && sum.gdelt.spikes[0].symbol === "NFLX" && /GDELT/.test(sum.credit));
 const folded = foldGdelt({ NFLX: [{ d: "2026-07-01", vol24: 1 }, { d: "2026-11-18", vol24: 2 }] }, { NFLX: { vol24: 3 } }, "2026-11-19");

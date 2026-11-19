@@ -98,6 +98,19 @@ const newVerdict=structuredClone(fixture);newVerdict.builtAtIso='2026-10-23T15:1
   const resumed=structuredClone(fixture);resumed.builtAtIso='2026-10-23T15:10:00Z';
   assert(buildOwnerMarketBrief({...resumed,previous:r}).changes.some(c=>c.kind==='dropped'&&c.title==='New trades are stopped'),'Resuming shows as a change');
 }
+// Policy and news on held names (data integration, 2026-11-19).
+{
+  const pol=[{symbol:'UNH',docs:[{title:'Medicare Advantage rate notice',type:'Rule',date:'2026-10-21',pending:false,significant:true,url:null}],spike:null},{symbol:'NFLX',docs:[],spike:{ratio:2.5,date:'2026-10-21',tone:-3.5}}];
+  const r=buildOwnerMarketBrief({...fixture,desk:{policy:pol}});
+  const f=r.findings.find(x=>x.id==='desk:policy');
+  assert(f&&f.tab==='open-picks'&&f.priority===1,'A significant rule on a held name is a priority');
+  assert(f.detail.includes('UNH')&&f.detail.includes('Medicare Advantage')&&f.detail.includes('(significant)')&&f.detail.includes('NFLX: news 2.5x')&&f.detail.includes('darker'));
+  assert(/trade rules do not read it/.test(f.detail));
+  assert.equal(r.desk.policy.length,2);
+  assert(!buildOwnerMarketBrief({...fixture,desk:{policy:[]}}).findings.some(x=>x.id==='desk:policy'),'Nothing held in the news = no finding');
+  const quiet=buildOwnerMarketBrief({...fixture,desk:{policy:[{symbol:'MSFT',docs:[{title:'Notice',type:'Notice',date:'2026-10-21'}],spike:null}]}}).findings.find(x=>x.id==='desk:policy');
+  assert.equal(quiet.priority,2,'A plain notice is context, not a priority');
+}
 const dir=await mkdtemp(resolve(tmpdir(),'owner-brief-test-'));
 try {
   for(const [key,value]of Object.entries(fixture.payloads))await writeFile(resolve(dir,key),JSON.stringify(value));
