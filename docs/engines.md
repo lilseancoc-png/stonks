@@ -173,11 +173,11 @@ state; the Setups and learning tab lists every hand-made rules step. These
 fixes were picked from the same history they are scored on, so the live
 record is the real test.
 
-### Paper trials (rules 4 on Reversion, 2026-11-19)
+### Paper trials (rules 4 on Reversion and Macro, 2026-11-19)
 
 A paper trial is a setup the history test did not prove but that may do
 better live. It runs on paper beside the engine, labeled unproven, behind its
-own switch, so the live record can decide. The first one comes from the
+own switch, so the live record can decide. Both come from the
 2026-11-19 strategy test series (553 variants tried on 2007-2026 bars with
 real Cboe implied volatility; no idea cleared the trials-adjusted bar of
 t 3.9):
@@ -185,26 +185,48 @@ t 3.9):
 | Trial | Rule | What the history showed | Switch (Owner Settings → Data & desks) |
 |---|---|---|---|
 | RSI(2) dip in an uptrend (`rsi2-dip`, Reversion) | Above the 200-day with a 2-day RSI under 5. Buys $5,000 of stock (never options: calls on these dips lost money on real option prices) and sells on a close back above the 5-day average, after 10 sessions, or at the usual 2 ATR stop / 3 ATR target | +0.62% a trade, t 3.0 against random days in the same names and t 5.1 against SPY, alike in 2007-16 and 2017-26; weak on sector funds (+0.21%). Through the engine code: 2,439 trades, +0.4%, 64% wins, at or above zero in 18 of 20 years (2008 and 2018 lost) | `ENGINES_TRIAL_RSI2_DIP` |
+| Index funds after extreme fear (`fear-index`, Macro) | The day after CNN Fear & Greed first closes under 25 (the last two daily closes before the run, from `fear-greed-history.json`, read by `fearReading` in `macro.mjs`; none older than 5 days), buys $5,000 each of SPY, QQQ and IWM and holds them 20 sessions with no stop or target (`levels: false`), as tested | Our rebuild of Fear & Greed crossing under 25: +1.26% a trade over 162 trades but -0.06% in 2007-16 (+2.49% after), t 1.0 against random days. Through the engine code (entry at the next open, `--fg <file>` on the history test): 162 trades, +1.3%, 62% wins, +0.3% / +2.2% by half. Unproven; the owner asked for it on paper (2026-11-19) | `ENGINES_TRIAL_FEAR_INDEX` |
+
+In the engine's own history test (`research/engines/results/latest.json`,
+version 3) each trial is scored apart and set against 20 books of random
+$5,000 lots in the names it traded, each lot held no longer than a real trial
+trade drawn beside it and with the same exits. The edge is small: +0.1 points
+a trade for the RSI(2) dip (it beat 65 to 75% of the books) and +0.3 to +0.4
+for index fear (80%). Before version 3 every random share lot rode up to 20
+sessions, which made short holds look worse than random; the engines' own
+share setups now use matched holds too.
 
 How a trial is kept apart (`trial: true` on the setup, `trial` on each trade):
 
-- **Own slots.** The trial has its own 4 open trades and 2 new ones a run,
+- **Own slots.** Each trial has its own open trades and new ones a run (RSI(2): 4 and 2; index fear: 3 and 3),
   outside the engine's slots, the per-run cap of five and `bestPerSymbol`, so
   it never takes a place from a proven setup (the history test's option lines
-  are unchanged with the trial on). It is offered after every engine's own
+  are unchanged with either trial on). It is offered after every engine's own
   turn.
-- **No learning.** Its closes are not fed to the engine's learning and a loss
-  starts no cooldown, so an unproven rule cannot pause or mute a proven one.
+- **No learning, no Allocator.** Its closes are not fed to the engine's
+  learning or the Allocator, a loss starts no cooldown, and the Allocator
+  never reads, sizes or holds back a trial, so an unproven rule cannot pause,
+  mute or reweight a proven one.
+- **Scored apart.** `engineStats` puts trial trades in their own `trials`
+  block (live and in the history test), so they never move an engine's
+  option or share numbers. The page shows a Paper trial badge on the trade,
+  setup and live-against-test rows, a "Paper trials" section on each
+  engine's record, and "Paper trials in this test" on its history tab.
 - **Shares only.** With `ENGINES_SHARES=0` it opens nothing.
-- **Rules version.** Turning the trial on or off is a rules change on
-  Reversion (`trialRules`, rules 4 with it on), so the record splits there.
+- **Rules version.** Turning a trial on or off is a rules change on its
+  engine (`trialRules`, rules 4 with it on), so the record splits there.
   Off marks the setup `retired` for new trades; open trial trades run to
   their exits.
-- **Webull.** Share trades reach the paper account only once the mirror
-  handles shares; until then the trial lives in the engine record.
+- **Webull.** Since #869 the mirror buys engine share trades as stock, so a
+  trial's trades reach the paper account like any engine share trade
+  (`ENGINES_MIRROR=0` stops new ones).
 
-The trial survived a test on the same history it came from, and the stocks
-are today's names (survivor bias). The live record is the real test.
+The RSI(2) trial survived a test on the same history it came from, and the
+stocks are today's names (survivor bias). The index-fear trial did not pass
+at all; the live CNN index also differs from the rebuild it was tested on
+(six of CNN's seven parts, no put/call history). The live record is the
+real test for both. A 10-day-average exit for the RSI(2) trial is not run
+beside it: it can be read later from each trade's entry and the daily bars.
 
 How they differ from Top Picks, on purpose:
 
@@ -579,6 +601,7 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys the record's `qty` (1 to 10) unless Owner Settings `WEBULL_QTY` is off |
 | `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
 | `ENGINES_TRIAL_RSI2_DIP` | Owner Settings → Data & desks | Unset / on = Reversion's RSI(2) dip paper trial buys shares (own 4 slots, 2 a run, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
+| `ENGINES_TRIAL_FEAR_INDEX` | Owner Settings → Data & desks | Unset / on = Macro's index-fear paper trial buys SPY, QQQ and IWM shares after Fear & Greed first closes under 25 (own 3 slots, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
 
 ## Not in scope
 
