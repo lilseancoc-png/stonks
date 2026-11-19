@@ -11,7 +11,7 @@ import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { marketGauges } from "../lib/crowd/index.mjs";
 import { readForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
-import { buildTopPicksMarketContext, buildTopPicksPayload, readTopPicksMarketMode } from './build.mjs';
+import { buildTopPicksMarketContext, buildTopPicksPayload, readTopPicksMarketMode, readOwnerControlsForRun } from './build.mjs';
 import { topPicksMarket } from '../lib/top-picks-market.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -323,7 +323,10 @@ const marketAssessment=buildTopPicksMarketContext(chains,macroBackdrop,builtAtIs
 // The Owner's market mode (lib/top-picks-mode.mjs) applies to the Top Picks
 // roster only, as in the full build; the legacy research pass keeps the plain rules.
 const marketMode=await readTopPicksMarketMode();
-const proposedPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,{...pickOptions,marketAssessment,marketMode});
+// The Owner controls (lib/owner-controls.mjs): Stop new trades and the Avoid
+// list hold names on the roster the same way.
+const ownerControls=await readOwnerControlsForRun(builtAtIso);
+const proposedPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,{...pickOptions,marketAssessment,marketMode,ownerControls});
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above
 // (before this overwrite), exactly as the full build's writeTopPicksFile does (a

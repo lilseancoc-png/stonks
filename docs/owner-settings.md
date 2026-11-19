@@ -14,14 +14,15 @@ scrolling row on phones) with a count of changed settings on each, folding
 sections inside each tab, a search box across every tab and a "Changed only"
 filter. The chosen tab is remembered on the device.
 
-**Big impact.** 27 settings that change how Mingstreet trades or runs carry
+**Big impact.** 41 settings that change how Mingstreet trades or runs carry
 `impact: "high"` and a `warn` sentence in `lib/owner-settings.mjs`: the Top
 Picks engine guards (event plays, macro context, singles, option structure,
 the losing-record brake, the event checks, credit spreads into events), the
 book limits (most open trades, new trades per group, the single cost cap),
 the market tape itself, the AI final grader, the measurement switches whose
 missed days can't be rebuilt (crowd, run archive, Regime Lab, loop), the
-strategy engines switch (Frozen stops their exits), every
+strategy engines switch (Frozen stops their exits), the Owner controls kill
+switch and the four account limits, every
 Engine hook and seven live switches (message box, public MCP, MCP,
 Webull mirror, Webull share orders, Webull quantities above one, Webull Top
 Picks risk sizing). Each row shows a red "Big impact" tag and its warning in bold
@@ -41,6 +42,7 @@ to a default never needs it.
 | Data & desks | Prediction-market odds, crowd data, IBKR borrow fees, LEAPS desk, stock picks shown (1-24), Earnings Forecast refresh, Earnings Forecast: use the history test winner (off keeps the current rule; the Top Picks grader reads the current rule either way), annual report text from the SEC (Quant labs), strategy engines (On / Manage open trades only / Frozen; engines act at the next Top Picks run), the engines' Allocator and shares switches, and the four engine money-leak fixes (retire two put setups, washout-bounce calls, $2,000 of premium a trade, Technicals' 3 ATR share stop; each on by default, off puts that part back for new engine trades) | next build |
 | Research | Run archive, Regime Lab, self-improving loop, Quant labs (big impact: days while it is off are missing from its logs) | next build |
 | Engine hooks | Crowd squeeze veto, crowd lines in the grader, prediction odds in the grader, Cboe put/call source, self-tuning (shadow / off / on) | next Top Picks run; all off by default, each is big impact (confirm). These were refused before 2026-12-07 until the Owner lifted that lock on 2026-11-16 |
+| Account limits | Owner controls (the kill switch for Stop new trades, Avoid, Watch closely, catalysts and the risk dial; off = nothing saved applies, the file is kept), cap on open option premium, daily loss stop, cap per stock across engines, most new trades a day (all 0 = off; strategy engines and the Webull paper mirror; see [owner-controls.md](owner-controls.md)) | engines from the next Top Picks run; the Webull mirror at its next run (it reads the saved value, a Vercel value wins) |
 | Live site | Message box, public MCP tools, Sports, MCP server, Webull paper mirror | within 30 seconds; these can only turn a feature OFF on top of Vercel |
 | Display (this device) | Theme, text size, layout density, motion, start page | at once, this browser only (`stonks-display-v1` + `stonks-theme` in localStorage, applied by `ownerDisplayBoot` at the top of app.js) |
 | History | The newest 50 changes | |
