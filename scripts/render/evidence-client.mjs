@@ -180,7 +180,7 @@ export function renderEvidenceJs() {
       var r5 = (k.read && k.read['5']) || {}, r10 = (k.read && k.read['10']) || {};
       var st = EVB_KEY_STATUS[k.status] || EVB_KEY_STATUS.collecting;
       var halves = r10.half1 == null ? '—' : (r10.half1 > 0 ? '+' : '') + Number(r10.half1).toFixed(3) + ' / ' + (r10.half2 == null ? '—' : (r10.half2 > 0 ? '+' : '') + Number(r10.half2).toFixed(3));
-      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : k.odds ? ' · odds' : k.flow ? ' · option flow' : k.webull ? ' · Webull flow' : '') + '</div></td>' +
+      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : k.odds ? ' · odds' : k.flow ? ' · option flow' : k.webull ? ' · Webull flow' : k.policy ? ' · policy &amp; news' : '') + '</div></td>' +
         '<td class="num">' + (r10.days || 0) + '<div class="evb-q">' + (k.daysLogged || 0) + ' logged</div></td>' +
         evbIcCell(r5.ic) + evbIcCell(r10.ic) +
         '<td class="num">' + (r10.t == null ? '—' : Number(r10.t).toFixed(2)) + '</td>' +

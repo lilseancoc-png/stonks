@@ -175,8 +175,8 @@ eq(ev.map((t) => [t.id, t.lane, t.status]), [["webull-flow", "signals", "collect
 ok(/3 months/.test(ev[0].name) && ev[0].progress.need === 63, "test after about three months");
 
 // --- shadow v8 ------------------------------------------------------------
-eq(SHADOW_SIGNAL_VERSION, 8, "shadow version 8");
-ok(SHADOW_KEYS.slice(-3).join() === "wfl,wft,wfl5" && SHADOW_MARKET_KEYS.slice(-3).join() === "wbAdv,wbHL,wbUp5", "new keys appended at the end");
+eq(SHADOW_SIGNAL_VERSION >= 8, true, "shadow version 8 or later");
+{ const k = SHADOW_KEYS.join(), m = SHADOW_MARKET_KEYS.join(); ok(k.includes("ufb,wfl,wft,wfl5") && m.includes("pmJmp,wbAdv,wbHL,wbUp5"), "new keys appended after the version 7 keys"); }
 const sh = buildShadowSignals({ AAA: { spot: 10 } }, { builtAtIso: "2026-11-16T21:00:00Z", webullFlow: si.flow, marketExtra: si.market });
 ok(shadowValue(sh, "AAA", "wfl") === si.flow.AAA.wfl && sh.mkt.wbAdv === si.market.wbAdv, "the shadow block carries the Webull keys");
 

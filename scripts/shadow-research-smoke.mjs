@@ -93,7 +93,7 @@ const crowd = {
 };
 const chains = { AAA: { spot: 160, _bars: bars }, BBB: { spot: 50, _bars: bars } };
 const sh = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z", crowd });
-ok("v8 keys carry the crowd keys and the rows use them", sh.v === 8 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
+ok("v9 keys carry the crowd keys and the rows use them", sh.v === 9 && sh.keys.length === SHADOW_KEYS.length && shadowValue(sh, "AAA", "sv") === 55.5 && shadowValue(sh, "AAA", "bf") === 6.25 && shadowValue(sh, "AAA", "pgp") === -2.5);
 ok("attention is the mean percentile of the three attention reads", shadowValue(sh, "AAA", "att") === 80);
 ok("a name without a crowd row leaves the crowd keys empty", shadowValue(sh, "BBB", "bf") == null && shadowValue(sh, "BBB", "sv") === 40);
 ok("market gauges ride the block once", sh.mkt && sh.mkt.pc === 0.72 && sh.mkt.pcp === 84 && sh.mkt.cotEsZ === -1.4 && sh.mkt.mdYoy === 18.2 && sh.mkt.levBull5 === 1.2e9 && sh.mkt.kxWid === 2.44 && sh.mkt.kxRec === 20 && sh.mkt.svm === 47.3);
@@ -156,6 +156,13 @@ ok("no crowd payload: no gauges, rows unchanged", !("mkt" in buildShadowSignals(
   ok("v6: cut odds, policy churn and jump count ride the market row beside the other extras", v6.mkt.pmCut === 64 && v6.mkt.pmPol === 2.1 && v6.mkt.pmJmp === 4 && v6.mkt.rnw === 1);
   const none = buildShadowSignals(chains, { builtAtIso: "2026-11-09T16:10:00Z" });
   ok("v6: no tracker run logs no odds keys", shadowValue(none, "AAA", "pmn") == null && !none.mkt);
+}
+{
+  // ---- version 9: policy and news (lib/policy-news policyNewsShadow)
+  const policyNews = { rows: { AAA: { frn: 2, nvr: 3.456, ntn: -1.234 }, BBB: { frn: 0 } }, mkt: { frp: 3, nvs: 5 } };
+  const v8 = buildShadowSignals(chains, { builtAtIso: "2026-11-19T15:10:00Z", policyNews, marketExtra: { rnw: 2 } });
+  ok("v8: Register count, news volume ratio and tone change per name, zero kept as measured", shadowValue(v8, "AAA", "frn") === 2 && shadowValue(v8, "AAA", "nvr") === 3.46 && shadowValue(v8, "AAA", "ntn") === -1.23 && shadowValue(v8, "BBB", "frn") === 0 && shadowValue(v8, "BBB", "nvr") == null);
+  ok("v8: presidential documents and news spikes ride the market row beside the other extras", v8.mkt.frp === 3 && v8.mkt.nvs === 5 && v8.mkt.rnw === 2);
 }
 const snap = buildEntrySnapshot({ symbol: "AAA", pillars: {} }, chains.AAA, { shadow: sh });
 ok("entry snapshot v2 copies the crowd keys and the market gauges", snap.v === 2 && snap.shadow.bf === 6.25 && snap.shadow.att === 80 && snap.mkt.pcp === 84);
