@@ -675,7 +675,7 @@ export function renderEnginesJs() {
         ['Avg entry gap', avgGap == null ? '—' : slpPts(avgGap, 1) + '%', 'Paper fill against the engine’s entry price; above zero means the paper account paid more'],
         ['Avg paper result', engPnl(avgPaper), 'Closed paper trades only'],
       ]) +
-      (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
+      (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + (h.held ? ' (' + h.held + ' held back by your controls)' : '') + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
       (issues.length ? '<ul class="eng-notes">' + issues.map(function(i){ return '<li>' + escapeHtml(i.message || i.code) + '</li>'; }).join('') + '</ul>' : '') +
       '<p class="evb-note">Entry and Exit show the paper fill, with the engine’s own price and the gap between them underneath.</p>' +
       engMirrorTable(rows, id === 'all') +
@@ -829,6 +829,7 @@ export function renderEnginesJs() {
       engState.error = engState.data ? null : 'not written yet';
       engState.fetchedAt = Date.now(); engState.loading = false;
       renderEngines();
+      if (typeof ocRenderPanel === 'function' && OC.checkSym) ocRenderPanel();
       var op = $('page-pane-open-picks'); if (op && !op.hidden && typeof renderOpenPicks === 'function') renderOpenPicks();
     }).catch(function(err){
       engState.loading = false; engState.fetchedAt = Date.now();

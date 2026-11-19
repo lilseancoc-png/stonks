@@ -602,12 +602,44 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
 | `ENGINES_TRIAL_RSI2_DIP` | Owner Settings → Data & desks | Unset / on = Reversion's RSI(2) dip paper trial buys shares (own 4 slots, 2 a run, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
 | `ENGINES_TRIAL_FEAR_INDEX` | Owner Settings → Data & desks | Unset / on = Macro's index-fear paper trial buys SPY, QQQ and IWM shares after Fear & Greed first closes under 25 (own 3 slots, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
+| Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
+| `ACCOUNT_LIMIT_OPEN_USD`, `_DAY_LOSS_USD`, `_NAME_USD`, `_NEW_PER_DAY` | Owner Settings → Account limits | All 0 = off. Caps on open option premium, a daily loss stop, money per stock across engines and new trades a day; a trade a limit holds back is not opened and not shadowed. A limit never closes a trade |
+
+## Owner controls (2026-11-19)
+
+Full spec: [`owner-controls.md`](owner-controls.md). In the book
+(`stepBook` input `controls`, built by `readOwnerControlsForRun` in
+`build.mjs`):
+
+- **Stop new trades** opens nothing (not even shadow trades); every exit runs.
+- **Avoid** opens nothing on the stock in any engine. With "close its open
+  trades", a trade opened before the avoid closes as `owner-avoid`: counted on
+  the record, but it sets no loss cooldown and learning and the Allocator
+  never see it.
+- **Watch closely** puts the stock at the front of each engine's queue for
+  five sessions. No bar is lowered.
+- **Risk dial** (until Friday's close): Safer = half the contracts or shares,
+  entry bar +5, one new trade a run across the engines. Riskier = 1.5x the
+  contracts or shares (at most 10 contracts unless a trade already had more),
+  bar -3, and back to the normal size when 1.5x would pass an account limit.
+  Core engines keep their size and have no bar.
+- **Account limits** (above) count signal and core option premium and money
+  per stock; core engines are not counted against the daily loss stop or the
+  new-trades count.
+- Each run keeps every scored row by stock (`state.checks`, `checks` in
+  `engines.json`) for the page's read-only **Check this stock**, and the run
+  log records `controls`. New trades carry `ownerControls`.
+- **Webull mirror:** Stop, Avoid or a limit logs a new record trade
+  `skipped` with `ownerHold`; it is never bought later. Mirror health counts
+  them as held, never as an issue. Exits are untouched.
+- The history test passes no controls, so its result is unchanged.
+
 
 ## Not in scope
 
 - No real money and no broker other than the Webull paper sandbox.
 - No spreads, and no short stock.
-- Share trades, including every core-engine holding, are not placed in the
-  paper account (record only).
+- Share trades, core-engine holdings included, reach the paper account as
+  long-only stock orders since 2026-11-19 (#869); nothing is sold short.
 - The Allocator never resizes a lot.
 - No engine result feeds a Top Picks grade, gate or record.

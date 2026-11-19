@@ -26,6 +26,7 @@ import { engineStats, summarize, scoreBand, tradeUsd } from "../lib/engines/reco
 import { runBacktest, publicResult } from "../lib/engines/backtest.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY } from "../lib/engines/index.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
+import { DIAL } from "../lib/owner-controls.mjs";
 import { ownerSettingDef } from "../lib/owner-settings.mjs";
 import { newTrade } from "../lib/webull-mirror.mjs";
 import { OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
@@ -890,6 +891,29 @@ ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average,
   const lost = stepBook(st5, rec5, bookInput({ [tradeT.symbol]: V(tradeT.symbol, dip({ c: 50, l: 49, date: "2026-12-01" })) }, { engines: ["reversion"], shares: true }));
   assert.ok(lost.closed.some((x) => x.trial), "the trial trade closed");
   assert.equal(es5.cooldown[tradeT.symbol], undefined, "no re-entry pause from a trial loss");
+});
+ok("paper trials and the Owner controls: Stop and Avoid hold them, Safer lets one open only on a quiet run, they count toward the daily limit", () => {
+  const dip = (over = {}) => baseF({ c: 100, pc: 101, sma5: 102, sma20: 101, sma200: 90, z20: -0.8, rsi2: 3, move5Atr: -1, ...over });
+  const ctl = (over = {}) => ({ stop: false, avoid: new Map(), watch: new Set(), catalysts: [], catalystSyms: new Set(), dial: null, any: true, limits: null, ...over });
+  const safer = { ...DIAL.safer, at: NOW_AM, until: "2026-11-27T21:00:00.000Z" };
+  const run = (views, c) => stepBook(emptyState(), emptyRecord(), bookInput(views, { engines: ["reversion"], shares: true, controls: c }));
+  // Stop: no trial trade (and no shadow), and the reason shows in Check this stock.
+  let out = run({ DDD: V("DDD", dip()) }, ctl({ stop: true }));
+  assert.equal(out.opened.length, 0); assert.equal(out.checks.DDD.find((r) => r.setup === "rsi2-dip").why, "new trades stopped by the owner");
+  assert.equal(out.checks.DDD.filter((r) => r.setup === "rsi2-dip").length, 1, "one check row per trial candidate");
+  // Avoid.
+  out = run({ DDD: V("DDD", dip()) }, ctl({ avoid: new Map([["DDD", { close: false }]]) }));
+  assert.equal(out.opened.length, 0); assert.equal(out.checks.DDD[0].why, "on the owner's avoid list");
+  // Safer: alone on the run, one trial opens (at half size); beside a real trade, none.
+  out = run(Object.fromEntries(["D1", "D2", "D3"].map((s) => [s, V(s, dip())])), ctl({ dial: safer }));
+  assert.equal(out.opened.length, 1); assert.equal(out.opened[0].trial, true);
+  assert.ok(Object.values(out.checks).flat().some((r) => /one new trade a run/.test(r.why || "")), "the others say why");
+  out = run({ CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) }, ctl({ dial: safer }));
+  assert.deepEqual(out.opened.map((x) => x.setup), ["oversold-bounce"], "the engine's own trade first, then no trial");
+  out = run({ CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) }, ctl());
+  assert.deepEqual(out.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"], "Normal: both, as before");
+  // The new-trades-a-day count includes the trial.
+  assert.equal(out.controls.newToday, 2);
 });
 ok("paper trial: index funds after extreme fear buy shares for 20 sessions, decided on confirmed closes, with their own switch", () => {
   // Registry: on Macro, shares only, no stop or target, labeled unproven, rules 4.
