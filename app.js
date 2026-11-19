@@ -9235,7 +9235,19 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engFillHtml(t){
     var f = ENG_FILL[t.fillOutcome] || null, req = Number(t.requestedQty) || 0, got = Number(t.filledQty) || 0;
     var size = req ? (got === req || !got ? String(req) + ' ' + engUnit(t, req) + (got ? '' : ' asked') : got + ' of ' + req + ' ' + engUnit(t, req)) : '';
-    return (f ? engPill(f[0], f[1]) : '—') + (size ? '<div class="crd-dim">' + escapeHtml(size) + '</div>' : '');
+    return (f ? engPill(f[0], f[1]) : '—') + (size ? '<div class="crd-dim">' + escapeHtml(size) + '</div>' : '') + engStockRangeHtml(t);
+  }
+  // The Owner's stock order range at Webull (Owner Settings, 2026-11-19): why
+  // a stock order's share count differs from the engine record's.
+  function engUsd(v){ return '$' + Math.round(Number(v) || 0).toLocaleString('en-US'); }
+  function engStockRangeHtml(t){
+    var r = t && t.stockRange;
+    if (!r || t.instrument !== 'stock') return '';
+    var rec = t.recordQty != null ? ' (record ' + t.recordQty + ')' : '';
+    var txt = t.qtyBasis === 'shares-min' ? 'Raised to the ' + engUsd(r.minUsd) + ' minimum' + rec
+      : t.qtyBasis === 'shares-max' ? 'Cut to the ' + engUsd(r.maxUsd) + ' maximum' + rec
+      : t.qtyBasis === 'shares-over-max' ? 'One share costs more than the ' + engUsd(r.maxUsd) + ' maximum' : '';
+    return txt ? '<div class="crd-dim" title="Owner Settings, Account limits: the smallest and largest engine stock order at Webull. The engine record keeps its own share count.">' + escapeHtml(txt) + '</div>' : '';
   }
   function engMirrorById(){
     var m = engState.mirror; if (!m) return null;
@@ -9273,7 +9285,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engMirrorHtml(id){
     var m = engState.mirror;
     var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks. Option trades are sent at the engine record’s size (1 to 10 contracts) and share trades, including the Trend follower and Momentum basket holdings, are bought as stock (long only, never short). Trades sent before 19 November 2026 were one contract each, so compare the % results here, not the dollars.</p>' +
-      engDetails('How orders are sized, filled and labeled', '<p class="evb-note">An engine option trade asks for the record’s contract count, capped at 10. A partly filled entry keeps what filled and sells only that; an entry that never fills inside the price allowance (2%, then 4%, then 5% in the last minutes of the day) is logged as missed. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has made_by and setup columns. Top Picks orders have no tag (ms followed by letters and digits). When two engines want the exact same option contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it. Stock is not shared that way: each engine buys its own shares.</p>');
+      engDetails('How orders are sized, filled and labeled', '<p class="evb-note">An engine option trade asks for the record’s contract count, capped at 10. An engine stock order buys the record’s share count when it costs between the smallest and largest stock order set in Owner Settings (Account limits tab; $2,000 and $25,000 unless changed); a smaller lot is raised to the fewest whole shares that reach the smallest, a bigger one is cut to the most that fit under the largest, and a stock whose single share costs more than the largest is not bought. The engine record keeps its own share count either way. A partly filled entry keeps what filled and sells only that; an entry that never fills inside the price allowance (2%, then 4%, then 5% in the last minutes of the day) is logged as missed. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has made_by and setup columns. Top Picks orders have no tag (ms followed by letters and digits). When two engines want the exact same option contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it. Stock is not shared that way: each engine buys its own shares.</p>');
     if (!m){
       if (engState.mirrorLoading || (!engState.mirrorError && HAS_OWNER_ACCESS)) return lead + '<p class="hint">Loading the paper account…</p>';
       return lead + '<p class="hint">The paper account could not be read (' + escapeHtml(engState.mirrorError || 'not signed in') + '). It is only available on the live site with the Owner session. <button type="button" class="eng-link" data-eng-mirror-retry>Try again</button></p>';
@@ -9281,7 +9293,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var rows = engMirrorRows(m, id), h = (m.health && m.health.engines) || null;
     var byOut = function(k){ return rows.filter(function(t){ return t.fillOutcome === k; }).length; };
     var z = m.sizing || null;
-    var sizeLine = z ? '<p class="evb-note">Owner Settings: share orders ' + (z.shares ? 'on' : '<b>off</b> (share trades stay on the engine record only)') + '; quantities above one ' + (z.quantities ? 'on' : '<b>off</b> (every option trade is sent as one contract)') + '.</p>' : '';
+    var rangeTxt = z && z.shares && Number(z.stockMaxUsd) > 0 ? '; each stock order ' + (Number(z.stockMinUsd) > 0 ? engUsd(z.stockMinUsd) + ' to ' : 'up to ') + engUsd(z.stockMaxUsd) + ' of stock (Account limits tab)' : '';
+    var sizeLine = z ? '<p class="evb-note">Owner Settings: share orders ' + (z.shares ? 'on' : '<b>off</b> (share trades stay on the engine record only)') + rangeTxt + '; quantities above one ' + (z.quantities ? 'on' : '<b>off</b> (every option trade is sent as one contract)') + '.</p>' : '';
     var filled = rows.filter(function(t){ return t.fillPrice != null; }), done = rows.filter(function(t){ return t.paperPnlPct != null; });
     var gaps = filled.map(function(t){ return Number(t.entryDiffPct); }).filter(function(v){ return isFinite(v); });
     var avgGap = gaps.length ? gaps.reduce(function(a, b){ return a + b; }, 0) / gaps.length : null;

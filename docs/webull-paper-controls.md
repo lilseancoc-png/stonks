@@ -57,7 +57,27 @@ change never resizes a trade already there.
 | Top Picks option trade | `picksRiskQty`: the risk budget (`ENGINES_RISK_USD` from Owner Settings or env, else $2,000) divided by one contract's risk, rounded down, 1 to 10. Risk is the whole premium under 30 days to expiry (or an unknown expiry), else premium × the trade's stop (50%) × 1.25 for gaps, never more than the premium; a credit spread risks width minus credit. A Top Pick is never skipped for size: at least one contract | `risk` |
 | Either, with **Webull quantities above one** off | one contract | `one` |
 | Top Picks, with **Webull Top Picks risk sizing** off | one contract | `one` |
-| Engine share trade, Trend follower and Momentum basket holdings | the record's whole-share count (`contract.shares`), as stock | `shares` |
+| Engine share trade, Trend follower and Momentum basket holdings | the record's whole-share count (`contract.shares`), as stock, moved inside the stock order range (below) | `shares`, `shares-min`, `shares-max` or `shares-over-max` |
+
+**Stock order range** (2026-11-19, Owner rule). Every engine stock order costs
+between $2,000 and $25,000 at the engine's entry price, unless the Owner
+changes the range in Owner Settings → Account limits ("Smallest engine stock
+order" `WEBULL_STOCK_MIN_USD`, "Largest engine stock order"
+`WEBULL_STOCK_MAX_USD`; a Vercel value wins; `stockRangeFromSettings`). A lot
+under the smallest order is raised to the fewest whole shares that reach it
+(`shares-min`), a lot over the largest is cut to the most whole shares that fit
+(`shares-max`; the Trend follower's $50,000 lot becomes about $25,000), and a
+stock whose single share costs more than the largest order is not bought
+(`shares-over-max`, logged as not bought and never bought later). 0 for the
+smallest = no minimum; a smallest above the largest reads as the largest. The
+range is applied at the engine price; the entry ladder may pay up to its price
+allowance (2%, 4%, 5% at the end of the day) above that. The engine records
+keep their own share counts, and paper results are in percent, so the record
+and paper P&L compare as before. A trade already sent keeps its size when the
+range changes. The ledger trade carries `stockRange` and a label ("Cut to the
+$25,000 stock order maximum: 41 shares (record 100)"), shown on the Strategy
+engines page's Webull fill cell. Rule: `stockOrderShares` in
+`lib/webull-mirror.mjs`.
 
 The Top Picks Track Record stays in percent per contract; only the paper order
 changes. Each ledger trade keeps `recordQty` (what the record asked for) and,

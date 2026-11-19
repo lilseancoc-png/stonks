@@ -104,6 +104,10 @@ try {
     const partlyN = fx.mirror.trades.filter((t) => t.fillOutcome === 'partial').length;
     if (partlyN) check(new RegExp('\\d+ of \\d+ (contracts|shares)').test(webullText), 'a partly filled order shows what filled of what was asked');
     check(/share orders on/.test(webullText) && /quantities above one on/.test(webullText), 'the paper account says which Webull sizing switches are on');
+    check(/each stock order \$2,000 to \$25,000 of stock/.test(webullText), 'the paper account states the stock order range');
+    const resized = fx.mirror.trades.filter((t) => t.qtyBasis === 'shares-max' || t.qtyBasis === 'shares-min');
+    if (resized.length) check(/(Cut to the \$25,000 maximum|Raised to the \$2,000 minimum) \(record \d+\)/.test(webullText), 'a stock order moved into the range says so, with the record count');
+    else console.log('note: no fixture stock order fell outside the range this run');
     check((await s.page.locator('#eng-all-runs tbody tr').count()) === Math.min(20, view.runs.length), 'the run log rendered');
     const openAll = view.engines.reduce((n, e) => n + e.open.length, 0);
     check((await s.page.locator('#eng-all-open .vt-table tbody tr:not(.vt-detail)').count()) === openAll, 'every engine\'s open trades sit in one table');
