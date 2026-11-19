@@ -3,6 +3,7 @@
 // output shapes the UI/serialization depend on. Run: node scripts/picks-smoke.mjs
 import { factorCapFor, exposureCapBlock } from "../lib/top-picks-caps.mjs";
 import { marketModeBlocks, marketModeForRun, readTopPicksModeDoc, applyTopPicksModeRequest } from "../lib/top-picks-mode.mjs";
+import { activeControls, applyOwnerControlsRequest } from "../lib/owner-controls.mjs";
 import {
   TICKERS, SECTORS, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION,
   buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming, computeEntrySignal,
@@ -1374,6 +1375,42 @@ ok("factor-trend: a healthy factor ships more calls than the weak one", healthyP
   for (let i = 0; i < 30; i++) hist = applyTopPicksModeRequest(hist, { mode: i % 2 ? "auto" : "pause" }, { at: new Date(Date.UTC(2026, 10, 7, 13, i)).toISOString() }).doc;
   ok("market mode: history keeps the last 20 changes", hist.history.length === 20 && readTopPicksModeDoc(JSON.stringify(hist)).history.length === 20);
   ok("market mode: the engine view of a stored record", marketModeForRun(readTopPicksModeDoc(JSON.stringify(saved.doc))).label === "No new puts" && marketModeForRun(null).mode === "auto");
+}
+
+// --- 4f. owner controls (2026-11-19, lib/owner-controls.mjs): Stop new trades
+// and the Avoid list hold new trades back like a market mode; Watch moves a
+// ready name to the front of the AI slots; nothing in force changes nothing.
+{
+  const universe = { NVDA: mkHealthyTechCall("NVDA"), AMD: mkHealthyTechCall("AMD"), MEHP: mkTicker({ spot: 40, sector: "Pharma" }), MEHQ: mkTicker({ spot: 55, sector: "Retail" }) };
+  const keyOf = (rows) => rows.filter((p) => p.group === "actionable").map((p) => p.symbol + ":" + p.side).sort().join(",");
+  const at = "2026-11-18T15:00:00.000Z", nowMs = Date.parse(at) + 60000;
+  const ctlOf = (...acts) => { let d = null; for (const b of acts) d = applyOwnerControlsRequest(d, b, { at, by: "Owner" }).doc; return activeControls(d, nowMs); };
+  const base = buildTopPicks(universe, [], null, null, null, null, 0.045, {});
+  const none = buildTopPicks(universe, [], null, null, null, null, 0.045, { ownerControls: ctlOf() });
+  const stopped = buildTopPicks(universe, [], null, null, null, null, 0.045, { ownerControls: ctlOf({ act: "stop", confirm: true }) });
+  const baseAct = base.filter((p) => p.group === "actionable");
+  ok("owner controls: the fixture opens at least one pick under the plain rules", baseAct.length >= 1);
+  ok("owner controls: none in force gives the same open picks", keyOf(none) === keyOf(base) && none.rosterMeta.ownerControlHeld.length === 0 && none.rosterMeta.ownerControls?.stop === false);
+  ok("owner controls: Stop opens nothing and keeps the names as watch ideas", stopped.filter((p) => p.group === "actionable").length === 0
+    && baseAct.every((p) => stopped.rosterMeta.ownerControlHeld.includes(p.symbol))
+    && stopped.rosterMeta.ownerControlHeld.every((s) => { const p = stopped.find((x) => x.symbol === s); return p && p.group === "watch" && p.entry?.signal === "wait-owner" && /stopped by the owner/.test(p.entry?.headline || ""); }));
+  ok("owner controls: held names trace as owner-control", stopped.rosterMeta.ownerControlHeld.every((s) => stopped.rosterMeta.turnedAway.some((t) => t.sym === s && t.gate === "owner-control")));
+  const first = baseAct[0].symbol;
+  const avoided = buildTopPicks(universe, [], null, null, null, null, 0.045, { ownerControls: ctlOf({ act: "avoid", sym: first }) });
+  ok("owner controls: Avoid holds back only that stock", !avoided.some((p) => p.group === "actionable" && p.symbol === first) && avoided.rosterMeta.ownerControlHeld.join() === first
+    && keyOf(avoided) === keyOf(base.filter((p) => p.symbol !== first)) && /avoid list/.test(avoided.find((p) => p.symbol === first)?.entry?.headline || ""));
+  const scoredRows = scoreAllTickers(universe, [], null, null, null, null, {}).scored.map((r) => ({ r, side: r.total >= 0 ? "call" : "put" }));
+  const stopSlots = prioritizeAiSlots(scoredRows, { rfr: 0.045, ownerControls: ctlOf({ act: "stop", confirm: true }) });
+  ok("owner controls: Stop leaves no AI slot ready", stopSlots.ready === 0 && stopSlots.ordered.every((c) => c.precheck === "owner-control"));
+  const plain = prioritizeAiSlots(scoredRows, { rfr: 0.045 });
+  const readySyms = plain.ordered.slice(0, plain.ready).map((c) => c.r.sym);
+  if (readySyms.length >= 2) {
+    const last = readySyms.at(-1);
+    const watched = prioritizeAiSlots(scoredRows, { rfr: 0.045, ownerControls: ctlOf({ act: "watch", sym: last }) });
+    ok("owner controls: Watch puts a ready name first for the AI slots and lowers no bar", watched.ordered[0].r.sym === last && watched.ready === plain.ready
+      && watched.ordered.slice(1, watched.ready).map((c) => c.r.sym).join() === readySyms.filter((s) => s !== last).join());
+  }
+  ok("owner controls: the precheck names the rule", openPickPrecheck(scoredRows[0].r, scoredRows[0].side, false, { ownerControls: ctlOf({ act: "avoid", sym: scoredRows[0].r.sym }) }) === "owner-control");
 }
 
 // --- 5. regime tilt -------------------------------------------------------

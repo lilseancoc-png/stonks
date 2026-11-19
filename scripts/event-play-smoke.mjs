@@ -13,6 +13,7 @@ import {
 import { topPicksMarket } from '../lib/top-picks-market.mjs';
 import { entryPolicyFixture } from './entry-policy-smoke.mjs';
 import { buildTopPicks, etDateKey, PICKS_SINGLES_DEFAULT } from './build.mjs';
+import { applyOwnerControlsRequest, activeControls } from '../lib/owner-controls.mjs';
 
 let checks = 0;
 const check = async (name, fn) => { await fn(); checks++; console.log('PASS ' + name); };
@@ -231,6 +232,42 @@ try {
     assert.equal(otherState.open[0].marketMode, other);
   });
   await check('record: a run with no market mode stamps none', () => assert.equal(first.open[0].marketMode, undefined));
+
+  // Owner controls (lib/owner-controls.mjs): Stop and Avoid never enroll; a
+  // watched or flagged trade is stamped; Avoid with "close" closes a trade
+  // opened before it at the next run's mark, as the counted "owner-avoid".
+  const ctl = (...acts) => { let d = null; for (const b of acts) d = applyOwnerControlsRequest(d, b, { at: new Date(ms - 1000).toISOString() }).doc; return activeControls(d, ms); };
+  await writeFile(join(storage, 'data/picks.json'), JSON.stringify({ builtAtIso: now, rosterMeta: built.rosterMeta, picks }));
+  await engine.updatePicksAccuracyFile(chains, now, { open: [], closed: [] }, null, { ownerControls: ctl({ act: 'stop', confirm: true }) });
+  await check('record: Stop new trades enrolls nothing', async () => assert.equal(JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8')).open.length, 0));
+  await engine.updatePicksAccuracyFile(chains, now, { open: [], closed: [] }, null, { ownerControls: ctl({ act: 'avoid', sym: 'AAPL' }) });
+  await check('record: an avoided stock never enrolls', async () => assert.equal(JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8')).open.length, 0));
+  await engine.updatePicksAccuracyFile(chains, now, { open: [], closed: [] }, null, { ownerControls: ctl({ act: 'watch', sym: 'AAPL' }, { act: 'dial', level: 'safer' }) });
+  await check('record: a trade under a control carries the stamp', async () => {
+    const st = JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8'));
+    assert.equal(st.open.length, 1);
+    assert.deepEqual(st.open[0].ownerControls, { dial: 'safer', watch: true });
+  });
+  await engine.updatePicksAccuracyFile(chains, now, { open: [], closed: [] }, null, { ownerControls: ctl() });
+  await check('record: no control in force stamps nothing', async () => assert.equal(JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8')).open[0].ownerControls, undefined));
+  const avoidState = structuredClone(first);
+  const after = new Date(ms + 120000).toISOString();
+  let doc = applyOwnerControlsRequest(null, { act: 'avoid', sym: 'AAPL', close: true, confirm: true }, { at: new Date(ms + 60000).toISOString() }).doc;
+  await engine.updatePicksAccuracyFile(chains, after, avoidState, grade(6), { enrollNewPicks: false, ownerControls: activeControls(doc, Date.parse(after)) });
+  await check('record: Avoid with close shuts an open trade as owner-avoid', async () => {
+    const st = JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8'));
+    assert.equal(st.open.length, 0);
+    assert.equal(st.closed[0].status, 'owner-avoid');
+    assert.ok(['win', 'loss', 'flat', 'breakeven', 'scratch'].includes(st.closed[0].outcome) || typeof st.closed[0].outcome === 'string');
+  });
+  const keepState = structuredClone(first);
+  doc = applyOwnerControlsRequest(null, { act: 'avoid', sym: 'AAPL' }, { at: new Date(ms + 60000).toISOString() }).doc;
+  await engine.updatePicksAccuracyFile(chains, after, keepState, grade(6), { enrollNewPicks: false, ownerControls: activeControls(doc, Date.parse(after)) });
+  await check('record: Avoid without close keeps the open trade', async () => assert.equal(JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8')).open.length, 1));
+  const oldState = structuredClone(first);
+  doc = applyOwnerControlsRequest(null, { act: 'avoid', sym: 'AAPL', close: true, confirm: true }, { at: new Date(ms - 3600000).toISOString() }).doc;
+  await engine.updatePicksAccuracyFile(chains, after, oldState, grade(6), { enrollNewPicks: false, ownerControls: activeControls(doc, Date.parse(after)) });
+  await check('record: Avoid closes only trades opened before it', async () => assert.equal(JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8')).open.length, 1));
 } finally { await rm(storage, { recursive: true, force: true }); }
 
 console.log(`${checks} event-play checks passed.`);

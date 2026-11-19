@@ -1533,6 +1533,35 @@ Open trades, their exits, the grade, the research pages, the Webull mirror's
 exit handling and the live market review are unchanged. A change saved while a
 run is in progress applies from the next run.
 
+## Owner controls, November 19, 2026
+
+Beside market mode, the Owner has quick controls that reach Top Picks, the
+strategy engines and the Webull paper mirror at once (full spec:
+[`owner-controls.md`](owner-controls.md); rules in `lib/owner-controls.mjs`,
+record `owner-controls.json`, request-time-owned and read before the wipe like
+`top-picks-mode.json`). What they do to Top Picks:
+
+- **Stop new trades** and **Avoid**: `openPickPrecheck` returns
+  `owner-control`, so the name takes no AI grader slot; in `buildTopPicks` a
+  held name gets `entry.signal` `wait-owner` and drops to the watch list
+  (gate `owner-control`, `rosterMeta.ownerControlHeld`);
+  `updatePicksAccuracyFile` never enrolls one (a second guard).
+- **Avoid with "close its open trades"**: an open trade opened before the
+  avoid closes at the next run as `owner-avoid` (counted on the record, read
+  "closed by your Avoid"), checked after the price exits and before the event
+  exits.
+- **Watch closely** (five sessions): `prioritizeAiSlots` moves watched ready
+  names first for the six AI slots. No bar is lowered.
+- **Risk dial Safer** (until Friday's close): one new record trade a run. The
+  Top Picks bar and size are unchanged by either dial setting.
+- New trades carry `ownerControls` `{ dial?, watch?, catalyst? }`;
+  `rosterMeta.ownerControls` records what was in force. The Track Record
+  draws a divider only for Safer (`ACC_RULE_DIMS` key `dial`).
+
+Open trades' normal exits, the grade and the research pages are unchanged.
+Kill switch: Owner Settings `OWNER_CONTROLS` (off = nothing saved applies).
+Market mode is separate and unchanged.
+
 ## Missed-run watchdog, similar-setup odds and the edge panel, November 7, 2026
 
 Three Owner additions that change no pick, grade, exit or record rule. None

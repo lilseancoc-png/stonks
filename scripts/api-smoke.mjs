@@ -285,6 +285,37 @@ try {
     assert.equal(res.statusCode, 400);
     assert.equal(res.headers["cache-control"], "private, no-store");
   }
+  // The Owner controls (Stop new trades, Avoid, Watch, catalysts, the risk
+  // dial): Owner session only, same-origin POST, a bad or unconfirmed change
+  // is refused before anything is read or stored.
+  res = mockResponse();
+  await authHandler({ query: { action: "owner-controls" }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.headers["cache-control"], "private, no-store");
+  res = mockResponse();
+  await authHandler({ query: { action: "owner-controls" }, method: "GET", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${partial}` } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({ query: { action: "owner-controls" }, method: "DELETE", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${token}` } }, res);
+  assert.equal(res.statusCode, 405);
+  res = mockResponse();
+  await authHandler({
+    query: { action: "owner-controls" }, method: "POST",
+    headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://evil.test", cookie: `${SESSION_COOKIE}=${token}` },
+    body: { act: "stop", confirm: true },
+  }, res);
+  assert.equal(res.statusCode, 403);
+  for (const body of [{ act: "sell-everything" }, { act: "avoid", sym: "not a ticker" }, { act: "stop" }, { act: "dial", level: "riskier" }, {}, null]) {
+    res = mockResponse();
+    await authHandler({
+      query: { action: "owner-controls" }, method: "POST",
+      headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+      body,
+    }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.headers["cache-control"], "private, no-store");
+    if (body?.act === "stop") assert.equal(res.body?.confirm, "stop");
+  }
   // The self-tuning control (Owner Lab, Loop tab): Owner session only,
   // same-origin POST, and a bad action is refused before anything is read.
   res = mockResponse();
