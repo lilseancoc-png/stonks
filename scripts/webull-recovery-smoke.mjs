@@ -132,5 +132,9 @@ try {
   assert.equal(working({ "entry order working inside its price allowance": 1 }, { errors: 1, errorKinds: { "cancel unconfirmed": 1 } }).status, 1, "errors still fail");
   assert.equal(working({ "entry order working inside its price allowance": 1 }, { alerts: 1 }).status, 1, "alerts still fail");
   assert.equal(working(null).status, 1, "pending with no stated kind still fails");
+  // A warning (the cash check could not run) is printed in fixed words and never fails the window.
+  const warned = trigger("16:00:00", "workflow_dispatch", true, 200, { ran: true, summary: { warnings: { "balance read failed - cash not checked": 1 } } });
+  assert.equal(warned.status, 0, "a warning alone does not fail the workflow");
+  assert.match(warned.stdout, /warning \(1 balance read failed - cash not checked\)/);
   console.log("Webull endpoint recovery: authenticated refresh, signed client, R2 checkpoint, and concurrent exclusion passed (offline).");
 } finally { globalThis.fetch = originalFetch; }
