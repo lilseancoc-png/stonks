@@ -45,7 +45,7 @@ the core engines (Trend follower, Momentum basket) are not counted against
 the daily loss stop or the new-trades count, since they hold a standing
 monthly book. In the Webull paper account every order is real, so every open
 counts toward the day's count and every close toward the day's loss there,
-core engine share lots included once share orders reach Webull. Share lots
+core engine share lots included (unless Webull share orders are off). Share lots
 are priced per share (options per contract, x100); they count toward the per
 stock cap but not the open option premium cap. Top Picks keeps its own book
 cap. A limit never closes an open trade.
