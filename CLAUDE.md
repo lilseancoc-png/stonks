@@ -203,7 +203,8 @@ node scripts/scan-unusual.mjs
 # closing line: names up/down, cap-weighted move, leading and lagging sectors;
 # buildEodSummary), at most once per ET day and carried forward by later runs.
 # The written closing story is the 16:10 ET Brief.
-# Runs as a second step inside the unusual-flow workflow.
+# Runs as a second step inside the unusual-flow workflow. Also re-marks the
+# wide tier file data/wide-tier.json (docs/wide-tier.md) when it exists.
 node scripts/refresh-heatmap.mjs
 
 # Twice-daily near-term open-interest tracker (pre-market + EOD). Snapshots the
@@ -354,7 +355,7 @@ The three big render template-strings (`renderAppJs`, `renderHtml`, `renderStyle
 
 The file is one big module. The reusable surface (also imported by `regen-static.mjs`, `regen-calendar.mjs`, `regen-picks.mjs`, `scan-unusual.mjs`, and `scan-oi.mjs`) is the `export`ed identifiers near the top and bottom. Key exports:
 
-- `TICKERS` — the curated 85-symbol list (cut from 124 on 2026-10-18; names that leave it keep their `SECTORS` label for old Track Record rows, and their open Top Picks trades close as not-counted `left-coverage` at the next Top Picks run). Adding a ticker here adds it to every workflow and bumps the bake-time wall clock by ~2–3s. A new ticker needs a `SECTORS` label **and** an `INDUSTRY_OF_TICKER` entry (`sector-groups-smoke.mjs` enforces both); a new `SECTORS` label also needs a group in `lib/sector-groups.mjs`.
+- `TICKERS` — the curated 80-symbol list (cut from 124 on 2026-10-18 and to 80 on 2026-11-19, when SMCI, ASTS, DIS, CBRS and PYPL moved to the wide tier; names that leave it keep their `SECTORS` label for old Track Record rows, and their open Top Picks trades close as not-counted `left-coverage` at the next Top Picks run). Adding a ticker here adds it to every workflow and bumps the bake-time wall clock by ~2–3s. A new ticker needs a `SECTORS` label **and** an `INDUSTRY_OF_TICKER` entry (`sector-groups-smoke.mjs` enforces both); a new `SECTORS` label also needs a group in `lib/sector-groups.mjs`.
 - `SECTORS`, `INDUSTRY_OF_TICKER`, `sectorGroupOf` — the fine sector label, the Morningstar-style sub-industry, and the broad group that every grouping feature reads (`lib/sector-groups.mjs`).
 - `ensureTickerCoverage`, `renderHtml`, `renderAppJs`, `renderStylesCss` — the page generators.
 - `writeCalendarFile`, `buildPerFirm13FHoldings`, `build13FPayload`, `write13FFile` — calendar + 13F pipelines.
@@ -546,6 +547,10 @@ Eight rules-only paper engines beside Top Picks, `lib/engines/` (spec [`docs/eng
 ### SEC 8-K filings as company news (2026-11-13)
 
 `lib/sec-filing-news.mjs` reads each covered operating company's EDGAR submissions file (`data.sec.gov/submissions/CIK##.json`, `SEC_USER_AGENT`, two readers, one read per name per 45 minutes, 30 MB cap for the big bank filers) and turns 8-K / 8-K/A filings from the last seven days into official news events. Item numbers name the event (`SEC_8K_ITEMS`; routine items such as 5.07 votes or 9.01 exhibits alone make no row); `acceptanceDateTime` is UTC (checked against a filing header 2026-11-13). Foreign issuers file 6-K reports with no items: listed in `coverage.secForeignFilers`, not read. All names ride ONE source, `sec-8k`, in `news-source-evidence.json` (`collectFreeNewsSources` with `secFilers` from `secFilerMap(cikMap)` in `build.mjs`; funds and DRAM/SPCX left out; a failed CIK map reuses the CIKs in the prior state; a failed name keeps its earlier events; under 90% of names read = `partial`; foreign filers re-read once a day; 0.3 s pause per reader between reads; carried events still leave after seven days; headlines prefer the Yahoo company name passed as `secNames`). The News feed raises an 8-K's impact by its event class (`SEC_IMPACT_FLOOR` in `lib/news-feed.mjs`). Events are context only, exactly like the issuer feeds: the News page shows them with an "SEC filing" label, and they never reach the grade, the AI news read or its re-read triggers. `NEWS_SEC_8K=0` turns it off. Test: `node scripts/sec-filing-news-smoke.mjs` (also run by `test:news`).
+
+### Wide tier (2026-11-19)
+
+`lib/wide-tier.mjs` (spec [`docs/wide-tier.md`](docs/wide-tier.md)) watches the S&P 500 plus the Nasdaq-100 (about 530 names) with rules only, beside the 80 tracked names. Members come from two public dated lists (`MEMBER_SOURCES`: datasets/s-and-p-500-companies and jmccarrell/n100tickers), re-read by the bake at most every 30 days with count sanity bounds; the committed fallback is `lib/wide-tier-members.json` (`node scripts/wide-tier-members.mjs`). The bake (`writeWideTierFiles`) keeps a bar store (`wide-tier-state.json`, Owner-internal, read before the wipe): tracked names reuse the chain bars, new names get two years of Yahoo chart bars (150 per bake), and the post-close bake adds today's close from ~11 batched quote calls (split guard refetches a name whose stored close disagrees with Yahoo's previous close by 25%+). It writes the public `wide-tier.json` (rows, sector table of the 11 sector SPDRs plus our groups, worth-a-look list, breadth today and a Market map shaped series). `refresh-heatmap.mjs` re-marks it hourly from one extra batched quote pass (`refreshWideIntraday`), and in-session bakes keep those marks (`carryIntraday`). The Heatmap's Tracked / Wide switch (`heatmapState.source`, `heatmapCur()` in `app-js.mjs`; risk stack and Home keep reading the tracked `heatmap.json`), the **Vs its sector** color, and Market map's breadth source switch (`mmBreadthSrc` in `views-next-client.mjs`, display only) read it; `heatmapHasPage` decides which tiles link to a stock page. No AI, no grade, no pick or engine field. Kill switch `WIDE_TIER=0` (Owner Settings). Tests: `node scripts/wide-tier-smoke.mjs` (offline, `WIDE_SMOKE_SEED` / `WIDE_SMOKE_ASOF` rerun it on other data), `node scripts/wide-tier-browser.mjs`.
 
 ### Browser runtime layers
 

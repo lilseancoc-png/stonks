@@ -2505,9 +2505,16 @@ ${i18nHeadScript()}
       </header>
       <p class="hint" data-owner-only>Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker, switch to relative volume, or tap any tile to open its Grade.</p>
       <p class="hint" data-public-only>Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker or switch to relative volume to explore observed market activity.</p>
-      ${infoNote('How to read this map', `<p>Choose a <b>Period</b> to compare session, weekly, monthly, quarterly, year-to-date, or one-year performance. Deeper green and red mark larger moves on a scale adjusted to that horizon. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same intraday pace the Volume page measures from recent sessions; hue still shows the selected period&rsquo;s direction. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
+      ${infoNote('How to read this map', `<p>Choose a <b>Period</b> to compare session, weekly, monthly, quarterly, year-to-date, or one-year performance. Deeper green and red mark larger moves on a scale adjusted to that horizon. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same intraday pace the Volume page measures from recent sessions; hue still shows the selected period&rsquo;s direction. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p><p><b>Names: Tracked or Wide.</b> Tracked is our own list, with live prices while the market is open. Wide is every S&amp;P 500 and Nasdaq-100 member (about 520 companies), grouped by GICS sector, refreshed hourly in market hours and from the close after 4:10 PM ET; our tracked names are outlined. Wide adds a sector table (sector fund returns and member breadth), our groups, and a rules-only &ldquo;worth a look&rdquo; list. Only tracked names open a stock page. <b>Vs its sector</b> colors each name by its return minus its sector&rsquo;s cap-weighted return over the same period.</p>`)}
       <div id="heatmap-decision" class="heatmap-decision" aria-live="polite"></div>
       <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
+        <div class="heatmap-control heatmap-source-control" role="group" aria-label="Which names to show">
+          <span class="heatmap-control-label">Names</span>
+          <span class="heatmap-source-seg">
+            <button type="button" data-heatmap-source="tracked" aria-pressed="true" title="Our tracked list, with live prices in market hours">Tracked</button>
+            <button type="button" data-heatmap-source="wide" aria-pressed="false" title="S&amp;P 500 and Nasdaq-100 members, refreshed hourly in market hours">Wide</button>
+          </span>
+        </div>
         <label class="heatmap-control heatmap-group-control">
           <span class="heatmap-control-label">Group by</span>
           <select id="heatmap-group-select" aria-label="Group heatmap by">
@@ -2522,6 +2529,7 @@ ${i18nHeadScript()}
             <option value="rvol">Rel. volume</option>
             <option value="grade">Grade score</option>
             <option value="iv">IV vs own average</option>
+            <option value="rel">Vs its sector</option>
           </select>
         </label>
         <label class="heatmap-control heatmap-layout-control">
@@ -2583,6 +2591,7 @@ ${i18nHeadScript()}
         <span class="heatmap-legend-bar"></span>
         <span class="heatmap-legend-label">+3%</span>
       </div>
+      <div id="heatmap-wide" class="heatmap-wide" hidden></div>
       <div id="heatmap-eod-summary" class="heatmap-eod-summary" hidden></div>
       <section id="book-breadth" class="book-view" hidden></section>
       <section id="book-grade-return" class="book-view" hidden></section>
