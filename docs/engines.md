@@ -118,7 +118,8 @@ A share trade (`sharesContract` in `contracts.mjs`, `BOOK.shares*`):
   engines' options) so its thresholds mean the same thing; its change notes
   say so.
 - Bought as stock in the Webull paper account since 2026-11-19 (the record's
-  whole-share count, long only; Owner Settings `WEBULL_SHARES` off leaves them
+  whole-share count, moved inside the Owner's $2,000 to $25,000 stock order
+  range, long only; Owner Settings `WEBULL_SHARES` off leaves them
   on the record only, as before). Share trades opened before share orders went
   live (`sharesGoLiveIso`) are never bought late. The same-contract rule does
   not apply: each engine buys its own shares. See docs/webull-paper-controls.md.
