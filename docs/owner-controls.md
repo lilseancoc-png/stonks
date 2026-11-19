@@ -40,11 +40,15 @@ confirm box:
 The bake reads them through the Owner Settings preload (a repo variable,
 when set, wins). The mirror and the page read the saved setting from the
 store, and a Vercel value wins. A trade a limit holds back is not opened and
-not tracked as a shadow trade; its reason names the limit. Core engines
-(Trend follower, Momentum basket) are not counted against the daily loss stop
-or the new-trades count, since they hold a standing monthly book and never
-reach Webull. Top Picks keeps its own book cap. A limit never closes an open
-trade.
+not tracked as a shadow trade; its reason names the limit. In the engines,
+the core engines (Trend follower, Momentum basket) are not counted against
+the daily loss stop or the new-trades count, since they hold a standing
+monthly book. In the Webull paper account every order is real, so every open
+counts toward the day's count and every close toward the day's loss there,
+core engine share lots included once share orders reach Webull. Share lots
+are priced per share (options per contract, x100); they count toward the per
+stock cap but not the open option premium cap. Top Picks keeps its own book
+cap. A limit never closes an open trade.
 
 ## Where it acts
 

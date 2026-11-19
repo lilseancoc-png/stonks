@@ -8,7 +8,9 @@
 // Synthetic data only (scripts/engines-fixture.mjs); the controls action is
 // played by the real lib/owner-controls.mjs in memory. Nothing here contacts a
 // provider, an account or the production store.
-// Run: node scripts/owner-controls-browser.mjs (after the render output is current)
+// Run: node scripts/regen-static.mjs && node scripts/owner-controls-browser.mjs
+// (the PR does not commit app.js / index.html, so regenerate them first or
+// the page waits for markup that is not there and the run times out)
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

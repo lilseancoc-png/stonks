@@ -249,6 +249,29 @@ await ok("mirror gate: Stop, Avoid and each account limit hold a new Webull open
   assert.equal(gate({ ACCOUNT_LIMIT_NAME_USD: "900" }), null);
 });
 
+await ok("mirror gate: share lots are priced per share, stay out of the option premium cap, count toward the per-stock cap", () => {
+  const none = activeControls(null, NOW_MS);
+  const lot = (o) => ledgerTrade({ structure: "shares", instrument: "stock", fillPrice: 150, engineEntryPrice: 150, openQty: 20, ...o });
+  const ledger = { trades: {
+    s1: lot({ id: "s1", symbol: "SSS", engineEntryIso: later(-60 * 24) }),
+    o1: ledgerTrade({ id: "o1", symbol: "OOO", engineEntryIso: later(-60 * 24) }),
+    s2: lot({ id: "s2", symbol: "XXX", state: "closed", openQty: 0, engineEntryIso: later(-60 * 24), closeFillIso: later(-10), closeFillPrice: 149, filledQty: 20, closedQty: 20 }),
+  } };
+  const g = (env, e, t) => mirrorOpenGate(none, accountLimits(env), { nowMs: NOW_MS })(e, ledger, t);
+  const newShares = { structure: "shares", instrument: "stock", engineEntryPrice: 150, requestedQty: 20 };
+  const newOpt = { engineEntryPrice: 5, requestedQty: 1 };
+  // $3,000 held in SSS + a new $3,000 lot = $6,000: fits a $10,000 per-stock cap, not $5,999.
+  assert.equal(g({ ACCOUNT_LIMIT_NAME_USD: "10000" }, { symbol: "SSS" }, newShares), null, "not x100");
+  assert.match(g({ ACCOUNT_LIMIT_NAME_USD: "5999" }, { symbol: "SSS" }, newShares), /cap on SSS/);
+  // The option premium cap sees only the $400 option open: a $500 option fits under $900, and a stock lot never meets it.
+  assert.equal(g({ ACCOUNT_LIMIT_OPEN_USD: "900" }, { symbol: "NEW" }, newOpt), null, "the stock lot is not option premium");
+  assert.match(g({ ACCOUNT_LIMIT_OPEN_USD: "899" }, { symbol: "NEW" }, newOpt), /open premium cap/);
+  assert.equal(g({ ACCOUNT_LIMIT_OPEN_USD: "1" }, { symbol: "NEW" }, newShares), null, "a new stock lot is not held by the option cap");
+  // A $1 drop on 20 shares closed today is a $20 loss, not $2,000.
+  assert.equal(g({ ACCOUNT_LIMIT_DAY_LOSS_USD: "21" }, { symbol: "NEW" }, newOpt), null);
+  assert.match(g({ ACCOUNT_LIMIT_DAY_LOSS_USD: "20" }, { symbol: "NEW" }, newOpt), /daily loss stop/);
+});
+
 // ---- the strategy engines' book ------------------------------------------
 function chainFor(spot, nowMs, { iv = 0.35 } = {}) {
   const chains = {};
@@ -422,6 +445,13 @@ await ok("book: the daily loss stop counts today's change from the first run's m
   assert.ok(out.controls.dayPnl <= -100, String(out.controls.dayPnl));
   assert.equal(out.opened.filter((t) => !ENGINES[t.engine]?.core).length, 0);
   assert.ok(out.candidates.technicals.some((c) => /daily loss stop reached/.test(c.why || "")));
+  // Core engine trades (the standing monthly book) are not counted: a big
+  // core loss closed today does not move the signal engines' day.
+  const coreId = Object.keys(ENGINES).find((id) => ENGINES[id].core);
+  const before = out.controls.dayPnl;
+  rec.closed.unshift({ tradeId: "core-x", engine: coreId, symbol: "TLT", exitDate: pm, outcome: "loss", status: "rotate", optionPnlPct: -50, contract: { structure: "shares", shares: 500, mid: 100, usd: 50000 } });
+  const again = stepBook(st, rec, { ...input, nowIso: "2026-11-16T20:40:00.000Z" });
+  assert.equal(again.controls.dayPnl, before, "a core close is left out of the day's result");
 });
 
 // ---- the Webull mirror ---------------------------------------------------
