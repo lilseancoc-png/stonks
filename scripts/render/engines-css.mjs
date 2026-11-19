@@ -43,6 +43,7 @@ export function renderEnginesCss() {
 .eng-size > summary { cursor: pointer; list-style: revert; }
 .eng-size ul { margin: 4px 0 2px 16px; padding: 0; }
 .eng-size li { margin: 1px 0; }
+.eng-trial { color: var(--warn, var(--muted-strong)); background: color-mix(in srgb, var(--warn, var(--muted-strong)) 14%, transparent); margin-left: 4px; }
 .eng-reads { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 4px 0 10px; }
 .eng-reads-lbl { font: 650 11px/1.5 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); margin-right: 2px; }
 .eng-chip { display: inline-block; padding: 2px 9px; border-radius: var(--r-pill, 999px); border: 1px solid var(--border); font: 500 12px/1.5 var(--font-sans); color: var(--text); background: var(--surface); }

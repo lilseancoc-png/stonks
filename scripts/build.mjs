@@ -172,6 +172,7 @@ import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
 import { TOP_PICKS_MODE_KEY, readTopPicksModeDoc, marketModeForRun, marketModeBlocks, topPicksModeFactory } from "../lib/top-picks-mode.mjs";
+import { OWNER_CONTROLS_KEY, readOwnerControlsDoc, activeControls, accountLimits, controlsEnabled, controlsSummary, tradeStamp as ownerControlsStamp, avoidCloses as ownerAvoidCloses } from "../lib/owner-controls.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, EARNINGS_WEEK_DAYS } from "../lib/earnings-week.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
@@ -22863,6 +22864,8 @@ export function openPickPrecheck(r, side, tactical, ctx = {}) {
   // The Owner's market mode (lib/top-picks-mode.mjs) holds this side back, so
   // a grader slot spent here could never open a trade.
   if (ctx.marketMode && marketModeBlocks(ctx.marketMode, side)) return "market-mode";
+  // The Owner's Stop new trades or Avoid list (lib/owner-controls.mjs).
+  if (ctx.ownerControls && (ctx.ownerControls.stop || ctx.ownerControls.avoid?.has(r.sym))) return "owner-control";
   if (r.marketAdjustment && !r.marketAdjustment.eligible) return "market-unavailable";
   if (Math.abs(pnum(r.total) ?? 0) < (ctx.strongBar ?? PICKS_TIER_STRONG)) return "below-bar";
   if (pillarsAlignedFor(r, side) < 2) return "confluence";
@@ -22906,6 +22909,10 @@ export function prioritizeAiSlots(cands, ctx = {}) {
     }
     (block ? rest : ready).push({ ...c, precheck: block });
   }
+  // Watch closely (lib/owner-controls.mjs): watched names that can open go
+  // first for the AI slots. No bar is lowered; rank order is kept otherwise.
+  const w = ctx.ownerControls?.watch;
+  if (w && w.size) ready.sort((a, b) => (w.has(b.r.sym) ? 1 : 0) - (w.has(a.r.sym) ? 1 : 0));
   return { ordered: ready.concat(rest), ready: ready.length };
 }
 
@@ -22918,6 +22925,7 @@ const AI_SKIP_GATE = {
   "no-contract": "no-contract", "option-economics": "option-economics",
   "sector-cap": "sector-cap", "factor-cap": "factor-cap", "factor-run-cap": "factor-run-cap", "side-cap": "side-cap",
   "market-mode": "market-mode",
+  "owner-control": "owner-control",
 };
 // An entry-timing hold: name the scheduled release or earnings report when
 // that is what it waits on, else the general timing checks.
@@ -23203,6 +23211,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const marketMode = opts.marketMode && opts.marketMode.mode ? opts.marketMode : null;
   if (marketMode) meta.marketMode = { mode: marketMode.mode, label: marketMode.label || null, setAt: marketMode.setAt || null };
   meta.marketModeHeld = [];
+  // OWNER CONTROLS (lib/owner-controls.mjs, 2026-11-19): Stop new trades and
+  // the Avoid list keep names out of the actionable roster the same way.
+  const ownerCtl = opts.ownerControls || null;
+  if (ownerCtl) meta.ownerControls = controlsSummary(ownerCtl);
+  meta.ownerControlHeld = [];
   meta.collateralGated = [];
   meta.forcedLiquidationWatch = collateralWatch;
   meta.buyoutGated = [];
@@ -23431,6 +23444,15 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       entry.trigger = null; entry.zone = null;
       entry.headline = topPicksModeFactory().heldHeadline(marketMode.mode, side);
     }
+    const ctlHeld = !!(ownerCtl && entryConfirmed && !modeHeld && (ownerCtl.stop || ownerCtl.avoid?.has(r.sym)));
+    if (ctlHeld) {
+      entryConfirmed = false;
+      meta.ownerControlHeld.push(r.sym);
+      entry.now = false; entry.signal = "wait-owner"; entry.basis = "owner-control";
+      entry.trigger = null; entry.zone = null;
+      entry.headline = ownerCtl.stop ? "Held back — new trades are stopped by the owner. Resume on the Strategy engines page controls to allow them."
+        : `Held back — ${r.sym} is on the owner's avoid list. Lift it in the controls to allow new trades.`;
+    }
     const shockPut = !tactical && side === "put" && eventPlay?.kind === "shock" && shockLane.active;
     let { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed, shockLane: shockPut, minConv });
     if (demotion === "edge-bar") meta.edgeBarDemoted.push(r.sym);
@@ -23440,8 +23462,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     if (!tactical && group !== "actionable") {
       const gate = demotion === "edge-bar" ? "losing-streak-bar"
         : demotion === "confluence" ? "confluence"
-        : demotion === "ai-ungraded" ? (marketMode && marketModeBlocks(marketMode.mode, side) ? "market-mode" : aiUngradedGate(r, side, meta.aiGraderSkipped, opts.aiSkipBlocks))
-        : demotion === "entry-wait" ? (modeHeld ? "market-mode" : eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : timingWaitGate(r))
+        : demotion === "ai-ungraded" ? (marketMode && marketModeBlocks(marketMode.mode, side) ? "market-mode" : ownerCtl && (ownerCtl.stop || ownerCtl.avoid?.has(r.sym)) ? "owner-control" : aiUngradedGate(r, side, meta.aiGraderSkipped, opts.aiSkipBlocks))
+        : demotion === "entry-wait" ? (modeHeld ? "market-mode" : ctlHeld ? "owner-control" : eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : timingWaitGate(r))
         : Math.abs(pnum(r.total) ?? 0) < PICKS_TIER_STRONG ? "below-strong"
         : thesisQuality.aiGraded ? "ai-not-strong" : "thesis-not-strong";
       traceGate(r, side, gate);
@@ -28606,7 +28628,7 @@ async function publishLeapsAfterShortTermGrader(preScored, builtAtIso) {
 }
 
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null, regimeLab = null) {
-  const { marketMode = null, loopPlan = null, ...extras } = scannerExtras || {};
+  const { marketMode = null, loopPlan = null, ownerControls = null, ...extras } = scannerExtras || {};
   const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...extras };
   // Score the universe ONCE, then run the two-stage pipeline:
   //   1. DATA GATE — the deterministic 4-pillar score (conviction bar) + the cheap
@@ -28633,7 +28655,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   if (tuning) console.log(`[loop] self-tuning v${loopPlan.version} live: ${settingsSummary(loopPlan.settings)}; ${tuning.moved} total(s) moved, ${tuning.evBlocked.length} below the value gate${loopPlan.frozen ? " (frozen: no new self-changes)" : ""}`);
   // The Owner's market mode applies to the Top Picks decision only; the
   // legacy research pass above and below keeps the plain rules.
-  const aiThesis = await generateAiTheses(topScored, macroBackdrop, { ...baseOpts, rfr, marketMode, loopBar }, baseOpts.marketAssessment ? thesisProsePrior?.__topPicksMarket || {} : thesisProsePrior || {});
+  const aiThesis = await generateAiTheses(topScored, macroBackdrop, { ...baseOpts, rfr, marketMode, ownerControls, loopBar }, baseOpts.marketAssessment ? thesisProsePrior?.__topPicksMarket || {} : thesisProsePrior || {});
   // LEAPS reads the full preScored universe after the short-term grader.
   // It clones pillars, writes leaps-picks.json only, and does not change
   // preScored, the thesis map, or picks.json. A failure here stays off that path.
@@ -28645,7 +28667,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null, aiGraderMode: aiThesis.mode || null, marketMode, ...(loopPlan ? { loopPlan, loopBar, loopMoved: tuning?.moved ?? 0 } : {}) });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored:topScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped, aiSkipBlocks: aiThesis.skipped?.blocks || null, aiGraderMode: aiThesis.mode || null, marketMode, ownerControls, ...(loopPlan ? { loopPlan, loopBar, loopMoved: tuning?.moved ?? 0 } : {}) });
   // S1: the count model's stated odds ride each pick (live only).
   if (tuning?.odds) for (const p of picks) { const o = tuning.odds[`${p.symbol}:${p.side}`]; if (o) p.loopOdds = o; }
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
@@ -29413,6 +29435,18 @@ export function canReuseThesisCache(
 
 // The Owner's Top Picks market mode (lib/top-picks-mode.mjs). A missing or
 // unreadable file reads as Auto, so a bad copy never holds trades back.
+// The Owner controls (lib/owner-controls.mjs) in force at `atIso`, with the
+// account limits from the environment (Owner Settings). Request-time-owned,
+// hydrated by the pull, read before the wipe. Missing/bad file = no control.
+export async function readOwnerControlsForRun(atIso, dataDir = DATA_DIR, env = process.env) {
+  let raw = null;
+  try { raw = await readFile(resolve(dataDir, OWNER_CONTROLS_KEY), "utf8"); } catch { raw = null; }
+  const enabled = controlsEnabled(env);
+  // Kill switch off: nothing is in force (the saved file is kept as is).
+  const active = activeControls(enabled ? readOwnerControlsDoc(raw) : null, Date.parse(atIso) || Date.now());
+  return { ...active, enabled, limits: accountLimits(env) };
+}
+
 export async function readTopPicksMarketMode(dataDir = DATA_DIR) {
   let raw = null;
   try { raw = await readFile(resolve(dataDir, TOP_PICKS_MODE_KEY), "utf8"); } catch { raw = null; }
@@ -29620,6 +29654,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     strongBar, rfr: opts.rfr, eventRisk: macroBackdrop?.eventRisk || null,
     factorHealth: computeFactorTrendHealth(scored),
     marketMode: opts.marketMode?.mode || null,
+    ownerControls: opts.ownerControls || null,
   });
   const gated = ordered.slice(0, PICKS_MAX_AI_THESES);
   // NOTHING CAN OPEN (2026-10-27, owner decision): when no candidate clears the
@@ -30867,6 +30902,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // one post-event review (the live grade on the trade's side must still
     // clear the trade bar once the event has resolved) and the post-shock
     // time limit. A reviewed trade that passes is stamped and held.
+    // OWNER AVOID with "close open trades" (lib/owner-controls.mjs): a trade
+    // opened before the Owner avoided its stock closes at this run's mark.
+    // Counted like any close (it is a real exit), checked after the price exits.
+    if (!res && opts.ownerControls && ownerAvoidCloses(opts.ownerControls, e.symbol, e.entryDate)) {
+      res = { status: "owner-avoid", outcome: outcomeFromPnl(scaleOut && pnum(optionPnlPct) != null ? scaleOut.pnlPct / 2 + optionPnlPct / 2 : pnum(optionPnlPct)) };
+    }
     if (!res && e.eventPlay && e.eventPlay.kind) {
       const builtAt = new Date(builtAtIso);
       const todayEt = etDateKey(builtAt);
@@ -30894,6 +30935,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
 
   // Enroll the freshly-shipped roster (dedup per symbol:side).
   const enrolledNow = new Set();
+  const ownerCtl = opts.ownerControls || null;
   let picksPayload = null;
   try { picksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
   const openKeys = new Set(open.map((o) => `${o.symbol}:${o.side}`));
@@ -30912,6 +30954,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // Market mode (lib/top-picks-mode.mjs): a held-back side never enrolls,
     // even from a roster written before the guard in buildTopPicks.
     if (marketModeBlocks(picksPayload?.rosterMeta?.marketMode?.mode, p.side)) continue;
+    // Owner controls (lib/owner-controls.mjs): Stop new trades and the Avoid
+    // list never enroll, and the Safer risk dial enrolls one trade a run.
+    if (ownerCtl && (ownerCtl.stop || ownerCtl.avoid?.has(p.symbol))) continue;
+    if (ownerCtl?.dial?.perRun && enrolledNow.size >= ownerCtl.dial.perRun) break;
     // Watch-only ideas (weak thesis -> "no recommendation", no contract) are NOT
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
@@ -30953,6 +30999,8 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       ...(VOLUME_READ_VERSION ? { volumeReadVersion: VOLUME_READ_VERSION } : {}),
       // The Owner's market mode when the trade opened (since 2026-11-07).
       ...(picksPayload?.rosterMeta?.marketMode?.mode ? { marketMode: picksPayload.rosterMeta.marketMode.mode } : {}),
+      // Owner controls that touched this trade (risk dial, watch, catalyst).
+      ...(ownerCtl && ownerControlsStamp(ownerCtl, p.symbol) ? { ownerControls: ownerControlsStamp(ownerCtl, p.symbol) } : {}),
       // AI final grader mode at entry (live / off / keyless, since
       // 2026-11-08) so a grader-off period can be compared on the record.
       ...(picksPayload?.rosterMeta?.aiGraderMode ? { graderMode: picksPayload.rosterMeta.aiGraderMode } : {}),
@@ -39801,6 +39849,14 @@ async function main() {
   // pull): read BEFORE writeChainFiles wipes data/. Missing/bad file = Auto.
   const topPicksMarketMode = await readTopPicksMarketMode();
   if (topPicksMarketMode.mode !== "auto") console.log(`Top Picks market mode: ${topPicksMarketMode.label} (set ${topPicksMarketMode.setAt || "unknown"})`);
+  // The Owner controls (Stop new trades, Avoid, Watch, the risk dial) and the
+  // account limits, read before the wipe like the market mode.
+  const ownerControlsRun = await readOwnerControlsForRun(new Date().toISOString());
+  if (!ownerControlsRun.enabled) console.log("Owner controls: off in Owner Settings (OWNER_CONTROLS); nothing saved there applies");
+  if (ownerControlsRun.any || ownerControlsRun.limits.any) {
+    const s = controlsSummary(ownerControlsRun);
+    console.log(`Owner controls: ${s.stop ? "NEW TRADES STOPPED; " : ""}avoid ${s.avoid.length}, watch ${s.watch.length}, dial ${s.dial}; account limits ${ownerControlsRun.limits.any ? "set" : "off"}`);
+  }
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
   // continuity; the unusual snapshot is rewritten after the wipe so the page
@@ -41382,7 +41438,7 @@ async function main() {
       try { loopPlan = loopLivePlan(loopState, { mode: loopTuneMode, today: etDateKey(new Date(builtAtIso)), outcomes: picksOutcomesState }); }
       catch (err) { loopPlan = null; console.warn(`[loop] live settings skipped, base settings used — ${String(err?.message || err).split("\n")[0]}`); }
     }
-    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment,marketMode:topPicksMarketMode,loopPlan}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map, regimeLabRun);
+    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, {...scannerExtras,marketAssessment,marketMode:topPicksMarketMode,ownerControls:ownerControlsRun,loopPlan}, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map, regimeLabRun);
     if (!picksInfo?.leapsWritten && leapsScoreCarry) {
       await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     }
@@ -41768,7 +41824,7 @@ async function main() {
   // wiped data/). Degrades to a no-op on a first run / missing files.
   if (refreshTopPicks) {
     try {
-      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun });
+      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun, ownerControls: ownerControlsRun });
       console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
     } catch (err) {
       console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -41815,10 +41871,14 @@ async function main() {
           // CNN fear and greed as fetched this bake (stale = last-good); the
           // extreme-fear bounce test reads it (2026-11-19).
           fearGreed,
+          // Daily Fear & Greed closes (the index-fear paper trial reads the
+          // last two before today).
+          fearHistory: fngHistoryNext?.snapshots || [],
           flagshipOpen: accForEngines?.open || picksAccuracyPrev?.open || [],
           flagshipStats: flagshipCompare(accForEngines),
           rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
           research: await loadEnginesResearch(ROOT),
+          controls: ownerControlsRun,
         });
         if (enginesRun.skipped) {
           // Outside market hours (a forced build): nothing marked or opened.

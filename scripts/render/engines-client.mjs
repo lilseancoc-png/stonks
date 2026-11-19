@@ -88,7 +88,9 @@ export function renderEnginesJs() {
   function engCap(s){ s = String(s == null ? '' : s); return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'; }
   function engSide(s){ return s === 'put' ? '<span class="eng-side eng-put">Put</span>' : '<span class="eng-side eng-call">Call</span>'; }
   // A trade's badge: Shares for a share trade (2026-11-17), else Call / Put.
-  function engSideT(t){ return (engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side)) + (t && t.test ? ' <span class="eng-side eng-test" title="A labeled test: kept apart from the setups the engine trades">Test</span>' : '') + (t && t.twinOf ? '<div class="crd-dim">shares twin of ' + escapeHtml(t.twinOf) + '</div>' : ''); }
+  function engSideT(t){ return (engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side)) + (t && t.test ? ' <span class="eng-side eng-test" title="A labeled test: kept apart from the setups the engine trades">Test</span>' : '') + (t && t.trial ? ENG_TRIAL_BADGE : '') + (t && t.twinOf ? '<div class="crd-dim">shares twin of ' + escapeHtml(t.twinOf) + '</div>' : ''); }
+  // Paper trials (2026-11-19): unproven setups, scored apart from the engine.
+  var ENG_TRIAL_BADGE = ' <span class="eng-side eng-trial" title="An unproven setup on paper, scored apart from the engine">Paper trial</span>';
   // Exit plan of one open trade: premium exits for an option, stock levels for shares.
   function engExitPlan(t){ var x = t.exits || {}; if (engIsShares(t) && t.stopLevel == null && t.targetLevel == null && !x.maxSessions && !t.exitBy) return 'Held until a monthly check swaps it'; return (engIsShares(t) ? 'Stock levels' + (x.maxSessions ? '<div class="crd-dim">' + x.maxSessions + ' sessions at most</div>' : '') : (x.tp == null ? 'no take-profit' : '+' + x.tp + '%') + ' / ' + (x.stop == null ? 'no stop' : x.stop + '%')) + (t.exitBy ? '<div class="crd-dim">out by ' + escapeHtml(engDay(t.exitBy)) + '</div>' : '') + (t.stopLevel != null ? '<div class="crd-dim">stock stop ' + engMoney(t.stopLevel) + '</div>' : '') + (t.targetLevel != null ? '<div class="crd-dim">stock target ' + engMoney(t.targetLevel) + '</div>' : ''); }
   function engPill(text, cls){ return '<span class="evb-pill ' + (cls || 'evb-s-unclear') + '">' + escapeHtml(text) + '</span>'; }
@@ -345,7 +347,7 @@ export function renderEnginesJs() {
       var st = ENG_VS_READ[r.read] || ENG_VS_READ['too-early'], sh = r.instrument === 'shares', dp = sh ? 2 : 1;
       if (r.modelGain) caveat = true;
       var diff = r.diff == null ? '—' : '<span class="' + slpSign(r.diff) + '">' + (r.diff > 0 ? '+' : '') + Number(r.diff).toFixed(1) + ' pts</span>';
-      return '<tr><td><b>' + escapeHtml(r.label) + '</b>' + (sh ? ' <span class="eng-side eng-shr">Shares</span>' : '') + (r.modelGain ? '<div class="crd-dim">Test gain mostly from the price model *</div>' : '') + '</td>' +
+      return '<tr><td><b>' + escapeHtml(r.label) + '</b>' + (sh ? ' <span class="eng-side eng-shr">Shares</span>' : '') + (r.trial ? ENG_TRIAL_BADGE : '') + (r.modelGain ? '<div class="crd-dim">Test gain mostly from the price model *</div>' : '') + '</td>' +
         '<td class="num">' + (r.live.n || 0) + (r.live.open ? '<div class="crd-dim">' + r.live.open + ' open</div>' : '') + '</td><td class="num">' + engPnl(r.live.avg, dp) + '</td><td class="num">' + engRate(r.live.winRate) + '</td>' +
         '<td class="num">' + (r.history ? (r.history.n || 0) : '—') + '</td><td class="num">' + (r.history ? engPnl(r.history.avg, dp) : '—') + '</td><td class="num">' + (r.history ? engRate(r.history.winRate) : '—') + '</td>' +
         '<td class="num">' + diff + '</td><td>' + engPill(st[0] + (r.read === 'too-early' ? ' (' + (r.live.n || 0) + ' of ' + lim.minLive + ')' : ''), st[1]) + '</td></tr>';
@@ -365,6 +367,10 @@ export function renderEnginesJs() {
         engShareKpis(e.sharesStats, [['Open now', (e.sharesStats.open || 0) + ' (' + engUsd(e.sharesStats.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', e.sharesStats.maxDrawdownUsd ? '−$' + Number(e.sharesStats.maxDrawdownUsd).toLocaleString('en-US') : '—']]) +
         engCurveHtml(e.sharesStats.curve, e.name + ' share trades, running total in dollars') +
         ((e.sharesStats.bySetup || []).length ? engDetails('Share trades by setup', engSplitTable(e.sharesStats.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true)) : '')) : '') +
+      (e.trialStats ? slpSection('eng-trials', 'Paper trials', '<p class="evb-note">Unproven setups on paper, added to see how they do live. They buy stock, use their own slots, teach the engine nothing and are scored here on their own, never mixed into the engine’s numbers above. In the history test their edge over random entries held for the same number of sessions was small, so read this record as the real test.</p>' +
+        engShareKpis(e.trialStats, [['Open now', (e.trialStats.open || 0) + ' (' + engUsd(e.trialStats.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', e.trialStats.maxDrawdownUsd ? '−$' + Number(e.trialStats.maxDrawdownUsd).toLocaleString('en-US') : '—']]) +
+        engCurveHtml(e.trialStats.curve, e.name + ' paper trials, running total in dollars') +
+        ((e.trialStats.bySetup || []).length ? engDetails('Paper trials by setup', engSplitTable(e.trialStats.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true)) : '')) : '') +
       (e.vsHistory ? slpSection('eng-vs-hist', 'Live against the history test', engVsHistHtml(e, d)) : '') +
       (e.sizing ? slpSection('eng-sizing', 'Conviction size against flat size', engSizingHtml(e.sizing, d)) : '') +
       slpSection('eng-closed', 'Closed trades', arch + more + engClosedTable(e, d)) +
@@ -395,7 +401,7 @@ export function renderEnginesJs() {
       // Share results (% of the price) sit under the option ones, never mixed.
       var sub = function(b){ return b && b.n ? '<div class="crd-dim">shares: ' + b.n + '</div>' : ''; }, subAvg = function(b){ return b && b.n ? '<div class="crd-dim">shares: ' + engPnl(b.avg, 2) + '</div>' : ''; };
       var notes = (s.test ? '<div class="crd-dim">A labeled test, own record line</div>' : '') + ((s.retiredSides || []).indexOf('put') >= 0 && !s.retired ? '<div class="crd-dim">Its put side is retired</div>' : '') + (s.crashStand ? '<div class="crd-dim">Stands aside after a 7%+ one-day drop in the prior five sessions</div>' : '');
-      return '<tr><td><b>' + escapeHtml(s.label) + '</b>' + engInstBadge(s) + (s.test ? ' <span class="eng-side eng-test">Test</span>' : '') + (s.startsOnShadow ? '<div class="crd-dim">Started on shadow</div>' : '') + notes + '</td><td class="l">' + escapeHtml(s.how || '') + x + '</td><td>' + engPill(st[0], st[1]) + (s.since ? '<div class="crd-dim">since ' + escapeHtml(engDay(s.since)) + '</div>' : '') + '</td><td class="num">' + ((s.real && s.real.n) || 0) + sub(s.realShares) + '</td><td class="num">' + engPnl(s.real && s.real.avg) + subAvg(s.realShares) + '</td><td class="num">' + ((s.shadow && s.shadow.n) || 0) + sub(s.shadowShares) + '</td><td class="num">' + engPnl(s.shadow && s.shadow.avg) + subAvg(s.shadowShares) + '</td></tr>';
+      return '<tr><td><b>' + escapeHtml(s.label) + '</b>' + engInstBadge(s) + (s.test ? ' <span class="eng-side eng-test">Test</span>' : '') + (s.trial && !s.retired ? ENG_TRIAL_BADGE : '') + (s.startsOnShadow ? '<div class="crd-dim">Started on shadow</div>' : '') + notes + '</td><td class="l">' + escapeHtml(s.how || '') + x + '</td><td>' + engPill(st[0], st[1]) + (s.since ? '<div class="crd-dim">since ' + escapeHtml(engDay(s.since)) + '</div>' : '') + '</td><td class="num">' + ((s.real && s.real.n) || 0) + sub(s.realShares) + '</td><td class="num">' + engPnl(s.real && s.real.avg) + subAvg(s.realShares) + '</td><td class="num">' + ((s.shadow && s.shadow.n) || 0) + sub(s.shadowShares) + '</td><td class="num">' + engPnl(s.shadow && s.shadow.avg) + subAvg(s.shadowShares) + '</td></tr>';
     }).join(''));
     var log = (e.learning && e.learning.log) || [];
     var logHtml = log.length ? slpTable([['Date'], ['Rules version'], ['What changed', 'l']], log.map(function(c){ return '<tr><td>' + escapeHtml(engDay(c.date)) + '</td><td>' + escapeHtml(c.v || '') + '</td><td class="l">' + escapeHtml(c.text || '') + '</td></tr>'; }).join('')) : '<p class="hint">No changes since the engine started.</p>';
@@ -455,11 +461,15 @@ export function renderEnginesJs() {
         engShareKpis(h.shares, [['Random entries', h.shares.control ? engPnl(h.shares.control.avg, 2) : '—', h.shares.control ? 'Average of ' + h.shares.control.books + ' books of random share lots' : 'Needs 20 or more trades'], ['Beat random', h.shares.control ? h.shares.control.beat + '%' : '—']])
         : engHistKpis(h)) +
       engCurveHtml(hm.curve, e.name + ' history test running total in dollars') +
-      (!shrOnly && h.shares && h.shares.n ? slpSection('eng-hist-shares', 'Share trades in this test', '<p class="evb-note">The setups that buy stock instead of a call, replayed at the open and close prices with 0.1% costs a round trip and scored on their own (% of the share price). Their random books buy share lots on random days with the same stock exits.</p>' +
+      (!shrOnly && h.shares && h.shares.n ? slpSection('eng-hist-shares', 'Share trades in this test', '<p class="evb-note">The setups that buy stock instead of a call, replayed at the open and close prices with 0.1% costs a round trip and scored on their own (% of the share price). Their random books buy share lots on random days with the same stock exits, held no longer than the real trade drawn beside it.</p>' +
         engShareKpis(h.shares, [['Random entries', h.shares.control ? engPnl(h.shares.control.avg, 2) : '—', h.shares.control ? 'Average of ' + h.shares.control.books + ' books of random share lots' : 'Needs 20 or more trades'], ['Beat random', h.shares.control ? h.shares.control.beat + '%' : '—']]) +
         engDetails('Share trades by setup', engSplitTable(h.shares.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true), true) +
         engDetails('Share trades by time period', engSplitTable(h.shares.byWindow, 'Period', null, true)) +
         engDetails('Share trades by market type', engSplitTable(h.shares.byCell, 'Market type', function(r){ return engCell(r.key); }, true))) : '') +
+      (h.trials && h.trials.n ? slpSection('eng-hist-trials', 'Paper trials in this test', '<p class="evb-note">Unproven setups that run on paper beside the engine, scored on their own. Their random books buy the same lot on random days and hold it no longer than the real trade drawn beside it, with the same exits, so a setup that sells after a few sessions is compared with a few sessions of random holding. The edge over those books is small; the live record is the real test.</p>' +
+        engShareKpis(h.trials, [['Random entries', h.trials.control ? engPnl(h.trials.control.avg, 2) : '—', h.trials.control ? 'Average of ' + h.trials.control.books + ' books of random share lots, matched hold' : 'Needs 20 or more trades'], ['Beat random', h.trials.control ? h.trials.control.beat + '%' : '—']]) +
+        engDetails('Paper trials by setup', engSplitTable(h.trials.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true), true) +
+        engDetails('Paper trials by time period', engSplitTable(h.trials.byWindow, 'Period', null, true))) : '') +
       slpSection('eng-hist-windows', 'By time period', engSplitTable(hm.byWindow, 'Period', null, shrOnly)) +
       slpSection('eng-hist-cells', 'By market type', '<p class="evb-note">The Regime Lab label on the day each trade opened: the trend of the market and whether volatility was calm or stressed.</p>' + engSplitTable(hm.byCell, 'Market type', function(r){ return engCell(r.key); }, shrOnly)) +
       slpSection('eng-hist-env', 'By macro environment', '<p class="evb-note">What the economy looked like when each trade opened, using only numbers that were public that day.</p>' + (engEnvTables(hm.byEnv, shrOnly) || '<p class="hint">No macro labels in this run.</p>')) +
@@ -698,7 +708,7 @@ export function renderEnginesJs() {
         ['Avg entry gap', avgGap == null ? '—' : slpPts(avgGap, 1) + '%', 'Paper fill against the engine’s entry price; above zero means the paper account paid more'],
         ['Avg paper result', engPnl(avgPaper), 'Closed paper trades only'],
       ]) +
-      (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
+      (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + (h.held ? ' (' + h.held + ' held back by your controls)' : '') + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
       (issues.length ? '<ul class="eng-notes">' + issues.map(function(i){ return '<li>' + escapeHtml(i.message || i.code) + '</li>'; }).join('') + '</ul>' : '') +
       '<p class="evb-note">Entry and Exit show the paper fill, with the engine’s own price and the gap between them underneath.</p>' +
       engMirrorTable(rows, id === 'all') +
@@ -856,6 +866,7 @@ export function renderEnginesJs() {
       engState.error = engState.data ? null : 'not written yet';
       engState.fetchedAt = Date.now(); engState.loading = false;
       renderEngines();
+      if (typeof ocRenderPanel === 'function' && OC.checkSym) ocRenderPanel();
       var op = $('page-pane-open-picks'); if (op && !op.hidden && typeof renderOpenPicks === 'function') renderOpenPicks();
     }).catch(function(err){
       engState.loading = false; engState.fetchedAt = Date.now();

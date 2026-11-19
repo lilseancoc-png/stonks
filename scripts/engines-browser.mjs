@@ -180,6 +180,9 @@ try {
       if (e.stats.n) check((await s.page.locator('#eng-splits details').count()) === 8, id + ': eight scorecard cuts');
       check((await s.page.locator('#eng-shares').count()) === (e.sharesStats ? 1 : 0), id + ': share trades have their own scorecard when there are any');
       if (e.sharesStats) check(/% of the share price/.test(await s.page.locator('#eng-shares').innerText()), id + ': the share scorecard says its unit');
+      // Paper trials (2026-11-19) are scored in their own section, never in the engine's numbers.
+      check((await s.page.locator('#eng-trials').count()) === (e.trialStats ? 1 : 0), id + ': paper trials have their own section when there are any');
+      if (e.trialStats) check(/scored here on their own/.test(await s.page.locator('#eng-trials').innerText()), id + ': the trial section says it is kept apart');
       check((await s.page.locator('#eng-vs-hist').count()) === 1, id + ': live against the history test');
       // What Webull filled, beside the engine's own result (2026-11-19).
       if (e.closed.length) {
@@ -196,6 +199,8 @@ try {
       await sub(s, 'learn');
       text = await paneText(s);
       check((await s.page.locator('#eng-setups tbody tr').count()) === e.setups.length, id + ': one row per setup');
+      const trialSetups = e.setups.filter((x) => x.trial).length;
+      check((await s.page.locator('#eng-setups .eng-trial').count()) === trialSetups, id + ': paper-trial setups carry the badge (' + trialSetups + ')');
       check(/Change log/.test(text) && /Shadow trades/.test(text), id + ': change log and shadow trades');
       if (e.setups.some((x) => x.startsOnShadow)) check(/Started on shadow/.test(text), id + ': shadow-start setups are marked');
       if (id === 'reversion') check(/Own contract: about 0\.30 delta, 14 to 35 days/.test(await s.page.locator('#eng-setups').innerText()) && /Own exits: \+30% take-profit, -60% stop/.test(await s.page.locator('#eng-setups').innerText()), 'reversion: the washout bounce shows its own contract and stop');

@@ -20,6 +20,7 @@ import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 import { i18nPickerHtml, i18nHeadScript } from './i18n-client.mjs';
 import { enginesSection } from './engines-client.mjs';
+import { ownerControlsBanner, ownerControlsPanel } from './owner-controls-client.mjs';
 
 export function ownerMarketBriefSection() {
   return `<section class="card" id="owner-market-brief-section"><header class="card-header"><h2 class="card-title">Owner Market Brief</h2><span class="card-eyebrow">Owner only</span></header><p class="hint">The public market read expanded with private research. Review conditional outcomes, suggested next steps and the evidence that could change them. Source timestamps, entry restrictions and uncertainty stay visible.</p><div id="owner-market-brief-root" aria-live="polite"></div></section>`;
@@ -417,6 +418,7 @@ export function topPicksSection() {
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
     </header>
     <div id="picks-market-note" class="picks-market-note" role="status" aria-live="polite" hidden></div>
+    ${ownerControlsBanner('picks')}
     <div id="picks-mode" class="picks-mode" hidden></div>
     <div id="picks-market-evidence"></div>
     <div id="picks-live-board" class="picks-live-board" hidden></div>
@@ -723,6 +725,7 @@ function openPicksSection() {
       <h2 class="card-title">Open picks</h2>
       <span class="card-eyebrow" id="open-picks-eyebrow" aria-live="polite"></span>
     </header>
+    ${ownerControlsBanner('open')}
     <p class="hint">Every Top Picks trade that is open right now, newest first. Marks are modeled Black-Scholes at constant entry IV, not live chain fills, and refresh at the 11:00 and 15:30 ET Top Picks runs. The trade lines below the cards also list every close from the last 7 days; the full record is on the Top Picks track record tab.</p>
     <div id="open-picks-sum" class="acc-pane-sum-slot"></div>
     <div id="open-picks-root" class="accuracy-root">Loading open picks&hellip;</div>
@@ -2416,6 +2419,7 @@ ${i18nHeadScript()}
     <section class="card"><header class="card-header"><h2 class="card-title">Update Checker</h2></header><p class="hint">Track failed builds and inspect published feature outputs. The checker records workflow failures even when the data build stops early.</p><div id="update-checker-root" aria-live="polite"></div></section>
   </div>
   <div class="page-pane" id="page-pane-owner-settings" role="tabpanel" aria-labelledby="page-tab-owner-settings" hidden>
+    ${ownerControlsBanner('settings')}
     ${ownerSettingsSection()}
   </div>
   <div class="page-pane" id="page-pane-owner-market-brief" role="tabpanel" aria-labelledby="page-tab-owner-market-brief" hidden>
@@ -2433,7 +2437,9 @@ ${i18nHeadScript()}
     ${topPicksSection()}
   </div>
   <div class="page-pane" id="page-pane-engines" role="tabpanel" aria-labelledby="page-tab-engines" hidden>
+  ${ownerControlsBanner('engines')}
   ${enginesSection()}
+  ${ownerControlsPanel()}
   </div>
   <div class="page-pane" id="page-pane-leaps" role="tabpanel" aria-labelledby="page-tab-leaps" hidden>
   ${leapsSection()}

@@ -113,7 +113,10 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
 // the first half (`split` and before, every setup) carried into the second
 // half, learning on, against the second half without it (`oos`).
 // settings (all optional, for reruns): { sizing, specs, fearGreed, costPts,
-// ivRatio } passed straight to runBacktest (see parseSettings).
+// ivRatio } passed straight to runBacktest (see parseSettings). fearGreed
+// (`--fg <file>`, [date, score] closes or { date: score }) is read by the
+// extreme-fear bounce test and the index-fear paper trial; without it
+// neither opens anything in the test.
 export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {} } = {}) {
   const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum"];
   const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids,
@@ -123,7 +126,8 @@ export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", 
   const on = runBacktest({ ...base, learn: true, allocator: "advise" });
   const sig = ids.filter((id) => !ENGINES[id]?.core);
   const withAlloc = sig.length ? runBacktest({ ...base, engines: sig, learn: true, control: 0, allocator: "on" }) : null;
-  const isSig = (t) => !ENGINES[t.engine]?.core;
+  // The Allocator's prior: signal-engine trades, paper trials left out.
+  const isSig = (t) => !ENGINES[t.engine]?.core && !t.trial;
   const priorTrades = (raw.trades || []).filter(isSig);
   const allocPrior = { from: raw.from, to: raw.to, n: priorTrades.length, rows: allocPriorFrom(priorTrades) };
   delete raw.trades;
@@ -187,7 +191,7 @@ export function parseSettings(flags) {
   const inst = {};
   if (typeof flags.inst === "string") for (const kv of flags.inst.split(",")) { const [k, v] = kv.split("=").map((x) => x.trim()); if (ENGINES[k] && INSTRUMENT_CHOICES.includes(v)) inst[k] = v; }
   if (off.length || Object.keys(inst).length) {
-    settings.specs = engineSpecs(Object.fromEntries(off.map((id) => [id, false])), inst);
+    settings.specs = engineSpecs(Object.fromEntries(off.map((id) => [id, false])), undefined, inst);
     if (off.length) changed.push(`fixes off: ${off.join(", ")}`);
     if (Object.keys(inst).length) changed.push(`instrument: ${Object.entries(inst).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   }
@@ -256,6 +260,7 @@ async function main() {
       settings.fearGreed ? "The extreme-fear bounce test ran on a rebuilt fear and greed series (the decision on each day reads the prior day's value)." : "The extreme-fear bounce test opens nothing here: no fear and greed history ships with the repo (pass --fg FILE to run it on a rebuild).",
       "Reversion's washout bounce stands aside when the prior five sessions held a one-day drop of 7% or more (2026-11-19). The rule came from research on this same history, so this run flatters it.",
       "Modeled volatility falls more slowly after a bounce than real implied volatility does, so dip-buying calls look better here than they would live.",
+      "Two paper trials (2026-11-19) run beside Reversion and Macro, scored apart from the engines' own trades: the RSI(2) dip in an uptrend and index funds after extreme fear, both buying shares. They came from a 553-variant test on real option prices and did not clear its bar. The index-fear trial (and the extreme-fear bounce test) is read here on our rebuild of Fear & Greed (six of CNN's seven parts, no put/call history; the score is the file's second column, the third is the VIX); live it reads CNN's own index. Since this run every random share book is matched trade by trade to the real trade's hold and exits, so a setup that sells after a few sessions is not judged against random lots held for 20.",
       "FOMC days are the real decision dates. Jobs days follow the first-Friday rule. CPI days are not in the research set.",
       "The core engines (Trend follower, Momentum basket) are scored as a portfolio: $1 that follows the holdings at every open and close, idle money earning the fed funds rate, 0.1% costs a round trip, against SPY bought the same day. Prices are split- and dividend-adjusted as downloaded, the same for both.",
       "The Momentum basket's number is the most flattered here: it picks the ten strongest of today's 85 covered names, which are largely the names that went on to win. On a 1,000-name list of the time (the 2026-11-17 research) the same rule made about 21% a year, not 28%.",

@@ -173,12 +173,72 @@ state; the Setups and learning tab lists every hand-made rules step. These
 fixes were picked from the same history they are scored on, so the live
 record is the real test.
 
-### Honest paper trades (rules 4, 2026-11-19)
+### Paper trials (rules 4 on Reversion and Macro, 2026-11-19)
+
+A paper trial is a setup the history test did not prove but that may do
+better live. It runs on paper beside the engine, labeled unproven, behind its
+own switch, so the live record can decide. Both come from the
+2026-11-19 strategy test series (553 variants tried on 2007-2026 bars with
+real Cboe implied volatility; no idea cleared the trials-adjusted bar of
+t 3.9):
+
+| Trial | Rule | What the history showed | Switch (Owner Settings → Data & desks) |
+|---|---|---|---|
+| RSI(2) dip in an uptrend (`rsi2-dip`, Reversion) | Above the 200-day with a 2-day RSI under 5. Buys $5,000 of stock (never options: calls on these dips lost money on real option prices) and sells on a close back above the 5-day average, after 10 sessions, or at the usual 2 ATR stop / 3 ATR target | +0.62% a trade, t 3.0 against random days in the same names and t 5.1 against SPY, alike in 2007-16 and 2017-26; weak on sector funds (+0.21%). Through the engine code: 2,439 trades, +0.4%, 64% wins, at or above zero in 18 of 20 years (2008 and 2018 lost) | `ENGINES_TRIAL_RSI2_DIP` |
+| Index funds after extreme fear (`fear-index`, Macro) | The day after CNN Fear & Greed first closes under 25 (the last two daily closes before the run, from `fear-greed-history.json`, read by `fearReading` in `macro.mjs`; none older than 5 days), buys $5,000 each of SPY, QQQ and IWM and holds them 20 sessions with no stop or target (`levels: false`), as tested | Through the engine code on our rebuild of Fear & Greed (entry at the next open, `--fg <file>` on the history test, version 4): 216 trades, +1.0% a trade, 63% wins; by period 2008 -1.4%, 2009-12 +0.2%, 2013-17 +2.5%, 2018-19 +2.2%, 2020 -2.9%, 2021 +3.4%, 2022 -2.4%, 2023-24 +5.2%. The first numbers quoted for it (+1.26% over 162 trades, -0.06% / +2.49% by half, and 162 trades at +1.3% through the engine code) read the rebuild file's third column, the VIX, as the score (fixed 2026-11-19 in the merge with #873: the history test reads the second column). Unproven; the owner asked for it on paper (2026-11-19) | `ENGINES_TRIAL_FEAR_INDEX` |
+
+In the engine's own history test (`research/engines/results/latest.json`,
+version 3, and version 4 since the merge with #873) each trial is scored
+apart and set against 20 books of random $5,000 lots in the names it traded,
+each lot held no longer than a real trial trade drawn beside it and with the
+same exits. The edge is small: +0.1 points a trade for the RSI(2) dip (2,412
+trades, it beat 60 to 75% of the books; 27 fewer than before #873 because it
+now leaves a stock the extreme-fear test holds) and +0.1 for index fear on
+the Fear & Greed score (65 to 70%). Before version 3 every random share lot rode up to 20
+sessions, which made short holds look worse than random; the engines' own
+share setups now use matched holds too.
+
+How a trial is kept apart (`trial: true` on the setup, `trial` on each trade):
+
+- **Own slots.** Each trial has its own open trades and new ones a run (RSI(2): 4 and 2; index fear: 3 and 3),
+  outside the engine's slots, the per-run cap of five and `bestPerSymbol`, so
+  it never takes a place from a proven setup (the history test's option lines
+  are unchanged with either trial on). It is offered after every engine's own
+  turn.
+- **No learning, no Allocator.** Its closes are not fed to the engine's
+  learning or the Allocator, a loss starts no cooldown, and the Allocator
+  never reads, sizes or holds back a trial, so an unproven rule cannot pause,
+  mute or reweight a proven one.
+- **Scored apart.** `engineStats` puts trial trades in their own `trials`
+  block (live and in the history test), so they never move an engine's
+  option or share numbers. The page shows a Paper trial badge on the trade,
+  setup and live-against-test rows, a "Paper trials" section on each
+  engine's record, and "Paper trials in this test" on its history tab.
+- **Shares only.** With `ENGINES_SHARES=0` it opens nothing.
+- **Rules version.** Turning a trial on or off is a rules change on its
+  engine (`trialRules`, rules 4 with it on), so the record splits there.
+  Off marks the setup `retired` for new trades; open trial trades run to
+  their exits.
+- **Webull.** Since #869 the mirror buys engine share trades as stock, so a
+  trial's trades reach the paper account like any engine share trade
+  (`ENGINES_MIRROR=0` stops new ones).
+
+The RSI(2) trial survived a test on the same history it came from, and the
+stocks are today's names (survivor bias). The index-fear trial did not pass
+at all; the live CNN index also differs from the rebuild it was tested on
+(six of CNN's seven parts, no put/call history). The live record is the
+real test for both. A 10-day-average exit for the RSI(2) trial is not run
+beside it: it can be read later from each trade's entry and the daily bars.
+
+### Honest paper trades (rules 4, rules 5 on Reversion and Macro, 2026-11-19)
 
 The owner asked for a paper record a real trader would recognise: fills a
 broker would give, a size that depends on the risk and on how good the setup
-looks, and the losing option setups moved to shares. Six changes went in
-(rules 4 on every signal engine, one logged rules change each). Each is an
+looks, and the losing option setups moved to shares. Six changes went in,
+one logged rules change on every signal engine: rules 4 on Earnings,
+Technicals, Fundamentals and Flow, and rules 5 on Reversion and Macro, where
+the paper trials above are rules 4 (`fixRules` builds rules 3, then
+`trialRules`, then this step, so each gets its own dated divider). Each is an
 Owner Settings switch (Data & desks → Strategy engines), on by default; off
 puts that part back for new trades only (open trades keep the fill basis, size
 and exits they opened with), and a flip is logged as a rules change on the
@@ -195,6 +255,29 @@ engines it reaches, like the rules 3 fixes (`ENGINE_FIXES` entries with
 | Crash stand-aside | Reversion's washout bounce (`oversold-bounce`, `crashStand: true`) stands aside when the prior five sessions held a one-day drop of 7% or more (`BOOK.crashDrop`, feature `worst5`); listed under Now with the reason | `ENGINES_CRASH_STANDASIDE` |
 | Extreme-fear bounce test | Reversion's `fear-bounce` (`test: true`): the same washout, only while CNN's fear and greed reading is under 25 (`BOOK.fearBelow`; a reading over 3 days old or marked stale is ignored, `fearRead`), with the crash stand-aside built in. Buys one call of about 0.3 delta 14 to 35 days out (fixed at one contract) plus a shares twin, and never takes a contract another trade holds (`avoid`), so the Webull paper account fills it on its own. Labelled Test on the page; test trades never move learning or the Allocator hold-back | `ENGINES_FEAR_BOUNCE` |
 
+How it sits with the paper trials and the Owner controls (merged
+2026-11-19):
+
+- **Owner controls first.** In `consider()` Stop new trades and Avoid run
+  before the extreme-fear pool, the shares twin and the sizing, so they hold
+  every new trade (a twin and an `-XF` trade included, never shadowed). The
+  risk dial's bar change applies to the fear test like any setup, and its
+  size (half or 1.5x) multiplies the risk size of the option trade and of its
+  shares twin; an account limit is checked on the option trade, then on the
+  twin with the option already counted (a twin a limit stops is not opened,
+  the option trade stands). The twin counts as a new trade for the
+  new-trades-a-day limit.
+- **No double opens.** A paper trial is counted in no pool, slot or run
+  limit of the engine's own setups (#870's rule), and the extreme-fear test
+  and the RSI(2) dip trial, both on Reversion, never hold the same stock:
+  whichever opened first keeps it (the fear test runs in the engine's turn,
+  the trials after every engine). The two fear rules firing on the same
+  reading is intended: the fear bounce buys a washed-out stock (option plus
+  shares) on CNN's current reading, the index-fear trial buys SPY, QQQ and
+  IWM shares on Macro the day after the first close under 25.
+- **Sizing.** A paper trial keeps its tested $5,000 lot: risk sizing and the
+  conviction multiplier do not reach it (the dial and the account limits do).
+
 **The Webull paper account buys each trade's size** (since #869, 2026-11-19):
 an option trade sends its record `qty` (1 to 10, the same cap as risk
 sizing) and a share trade its whole-share count, so risk sizing and the
@@ -203,26 +286,33 @@ conviction multiplier reach the paper account (Owner Settings `WEBULL_QTY` /
 Webull fills at its own prices, and the mirror's exit ladder starts from the
 model mid (`markPnlPct`), not the booked bid.
 
-History test (`node scripts/engines-backtest.mjs --long <dir>`, 2007-2026,
-modeled option prices, version `engines-backtest-3`):
+History test (`node scripts/engines-backtest.mjs --long <dir> --fg <fear and
+greed file>`, 2007-2026, modeled option prices, version `engines-backtest-4`;
+figures below are the shadow-start-held-back run, learning off, with the
+research kit's fear and greed rebuild):
 
 - With every rules 4 switch off (`--off fillBasis,riskSize,conviction,tecShares,crashStand,fearBounce`)
-  the result is byte-identical to the rules 3 run.
+  the merged code reproduces main's committed result (rules 3 plus the paper
+  trials) exactly, apart from the fields this change adds (`flatUsd`, share
+  splits by environment), when it is given the same fear input main's run
+  used (see the index-fear note under Paper trials).
 - At the old sizing (`--sizing premium`), the rule changes take the option book
-  (learning off) from $124,398 to $160,698: Reversion 1,029 → 916 trades,
-  +5.3% → +8.0% a trade (the crash stand-aside), Technicals options to none
-  and 1,600 share trades at +1.1%. Side effect: capitulation shares now get
-  through on some crash days (60 → 75 trades, +0.6% → -0.3%).
-- Risk sizing changes dollar weights, not percent results: options $79,417
-  (flat size $76,898, so the multiplier adds about 3%), shares $333K (lots up
+  from $124,398 (1,754 trades) to $205,194 (1,590): Reversion 1,029 → 1,039
+  trades, +5.3% → +9.2% a trade (the crash stand-aside, and the fear test's
+  126 calls at +19.4%), Technicals options to none and 1,600 share trades at
+  +1.1%. Side effect: capitulation shares now get through on some crash days.
+- Risk sizing changes dollar weights, not percent results: options $82,600
+  (flat size $79,526, so the multiplier adds about 4%), shares $337K (lots up
   to $25,000 of stock against the old $5,000). The option total falls because
   cheap contracts are capped at 10 and counts round down. By half the
   multiplier is a wash (whole book, learning off: about -1% in 2007-2016, +1%
   in 2017-2026), so it is shown as how a trader would size, with the flat
-  result beside it, not as an edge. A $5,000 budget lowers the option total
-  ($65,798): dear contracts get more weight and Macro's dear calls lose.
-- The fear test, on a rebuilt fear and greed series (`--fg FILE`): calls 148
-  trades at +18.6% a trade on modeled prices, shares twins 204 at +0.6%. On
+  result beside it, not as an edge. A $5,000 budget lowers the option total:
+  dear contracts get more weight and Macro's dear calls lose.
+- The fear test, on a rebuilt fear and greed series (`--fg FILE`): calls 126
+  trades at +19.4% a trade on modeled prices, shares twins 172 at +0.2% (fewer
+  than before the merge with #870: it now leaves a stock the RSI(2) dip trial
+  holds). On
   real implied volatility (Cboe indexes, the 2026-11-19 research) the same
   calls lost 9.3% a trade, which is why it is a labelled test.
 - On real implied volatility (Cboe's indexes, a stand-in for names without
@@ -236,7 +326,7 @@ modeled option prices, version `engines-backtest-3`):
 
 Rerun flags: `--sizing risk|premium|one`, `--budget N`, `--conviction 0`,
 `--off <ids>` (`ENGINE_FIXES` ids), `--inst engine=options|shares|both`,
-`--fg FILE` (`[date, score, vix]` rows), `--cost N`, `--iv-ratio N`. Each result lists
+`--fg FILE` (`[date, score, vix]` rows: the score is the second column), `--cost N`, `--iv-ratio N`. Each result lists
 `sizing` and the changed `assumptions`, and carries `flatUsd` (the same trades
 at the flat size).
 
@@ -623,12 +713,46 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_CRASH_STANDASIDE` | Owner Settings → Data & desks | Unset / on = Reversion's washout bounce stands aside after a one-day drop of 7%+ in the prior five sessions. `0` = it buys anyway |
 | `ENGINES_FEAR_BOUNCE` | Owner Settings → Data & desks | Unset / on = the extreme-fear bounce test (one call plus a shares twin under fear and greed 25). `0` = not run |
 | `ENGINES_INSTRUMENT_<ENGINE>` | Owner Settings → Data & desks | Per signal engine (`EARNINGS`, `MACRO`, `TECHNICALS`, `FUNDAMENTALS`, `FLOW`, `REVERSION`): default (the registry), `options`, `shares` (call signals buy stock; puts stay options) or `both` |
+| `ENGINES_TRIAL_RSI2_DIP` | Owner Settings → Data & desks | Unset / on = Reversion's RSI(2) dip paper trial buys shares (own 4 slots, 2 a run, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
+| `ENGINES_TRIAL_FEAR_INDEX` | Owner Settings → Data & desks | Unset / on = Macro's index-fear paper trial buys SPY, QQQ and IWM shares after Fear & Greed first closes under 25 (own 3 slots, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
+| Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
+| `ACCOUNT_LIMIT_OPEN_USD`, `_DAY_LOSS_USD`, `_NAME_USD`, `_NEW_PER_DAY` | Owner Settings → Account limits | All 0 = off. Caps on open option premium, a daily loss stop, money per stock across engines and new trades a day; a trade a limit holds back is not opened and not shadowed. A limit never closes a trade |
+
+## Owner controls (2026-11-19)
+
+Full spec: [`owner-controls.md`](owner-controls.md). In the book
+(`stepBook` input `controls`, built by `readOwnerControlsForRun` in
+`build.mjs`):
+
+- **Stop new trades** opens nothing (not even shadow trades); every exit runs.
+- **Avoid** opens nothing on the stock in any engine. With "close its open
+  trades", a trade opened before the avoid closes as `owner-avoid`: counted on
+  the record, but it sets no loss cooldown and learning and the Allocator
+  never see it.
+- **Watch closely** puts the stock at the front of each engine's queue for
+  five sessions. No bar is lowered.
+- **Risk dial** (until Friday's close): Safer = half the contracts or shares,
+  entry bar +5, one new trade a run across the engines. Riskier = 1.5x the
+  contracts or shares (at most 10 contracts unless a trade already had more),
+  bar -3, and back to the normal size when 1.5x would pass an account limit.
+  Core engines keep their size and have no bar.
+- **Account limits** (above) count signal and core option premium and money
+  per stock; core engines are not counted against the daily loss stop or the
+  new-trades count.
+- Each run keeps every scored row by stock (`state.checks`, `checks` in
+  `engines.json`) for the page's read-only **Check this stock**, and the run
+  log records `controls`. New trades carry `ownerControls`.
+- **Webull mirror:** Stop, Avoid or a limit logs a new record trade
+  `skipped` with `ownerHold`; it is never bought later. Mirror health counts
+  them as held, never as an issue. Exits are untouched.
+- The history test passes no controls, so its result is unchanged.
+
 
 ## Not in scope
 
 - No real money and no broker other than the Webull paper sandbox.
 - No spreads, and no short stock.
-- Share trades, including every core-engine holding, are not placed in the
-  paper account (record only).
+- Share trades, core-engine holdings included, reach the paper account as
+  long-only stock orders since 2026-11-19 (#869); nothing is sold short.
 - The Allocator never resizes a lot.
 - No engine result feeds a Top Picks grade, gate or record.

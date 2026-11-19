@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
-import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, CLOSE_LABEL, ENGINE_FIXES, ENGINE_FIX_IDS, engineSwitches, engineSpecs, engineByTag, engineName, instrumentFor, isSharesTrade, contractFor, exitsFor } from "../lib/engines/config.mjs";
+import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, CLOSE_LABEL, ENGINE_FIXES, ENGINE_FIX_IDS, ENGINE_TRIALS, ENGINE_TRIAL_IDS, engineSwitches, engineSpecs, engineByTag, engineName, instrumentFor, isSharesTrade, contractFor, exitsFor } from "../lib/engines/config.mjs";
 import { precompute, featAt, toColumns, barDate, monthEnds } from "../lib/engines/features.mjs";
 import { trendRead, momentumRead, standCore, ret12, ret12skip1, avg10 } from "../lib/engines/core.mjs";
 import { ALLOC, allocObserve, allocDecide, allocKey, allocStamp, allocBook, allocPriorFrom, allocView, emptyAlloc } from "../lib/engines/allocator.mjs";
@@ -24,11 +24,12 @@ import { isRetiredCand, fearRead } from "../lib/engines/signals.mjs";
 import { newEngineState, observe, adapt, adoptRules, LEARN, learnView } from "../lib/engines/learn.mjs";
 import { standRank, rankView, RANK } from "../lib/engines/rank.mjs";
 import { prepareReports, earnView, fundCore } from "../lib/engines/earn.mjs";
-import { buildMacro } from "../lib/engines/macro.mjs";
+import { buildMacro, fearReading } from "../lib/engines/macro.mjs";
 import { engineStats, summarize, scoreBand, tradeUsd, flatTradeUsd } from "../lib/engines/record.mjs";
 import { runBacktest, publicResult } from "../lib/engines/backtest.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare } from "../lib/engines/index.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
+import { DIAL } from "../lib/owner-controls.mjs";
 import { ownerSettingDef } from "../lib/owner-settings.mjs";
 import { newTrade } from "../lib/webull-mirror.mjs";
 import { OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
@@ -752,16 +753,21 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   // A switch leaves the other engines' setups alone, and the core engines entirely.
   assert.deepEqual(nb.technicals.setups, ENGINES.technicals.setups); assert.deepEqual(nb.macro.setups, ENGINES.macro.setups);
   for (const id of CORE_IDS) assert.equal(nb[id], ENGINES[id]);
-  // Rules 4 (honest paper trades, 2026-11-19) on every signal engine, over
-  // rules 3 (the money-leak fixes); each note names only the fixes that reach it.
+  // The honest paper trades (2026-11-19) on every signal engine: rules 4,
+  // or rules 5 on Reversion and Macro over their paper trial (rules 4,
+  // #870), all over rules 3 (the money-leak fixes); each note names only the
+  // fixes that reach it.
+  const hasTrial = (id) => ENGINE_TRIALS.some((t) => t.engine === id);
+  const rules3Of = (r, id) => (hasTrial(id) ? r.before.before : r.before);
   for (const id of SIGNAL_IDS) {
-    const r = ENGINES[id].rules, r3 = r.before;
-    assert.equal(r.n, 4, id); assert.equal(r.date, "2026-11-19"); assert.match(r.note, /^New rules \(honest paper trades\): .*ask going in.*1 to 10 contracts.*0\.5x to 2x/, id);
+    const r = ENGINES[id].rules, r3 = rules3Of(r, id);
+    assert.equal(r.n, hasTrial(id) ? 5 : 4, id); assert.equal(r.date, "2026-11-19"); assert.match(r.note, /^New rules \(honest paper trades\): .*ask going in.*1 to 10 contracts.*0\.5x to 2x/, id);
     assert.doesNotMatch(r.note, /\$2,000 of premium/, "the premium size is not in force while risk sizing is on");
+    if (hasTrial(id)) { assert.equal(r.before.n, 4, id); assert.match(r.before.note, /paper trial/, id); assert.match(r.key, /\|trials:/, id); }
     assert.equal(r3?.n, 3, id); assert.match(r3.note, /^New rules \(the money-leak fixes\): .*\$2,000 of premium/, id);
-    assert.equal(r3.before?.n, 2, id); assert.ok(/^fixes:/.test(r.key), id); assert.ok(!/size,|size$/.test(r.key.replace("riskSize", "")), id);
+    assert.equal(r3.before?.n, 2, id); assert.ok(/^fixes:/.test(r.key), id); assert.ok(!/size,|size$|size\|/.test(r.key.replace("riskSize", "")), id);
   }
-  const r3 = (id) => ENGINES[id].rules.before.note;
+  const r3 = (id) => rules3Of(ENGINES[id].rules, id).note;
   assert.match(r3("reversion"), /spike-in-a-downtrend fade is retired/); assert.match(r3("reversion"), /0\.3 delta/);
   assert.match(r3("technicals"), /range breakdown is retired/); assert.match(r3("technicals"), /3 ATR/);
   assert.doesNotMatch(r3("earnings"), /retired|TLT|ATR/); assert.doesNotMatch(r3("macro"), /TLT|take-profit/);
@@ -770,17 +776,26 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   // Under risk sizing the premium-size switch changes no trade: no logged change.
   const sz = engineSpecs({ size: false });
   assert.equal(sz.earnings.rules.n, 4); assert.equal(sz.earnings.rules.before.n, 2, "size was the only rules-3 fix on Earnings");
-  assert.equal(sz.reversion.rules.before.n, 3); assert.doesNotMatch(sz.reversion.rules.before.note, /\$2,000/);
+  assert.equal(sz.reversion.rules.n, 5); assert.equal(rules3Of(sz.reversion.rules, "reversion").n, 3); assert.doesNotMatch(rules3Of(sz.reversion.rules, "reversion").note, /\$2,000/);
   assert.equal(sz.reversion.rules.key, ENGINES.reversion.rules.key);
-  // Every 2026-11-19 change off: back to rules 3 exactly as adopted on 2026-11-17.
+  // Every honest-paper change off: back to rules 3 exactly as adopted on
+  // 2026-11-17, with the paper trial on top where there is one (rules 4, as
+  // on main before this change).
   const step4 = Object.fromEntries(ENGINE_FIXES.filter((f) => f.step === 4).map((f) => [f.id, false]));
   const s3 = engineSpecs(step4);
-  for (const id of SIGNAL_IDS) { assert.equal(s3[id].rules.n, 3, id); assert.equal(s3[id].rules.note, r3(id), id); }
-  assert.equal(s3.reversion.rules.key, "fixes:retirePuts,bounce,size"); assert.equal(s3.technicals.rules.key, "fixes:retirePuts,size,stockStop");
+  for (const id of SIGNAL_IDS) {
+    assert.equal(s3[id].rules.n, hasTrial(id) ? 4 : 3, id);
+    assert.equal((hasTrial(id) ? s3[id].rules.before : s3[id].rules).note, r3(id), id);
+  }
+  assert.equal(s3.reversion.rules.key, "fixes:retirePuts,bounce,size|trials:rsi2Dip"); assert.equal(s3.technicals.rules.key, "fixes:retirePuts,size,stockStop");
   const s2 = engineSpecs({ ...step4, size: false });
   assert.equal(s2.earnings.rules.n, 2); assert.equal(s2.earnings.rules.note, ENGINES.earnings.rules.before.before.note);
+  // A paper trial switched off: the honest paper trades sit straight on rules 3.
+  const nt = engineSpecs(undefined, { rsi2Dip: false });
+  assert.equal(nt.reversion.rules.n, 4); assert.equal(nt.reversion.rules.before.n, 3); assert.equal(nt.reversion.setups["rsi2-dip"].retired, true);
+  assert.equal(nt.macro.rules.n, 5, "the other engine's trial is untouched");
   const allOff = engineSpecs(Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false])));
-  for (const id of SIGNAL_IDS) assert.equal(allOff[id].rules.n, 2, id);
+  for (const id of SIGNAL_IDS) assert.equal(allOff[id].rules.n, hasTrial(id) ? 3 : 2, id);
 });
 ok("fixes: option trades buy about $2,000 of premium in the record; Webull still buys one", () => {
   assert.equal(optionQty(1.2, 2000), 17); assert.equal(optionQty(30, 2000), 1, "a $3,000 contract is bought once");
@@ -850,12 +865,152 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   // Every fix off on an engine: back to rules 2's setups, logged, rules number kept.
   const allOff = Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false]));
   out = stepBook(state, emptyRecord(), bookInput({}, { engines: ["reversion"], specs: engineSpecs(allOff), fixesOff: ENGINE_FIX_IDS }));
-  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 4);
+  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 5);
   // A trade opened with a fix off carries the ones that reach its engine.
   const rv = stepBook(emptyState(), emptyRecord(), bookInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], specs: engineSpecs({ bounce: false, stockStop: false }), fixesOff: ["bounce", "stockStop"] })).opened[0];
   assert.deepEqual(rv.fixesOff, ["bounce"]);
   const tc = stepBook(emptyState(), emptyRecord(), bookInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], fixesOff: ["bounce"] })).opened[0];
   assert.equal(tc.fixesOff, undefined);
+});
+ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average, and has its own switch", () => {
+  // Registry: the RSI(2) trial on Reversion, shares only, labeled unproven, rules 4 on top of the fixes.
+  assert.deepEqual(ENGINE_TRIAL_IDS, ["rsi2Dip", "fearIndex"]);
+  const st = ENGINES.reversion.setups["rsi2-dip"];
+  assert.equal(st.trial, true); assert.equal(st.calls, "shares"); assert.match(st.label, /paper trial/); assert.match(st.how, /unproven/i);
+  // (The honest paper trades sit on top as rules 5: the trial is rules 4.)
+  assert.equal(ENGINES.reversion.rules.n, 5); assert.equal(ENGINES.reversion.rules.before.n, 4); assert.equal(ENGINES.reversion.rules.before.date, "2026-11-19");
+  assert.match(ENGINES.reversion.rules.before.note, /paper trial/); assert.match(ENGINES.reversion.rules.key, /\|trials:rsi2Dip$/);
+  assert.equal(ownerSettingDef("ENGINES_TRIAL_RSI2_DIP")?.default, true);
+  // Switches: on by default, off with its own variable or with share trades off.
+  assert.equal(engineSwitches({}).trials.rsi2Dip, true);
+  assert.equal(engineSwitches({ ENGINES_TRIAL_RSI2_DIP: "0" }).trials.rsi2Dip, false);
+  assert.equal(engineSwitches({ ENGINES_SHARES: "0" }).trials.rsi2Dip, false);
+  assert.equal(engineSpecs(undefined, { rsi2Dip: true }), ENGINES);
+  const off = engineSpecs(undefined, { rsi2Dip: false });
+  assert.equal(off.reversion.setups["rsi2-dip"].retired, true); assert.equal(off.reversion.rules.n, 4); assert.equal(off.reversion.rules.before.n, 3);
+  assert.match(off.reversion.rules.switchNote, /switched off/); assert.notEqual(off.reversion.rules.key, ENGINES.reversion.rules.key);
+  assert.deepEqual(off.technicals, ENGINES.technicals);
+  // The signal: above the 200-day with a 2-day RSI under 5; deeper scores higher.
+  const dip = (over = {}) => baseF({ c: 100, pc: 101, sma5: 102, sma20: 101, sma200: 90, z20: -0.8, rsi2: 3, move5Atr: -1, ...over });
+  const ev = (f) => evalReversion(V("DDD", f), CTX).filter((c) => c.setup === "rsi2-dip");
+  assert.equal(ev(dip()).length, 1);
+  assert.ok(ev(dip({ rsi2: 1 }))[0].score > ev(dip({ rsi2: 4.5 }))[0].score);
+  assert.equal(ev(dip({ rsi2: 6 })).length, 0); assert.equal(ev(dip({ c: 85 })).length, 0); assert.equal(ev(dip({ sma5: null })).length, 0);
+  // The book: $5,000 of stock, 10 sessions at most, stamped as a trial.
+  const t = stepBook(emptyState(), emptyRecord(), bookInput({ DDD: V("DDD", dip()) }, { engines: ["reversion"], shares: true })).opened[0];
+  assert.equal(t?.setup, "rsi2-dip"); assert.ok(isSharesTrade(t)); assert.equal(t.trial, true); assert.equal(t.exits.maxSessions, 10);
+  assert.ok(t.stopLevel < 100 && t.targetLevel > 100, "the usual ATR stop and target");
+  // Share trades off: the trial opens nothing (never a call).
+  const none = stepBook(emptyState(), emptyRecord(), bookInput({ DDD: V("DDD", dip()) }, { engines: ["reversion"], shares: false }));
+  assert.equal(none.opened.length, 0);
+  // Switched off: retired, so it is not even listed.
+  const ret = stepBook(emptyState(), emptyRecord(), bookInput({ DDD: V("DDD", dip()) }, { engines: ["reversion"], shares: true, specs: off }));
+  assert.equal(ret.opened.length, 0);
+  // The exit: a confirmed close after the signal back above the 5-day average.
+  const tr = { engine: "reversion", setup: "rsi2-dip", side: "call", signalDate: "2026-11-10" };
+  assert.equal(thesisCheck(tr, V("DDD", dip({ date: "2026-11-10", c: 103, sma5: 102 }))), null, "not on the signal bar itself");
+  assert.equal(thesisCheck(tr, V("DDD", dip({ date: "2026-11-11", c: 101, sma5: 102 }))), null);
+  assert.equal(thesisCheck(tr, V("DDD", dip({ date: "2026-11-11", c: 103, sma5: 102 }))), "target");
+  assert.equal(ENGINE_TRIALS[0].engine, "reversion");
+  // Kept apart: a washout on the same name still opens its own bounce call
+  // beside the trial, the trial uses none of Reversion's slots or run places,
+  // and a closed trial trade teaches the engine nothing.
+  const both = stepBook(emptyState(), emptyRecord(), bookInput({ CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) }, { engines: ["reversion"], shares: true }));
+  assert.deepEqual(both.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"]);
+  const many = Object.fromEntries(["D1", "D2", "D3", "D4", "D5", "D6"].map((s) => [s, V(s, dip())]));
+  const st5 = emptyState(), rec5 = emptyRecord();
+  const r1 = stepBook(st5, rec5, bookInput(many, { engines: ["reversion"], shares: true }));
+  assert.equal(r1.opened.length, ENGINES.reversion.setups["rsi2-dip"].perRun, "the trial's own run limit");
+  const tradeT = r1.opened[0]; tradeT.outcome = "loss";
+  const es5 = st5.engines.reversion;
+  const lost = stepBook(st5, rec5, bookInput({ [tradeT.symbol]: V(tradeT.symbol, dip({ c: 50, l: 49, date: "2026-12-01" })) }, { engines: ["reversion"], shares: true }));
+  assert.ok(lost.closed.some((x) => x.trial), "the trial trade closed");
+  assert.equal(es5.cooldown[tradeT.symbol], undefined, "no re-entry pause from a trial loss");
+});
+ok("paper trials and the Owner controls: Stop and Avoid hold them, Safer lets one open only on a quiet run, they count toward the daily limit", () => {
+  const dip = (over = {}) => baseF({ c: 100, pc: 101, sma5: 102, sma20: 101, sma200: 90, z20: -0.8, rsi2: 3, move5Atr: -1, ...over });
+  const ctl = (over = {}) => ({ stop: false, avoid: new Map(), watch: new Set(), catalysts: [], catalystSyms: new Set(), dial: null, any: true, limits: null, ...over });
+  const safer = { ...DIAL.safer, at: NOW_AM, until: "2026-11-27T21:00:00.000Z" };
+  const run = (views, c) => stepBook(emptyState(), emptyRecord(), bookInput(views, { engines: ["reversion"], shares: true, controls: c }));
+  // Stop: no trial trade (and no shadow), and the reason shows in Check this stock.
+  let out = run({ DDD: V("DDD", dip()) }, ctl({ stop: true }));
+  assert.equal(out.opened.length, 0); assert.equal(out.checks.DDD.find((r) => r.setup === "rsi2-dip").why, "new trades stopped by the owner");
+  assert.equal(out.checks.DDD.filter((r) => r.setup === "rsi2-dip").length, 1, "one check row per trial candidate");
+  // Avoid.
+  out = run({ DDD: V("DDD", dip()) }, ctl({ avoid: new Map([["DDD", { close: false }]]) }));
+  assert.equal(out.opened.length, 0); assert.equal(out.checks.DDD[0].why, "on the owner's avoid list");
+  // Safer: alone on the run, one trial opens (at half size); beside a real trade, none.
+  out = run(Object.fromEntries(["D1", "D2", "D3"].map((s) => [s, V(s, dip())])), ctl({ dial: safer }));
+  assert.equal(out.opened.length, 1); assert.equal(out.opened[0].trial, true);
+  assert.ok(Object.values(out.checks).flat().some((r) => /one new trade a run/.test(r.why || "")), "the others say why");
+  out = run({ CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) }, ctl({ dial: safer }));
+  assert.deepEqual(out.opened.map((x) => x.setup), ["oversold-bounce"], "the engine's own trade first, then no trial");
+  out = run({ CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) }, ctl());
+  assert.deepEqual(out.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"], "Normal: both, as before");
+  // The new-trades-a-day count includes the trial.
+  assert.equal(out.controls.newToday, 2);
+});
+ok("paper trial: index funds after extreme fear buy shares for 20 sessions, decided on confirmed closes, with their own switch", () => {
+  // Registry: on Macro, shares only, no stop or target, labeled unproven, rules 4.
+  const st = ENGINES.macro.setups["fear-index"];
+  assert.equal(st.trial, true); assert.equal(st.calls, "shares"); assert.equal(st.levels, false); assert.equal(st.exits.maxSessions, 20);
+  assert.match(st.label, /paper trial/); assert.match(st.how, /unproven/i);
+  assert.equal(ENGINES.macro.rules.n, 5); assert.equal(ENGINES.macro.rules.before.n, 4); assert.equal(ENGINES.macro.rules.before.before.n, 3); assert.match(ENGINES.macro.rules.key, /\|trials:fearIndex$/);
+  assert.equal(ownerSettingDef("ENGINES_TRIAL_FEAR_INDEX")?.default, true);
+  assert.equal(engineSwitches({}).trials.fearIndex, true);
+  assert.equal(engineSwitches({ ENGINES_TRIAL_FEAR_INDEX: "off" }).trials.fearIndex, false);
+  assert.equal(engineSwitches({ ENGINES_SHARES: "0" }).trials.fearIndex, false);
+  const off = engineSpecs(undefined, { fearIndex: false });
+  assert.equal(off.macro.setups["fear-index"].retired, true); assert.equal(off.macro.rules.n, 4); assert.equal(off.macro.rules.before.n, 3);
+  assert.equal(off.reversion.rules.n, 5, "the other trial stays on"); assert.deepEqual(off.reversion.setups, ENGINES.reversion.setups);
+  // The reading: the last two closes before today, never today's, never stale.
+  assert.deepEqual(fearReading([["2026-11-17", 30], ["2026-11-18", 22], ["2026-11-19", 10]], "2026-11-19"), { date: "2026-11-18", score: 22, prevDate: "2026-11-17", prev: 30 });
+  assert.deepEqual(fearReading([{ date: "2026-11-18", score: 22 }, { date: "2026-11-17", score: 30 }], "2026-11-19")?.prev, 30, "objects in any order");
+  assert.equal(fearReading([["2026-11-01", 30], ["2026-11-02", 22]], "2026-11-19"), null, "stale");
+  assert.equal(fearReading([["2026-11-18", 22]], "2026-11-19"), null);
+  // The signal: a first close under 25, on SPY, QQQ and IWM, with no FRED input needed.
+  const idx = Object.fromEntries(["SPY", "QQQ", "IWM"].map((s) => [s, V(s, baseF({ date: "2026-11-18" }), { isEtf: true })]));
+  const fear = (score, prev) => ({ date: "2026-11-18", score, prevDate: "2026-11-17", prev });
+  const ev = (fr) => evalMacro({ ...CTX, macro: null, byId: idx, fear: fr }).filter((c) => c.setup === "fear-index");
+  assert.deepEqual(ev(fear(22, 30)).map((c) => c.symbol), ["SPY", "QQQ", "IWM"]);
+  assert.equal(ev(fear(22, 30))[0].signalKey, "SPY|fear-index|2026-11-18");
+  assert.ok(ev(fear(10, 30))[0].score > ev(fear(24, 30))[0].score);
+  assert.equal(ev(fear(22, 24)).length, 0, "already under 25"); assert.equal(ev(fear(26, 30)).length, 0); assert.equal(ev(null).length, 0);
+  // The book: three $5,000 share trades, 20 sessions, no stop or target, trial-stamped.
+  const r = stepBook(emptyState(), emptyRecord(), bookInput(idx, { engines: ["macro"], shares: true, ctx: { ...CTX, macro: null, byId: idx, fear: fear(22, 30) } }));
+  assert.equal(r.opened.length, 3);
+  for (const t of r.opened) { assert.ok(isSharesTrade(t)); assert.equal(t.trial, true); assert.equal(t.exits.maxSessions, 20); assert.equal(t.stopLevel, null); assert.equal(t.targetLevel, null); }
+  // Switched off or share trades off: nothing.
+  assert.equal(stepBook(emptyState(), emptyRecord(), bookInput(idx, { engines: ["macro"], shares: true, specs: off, ctx: { ...CTX, macro: null, byId: idx, fear: fear(22, 30) } })).opened.length, 0);
+  assert.equal(stepBook(emptyState(), emptyRecord(), bookInput(idx, { engines: ["macro"], shares: false, ctx: { ...CTX, macro: null, byId: idx, fear: fear(22, 30) } })).opened.length, 0);
+});
+ok("paper trials are scored apart: engine stats, the page rows and live against the test", () => {
+  const sh = (setup, pnl, over = {}) => ({ engine: "reversion", setup, side: "call", status: pnl > 0 ? "target" : "stock-stop", outcome: pnl > 0 ? "win" : "loss", optionPnlPct: pnl, rulesVersion: "REV-4",
+    entryDate: "2026-11-20T16:00:00.000Z", exitDate: "2026-11-24T16:00:00.000Z", contract: { structure: "shares", mid: 100, shares: 50, usd: 5000, costPct: 0.1 }, ...over });
+  const rows = [sh("capitulation", 2), sh("capitulation", -1), ...Array.from({ length: 12 }, (_, i) => sh("rsi2-dip", i % 4 ? 1 : -2, { trial: true }))];
+  const st = engineStats(rows);
+  assert.equal(st.shares.n, 2, "the engine's own share trades only"); assert.equal(st.trials.n, 12); assert.equal(st.n, 0);
+  assert.deepEqual(st.trials.bySetup.map((r) => r.key), ["rsi2-dip"]);
+  assert.equal(engineStats(rows.filter((t) => !t.trial)).trials, null);
+  const es = newEngineState(ENGINES.reversion); es.log = [{ date: "2026-11-19", v: "REV-4", kind: "rules", text: "x" }];
+  const v = liveVsHistory(ENGINES.reversion, es, rows, [], { bySetup: [], shares: { bySetup: [{ key: "capitulation", n: 53, avg: 0.6 }] }, trials: { bySetup: [{ key: "rsi2-dip", n: 2439, avg: 0.4, winRate: 0.64 }] } });
+  const tr = v.rows.find((r) => r.key === "rsi2-dip");
+  assert.equal(tr.trial, true); assert.equal(tr.instrument, "shares"); assert.equal(tr.live.n, 12); assert.equal(tr.history.n, 2439);
+  assert.equal(v.rows.filter((r) => r.key === "rsi2-dip").length, 1, "one row for a trial");
+  assert.equal(v.rows.find((r) => r.key === "capitulation").live.n, 2);
+  // The page file: trial flag on trade and setup rows, trial stats apart.
+  const record = { ...emptyRecord(), closed: rows };
+  const view = buildEnginesView({ record, state: emptyState(), ctx: CTX, builtAtIso: NOW_AM });
+  const rev = view.engines.find((e) => e.id === "reversion");
+  assert.equal(rev.trialStats.n, 12); assert.equal(rev.sharesStats.n, 2);
+  assert.ok(rev.closed.filter((t) => t.trial).length === 12 && rev.closed.some((t) => !t.trial));
+  assert.equal(rev.setups.find((x) => x.key === "rsi2-dip").trial, true); assert.equal(rev.setups.find((x) => x.key === "capitulation").trial, false);
+  assert.equal(view.total.trials.n, 12); assert.equal(view.total.shares.n, 2);
+  assert.equal(view.compare.find((c) => c.id === "reversion").trials.n, 12);
+  // The Allocator page lists no trial setup, even with a stray table row for one.
+  const av = allocView({ alloc: { table: { "reversion|rsi2-dip|call|s": { n: 9 } } } }, {}, ENGINES, SIGNAL_IDS, null);
+  assert.ok(!av.rows.some((r) => r.setup === "rsi2-dip" || r.setup === "fear-index"), "trials sit outside the Allocator");
+  assert.ok(av.rows.some((r) => r.setup === "capitulation"));
 });
 ok("fixes: live against the history test, setup by setup, from the current rules only", () => {
   const es = newEngineState(ENGINES.reversion);
@@ -1002,7 +1157,7 @@ ok("honest: the conviction multiplier is stated part by part and clamped to 0.5x
 ok("honest: a new option trade books the ask in and the bid out; stops still fire on the mid", () => {
   const views = { AAA: V("AAA", pullF()) };
   const state = emptyState(), record = emptyRecord();
-  let out = stepBook(state, record, honestInput(views, { engines: ["technicals"], shares: false, specs: engineSpecs({ tecShares: false }, { technicals: "options" }) }));
+  let out = stepBook(state, record, honestInput(views, { engines: ["technicals"], shares: false, specs: engineSpecs({ tecShares: false }, undefined, { technicals: "options" }) }));
   const t = out.opened[0];
   assert.ok(t && !isSharesTrade(t), "an option trade");
   assert.equal(t.fill.basis, "ask-bid"); assert.equal(t.fill.entry, t.contract.ask); assert.equal(t.contract.entryFill, t.contract.ask); assert.equal(t.fill.entryMid, t.contract.mid);
@@ -1013,13 +1168,13 @@ ok("honest: a new option trade books the ask in and the bid out; stops still fir
   assert.ok(Number.isInteger(t.contract.qty) && t.contract.qty >= 1 && t.contract.qty <= 10); assert.ok(Number.isInteger(t.contract.flatQty));
   assert.equal(t.contract.size.mode, "risk"); assert.ok(t.contract.size.why.length > 20); assert.ok(Array.isArray(t.contract.size.parts) && t.contract.size.parts.length >= 1);
   // A later run: booked at the bid, the mid read kept beside it.
-  out = stepBook(state, record, honestInput(views, { engines: ["technicals"], shares: false, nowIso: NOW_PM, late: true, marksOnly: true, specs: engineSpecs({ tecShares: false }, { technicals: "options" }) }));
+  out = stepBook(state, record, honestInput(views, { engines: ["technicals"], shares: false, nowIso: NOW_PM, late: true, marksOnly: true, specs: engineSpecs({ tecShares: false }, undefined, { technicals: "options" }) }));
   const m = record.open[0];
   assert.ok(m.lastBid > 0 && m.lastBid < m.lastMid, "the bid is under the mid");
   assert.equal(m.optionPnlPct, Math.round((m.lastBid / m.fill.entry - 1) * 10000) / 100);
   assert.ok(m.markPnlPct > m.optionPnlPct, "the mid read is kinder than the booked one");
   // Fill basis off: the mid both ways, as before.
-  const old = stepBook(emptyState(), emptyRecord(), honestInput(views, { engines: ["technicals"], shares: false, fillBasis: false, specs: engineSpecs({ tecShares: false }, { technicals: "options" }) })).opened[0];
+  const old = stepBook(emptyState(), emptyRecord(), honestInput(views, { engines: ["technicals"], shares: false, fillBasis: false, specs: engineSpecs({ tecShares: false }, undefined, { technicals: "options" }) })).opened[0];
   assert.equal(old.fill, undefined); assert.equal(old.optionPnlPct, 0);
   // The page row carries the size and the fill.
   const row = buildEnginesView({ record, state, ctx: CTX, builtAtIso: NOW_AM, sizing: RISK, fixes: engineSwitches({}).fixes }).engines.find((e) => e.id === "technicals").open[0];
@@ -1079,6 +1234,47 @@ ok("honest: the extreme-fear test opens one call plus a shares twin on its own c
   assert.equal(fearGreedCtx(null), null); assert.equal(fearGreedCtx({ score: "x" }), null);
   assert.equal(fearRead({ date: TODAY, fearGreed: { score: 20, asOf: "2026-11-13" } }).ok, true, "three days back (a weekend) still counts");
 });
+ok("merged with #870/#871: Owner controls come first, the dial and limits reach the twin, and the fear test and the RSI(2) trial never share a stock", () => {
+  const fg = { ...CTX, fearGreed: { score: 18, asOf: TODAY, stale: false, source: "CNN" } };
+  const ctl = (over = {}) => ({ stop: false, avoid: new Map(), watch: new Set(), catalysts: [], catalystSyms: new Set(), dial: null, any: true, limits: null, ...over });
+  const views = () => ({ CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) });
+  const go = (over = {}, record = emptyRecord(), state = emptyState()) => ({ out: stepBook(state, record, honestInput(views(), { engines: ["reversion"], shares: true, ctx: fg, ...over })), record, state });
+  // No controls: the washout bounce, the fear test (call + twin); the RSI(2) trial leaves the stock to the fear test.
+  let { out } = go();
+  const fear = out.opened.filter((t) => t.setup === "fear-bounce");
+  assert.deepEqual(out.opened.map((t) => t.setup).sort(), ["fear-bounce", "fear-bounce", "oversold-bounce"]);
+  assert.equal(out.checks.CCC.find((r) => r.setup === "rsi2-dip").why, "the extreme-fear test already holds this name");
+  const base = { opt: fear.find((t) => !isSharesTrade(t)), twin: fear.find(isSharesTrade) };
+  // Stop and Avoid hold every new trade first: no fear call, no twin, no trial, no shadow.
+  for (const c of [ctl({ stop: true }), ctl({ avoid: new Map([["CCC", { close: false }]]) })]) {
+    const r = go({ controls: c });
+    assert.equal(r.out.opened.length, 0); assert.equal(r.out.shadowOpened, 0);
+    assert.ok(r.out.checks.CCC.every((x) => /stopped by the owner|avoid list/.test(x.why || "")), JSON.stringify(r.out.checks.CCC));
+  }
+  // Riskier: 1.5x on the sized trade and on its twin, said on the size line, stamped.
+  const riskier = { ...DIAL.riskier, at: NOW_AM, until: "2026-11-27T21:00:00.000Z" };
+  ({ out } = go({ controls: ctl({ dial: riskier }) }));
+  const rOpt = out.opened.find((t) => t.setup === "fear-bounce" && !isSharesTrade(t)), rTwin = out.opened.find((t) => t.setup === "fear-bounce" && isSharesTrade(t));
+  assert.equal(rOpt.contract.qty, Math.max(1, Math.round(base.opt.contract.qty * 1.5)));
+  assert.equal(rTwin.contract.shares, Math.floor(base.twin.contract.shares * 1.5)); assert.match(rTwin.contract.size.why, /risk dial/);
+  assert.ok(rTwin.ownerControls && rOpt.ownerControls, "both carry the controls stamp");
+  // A name limit that the option fits under and the twin would pass: the option opens, the twin does not.
+  const optUsd = positionUsd(base.opt.contract) + positionUsd(out.opened.find((t) => t.setup === "oversold-bounce")?.contract || {});
+  const lim = { any: true, openUsd: null, dayLossUsd: null, newPerDay: null, nameUsd: Math.ceil(optUsd + positionUsd(base.opt.contract) + 1) };
+  ({ out } = go({ controls: ctl({ limits: lim }) }));
+  assert.ok(out.opened.some((t) => t.setup === "fear-bounce" && !isSharesTrade(t)), "the fear call opens");
+  assert.ok(!out.opened.some((t) => t.setup === "fear-bounce" && isSharesTrade(t)), "the twin passes the name limit");
+  assert.match(out.candidates.reversion.find((r) => r.setup === "fear-bounce").twinWhy || "", /shares twin not opened: account limit/);
+  // The twin counts toward the new-trades-a-day limit like any new trade.
+  ({ out } = go({ controls: ctl({ limits: { any: true, openUsd: null, dayLossUsd: null, nameUsd: null, newPerDay: 50 } }) }));
+  assert.equal(out.controls.newToday, out.opened.length);
+  // A paper trial already holding the stock keeps it: the fear test stands aside, the washout bounce still opens.
+  const record = emptyRecord();
+  record.open.push({ engine: "reversion", setup: "rsi2-dip", trial: true, symbol: "CCC", side: "call", tradeId: "MR-CCC-T", entryDate: NOW_AM, contract: { structure: "shares", shares: 10, mid: 90 } });
+  ({ out } = go({}, record));
+  assert.deepEqual(out.opened.map((t) => t.setup), ["oversold-bounce"]);
+  assert.equal(out.checks.CCC.find((r) => r.setup === "fear-bounce").why, "a paper trial already holds this name");
+});
 ok("honest: a test trade's results never move the engine's own learning", () => {
   const es = newEngineState(ENGINES.reversion);
   const t = (p, test) => ({ setup: test ? "fear-bounce" : "oversold-bounce", side: "call", optionPnlPct: p, exitDate: "2026-11-20", entryDate: "2026-11-18", score: 70, ...(test ? { test: true } : {}) });
@@ -1090,10 +1286,18 @@ ok("honest: a test trade's results never move the engine's own learning", () => 
   assert.ok(adapt(es, ENGINES.reversion, { today: "2026-11-20" }).some((c) => c.kind === "pause"), "the engine's own losses still pause it");
 });
 ok("honest: rules 4 is adopted once on a running engine, and every new trade says how it was sized", () => {
-  const es = newEngineState(ENGINES.reversion); es.rules = 3; es.rulesKey = "fixes:retirePuts,bounce,size";
+  // Reversion as it runs on main after #870 (rules 4, the paper trial): one change to rules 5.
+  const es = newEngineState(ENGINES.reversion); es.rules = 4; es.rulesKey = "fixes:retirePuts,bounce,size|trials:rsi2Dip";
   const made = adoptRules(es, ENGINES.reversion, TODAY);
-  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\)/); assert.equal(es.rules, 4);
+  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.equal(es.rules, 5);
   assert.equal(adoptRules(es, ENGINES.reversion, TODAY), null);
+  // An engine still on rules 3 gets both notes in one change, the trial first.
+  const es3b = newEngineState(ENGINES.reversion); es3b.rules = 3; es3b.rulesKey = "fixes:retirePuts,bounce,size";
+  const both = adoptRules(es3b, ENGINES.reversion, TODAY);
+  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 5);
+  // Earnings (no trial): rules 3 to 4.
+  const ee = newEngineState(ENGINES.earnings); ee.rules = 3; ee.rulesKey = "fixes:size";
+  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 4);
   // Shares on the conviction size with the flat size kept.
   const sh = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true })).opened[0];
   assert.ok(isSharesTrade(sh)); assert.ok(Number.isInteger(sh.contract.flatShares)); assert.equal(sh.contract.size.mode, "risk"); assert.match(sh.contract.size.why, /a share/);
@@ -1283,9 +1487,11 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
     await writeEngineFiles(dir, res);
     opened += res.summary.opened; closed += res.summary.closed; runs++; lastView = res.view;
     // Core engines are outside the book's per-run limit (share trades never reach Webull).
-    assert.ok(res.summary.opened - res.summary.openedCore <= BOOK.perRunTotal);
+    // Paper trials are outside it too (their own slots and run limit).
+    assert.ok(res.summary.opened - res.summary.openedCore - res.summary.openedTrial <= BOOK.perRunTotal);
     assert.deepEqual(res.summary.errors, []);
-    for (const id of ENGINE_IDS) assert.ok(res.record.open.filter((t) => t.engine === id).length <= ENGINES[id].slots, id);
+    for (const id of ENGINE_IDS) assert.ok(res.record.open.filter((t) => t.engine === id && !t.trial).length <= ENGINES[id].slots, id);
+    for (const t of ENGINE_TRIALS) assert.ok(res.record.open.filter((x) => x.trial && x.setup === t.setup).length <= ENGINES[t.engine].setups[t.setup].slots, t.id);
     assert.equal(res.summary.late, hhmm === "20:30");
   }
   assert.ok(opened >= 3, `opened ${opened}`);
@@ -1335,7 +1541,8 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
   assert.equal(view.allocator.mode, "advise"); assert.equal(view.allocator.cell, "up-calm");
   assert.ok(view.allocator.rows.length >= SIGNAL_IDS.length);
   assert.ok(view.allocator.rows.every((r) => SIGNAL_IDS.includes(r.engine)));
-  assert.ok(rec.open.filter((t) => SIGNAL_IDS.includes(t.engine)).every((t) => t.alloc && t.alloc.mode === "advise"), "every signal trade carries the Allocator's stamp");
+  assert.ok(rec.open.filter((t) => SIGNAL_IDS.includes(t.engine) && !t.trial).every((t) => t.alloc && t.alloc.mode === "advise"), "every signal trade carries the Allocator's stamp");
+  assert.ok(rec.open.filter((t) => t.trial).every((t) => !t.alloc), "paper trials are outside the Allocator");
   assert.ok(rec.open.filter((t) => CORE_IDS.includes(t.engine)).every((t) => !t.alloc), "core holdings are not allocated");
   assert.equal(view.engines.find((e) => e.id === "technicals").history.live.n, 3);
   assert.ok(view.engines.find((e) => e.id === "technicals").replay?.held, "the recent replay is on the page");
