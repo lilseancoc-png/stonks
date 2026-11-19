@@ -363,9 +363,37 @@ export function renderViewsNextJs() {
     tip.hidden = false;
   });
 
+  // Breadth can be read on our tracked stocks (market-map.json) or on the
+  // wide list (wide-tier.json: S&P 500 + Nasdaq-100 members), same shape.
+  // Display only: nothing that grades or picks reads the wide breadth.
+  function mmBreadthSrc(d){
+    var src = mmView('breadthSrc', 'tracked') === 'wide' ? 'wide' : 'tracked';
+    if (src === 'tracked') return { src: src, b: d.breadth, note: (d.notes && d.notes.breadth) || '', label: 'tracked stocks' };
+    if (!mmState.wideLoaded){
+      if (!mmState.wideLoading){
+        mmState.wideLoading = true;
+        vnJson('wide-tier.json').then(function(j){ mmState.wideLoading = false; mmState.wideLoaded = true; mmState.wide = j; renderMarketMap(); });
+      }
+      return { src: src, msg: 'Loading the S&P 500 and Nasdaq-100 list…' };
+    }
+    var w = mmState.wide;
+    if (!w) return { src: src, msg: 'The wide list could not be loaded or has not been built yet. The tracked view still works.' };
+    if (w.enabled === false) return { src: src, msg: 'The wide list is turned off right now (Owner Settings, Data & desks).' };
+    var m = w.members || {};
+    return { src: src, b: w.breadth, label: 'S&P 500 + Nasdaq-100 members',
+      note: 'S&P 500 and Nasdaq-100 members (' + (m.count || '') + ' names, lists as of ' + (m.asOf || 'unknown') + '), daily closes from Yahoo. A new 52-week high or low beats the highest or lowest close of the 251 sessions before. Display only: the Top Picks breadth input still reads the tracked stocks.' };
+  }
+  function mmBreadthSwitchHtml(src){
+    return '<div class="mm-src" role="group" aria-label="Which stocks to count">' +
+      '<button type="button" data-mm-breadth-src="tracked" aria-pressed="' + (src === 'tracked') + '">Tracked stocks</button>' +
+      '<button type="button" data-mm-breadth-src="wide" aria-pressed="' + (src === 'wide') + '">S&amp;P 500 + Nasdaq-100</button></div>';
+  }
   function mmBreadthHtml(d){
-    var b = d.breadth;
-    if (!b || !Array.isArray(b.dates) || b.dates.length < 20) return '<p class="mm-empty">Not enough history to draw breadth yet.</p>';
+    var bs = mmBreadthSrc(d);
+    var sw = mmBreadthSwitchHtml(bs.src);
+    if (bs.msg) return sw + '<p class="mm-empty">' + escapeHtml(bs.msg) + '</p>';
+    var b = bs.b;
+    if (!b || !Array.isArray(b.dates) || b.dates.length < 20) return sw + '<p class="mm-empty">Not enough history to draw breadth yet.</p>';
     var L = b.dates.length - 1;
     function last(arr){ for (var i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; }
     function avg10(arr){ var s = 0, n = 0; for (var i = Math.max(0, arr.length - 10); i < arr.length; i++) if (arr[i] != null){ s += arr[i]; n++; } return n ? s / n : null; }
@@ -376,16 +404,17 @@ export function renderViewsNextJs() {
       ['New 52-week lows', b.lo[L] != null ? String(b.lo[L]) : '—'],
       ['Volume in rising stocks (10-day avg)', vnPct(avg10(b.upv), 0, false)]
     ];
-    return '<p class="mm-lede">How many of the tracked stocks are taking part. A rising market with a shrinking share of stocks above their averages is a narrow rally.</p>' +
+    return sw + '<p class="mm-lede">How many of the ' + (bs.src === 'wide' ? 'S&amp;P 500 and Nasdaq-100 stocks' : 'tracked stocks') + ' are taking part. A rising market with a shrinking share of stocks above their averages is a narrow rally.</p>' +
       '<div class="mm-kpis">' + kpis.map(function(k){ return '<div class="mm-kpi"><span>' + escapeHtml(k[0]) + '</span><b>' + escapeHtml(k[1]) + '</b></div>'; }).join('') + '</div>' +
       '<h3 class="mm-h3">Share of stocks above their averages, with SPY</h3><div id="mm-breadth-1" class="mm-ck"></div>' +
       '<h3 class="mm-h3">New 52-week highs and lows</h3><div id="mm-breadth-2" class="mm-ck"></div>' +
       '<h3 class="mm-h3">Share of volume in rising stocks (10-day average)</h3><div id="mm-breadth-3" class="mm-ck"></div>' +
-      '<p class="mm-note">' + escapeHtml((d.notes && d.notes.breadth) || '') + ' ' + (b.n && b.n[L] ? b.n[L] + ' stocks counted on the latest day.' : '') + '</p>';
+      '<p class="mm-note">' + escapeHtml(bs.note) + ' ' + (b.n && b.n[L] ? b.n[L] + ' stocks counted on the latest day.' : '') + '</p>';
   }
   function mmMountBreadth(d){
-    var b = d.breadth;
-    if (!b || !b.dates) return;
+    var bs = mmBreadthSrc(d);
+    var b = bs.b;
+    if (bs.msg || !b || !b.dates || b.dates.length < 20) return;
     function ser(arr){ return b.dates.map(function(t, i){ return { time: t, value: arr[i] }; }); }
     var pctFmt = function(v){ return v == null ? '' : Math.round(v) + '%'; };
     var h1 = CHART_KIT.mount(document.getElementById('mm-breadth-1'), {
@@ -394,7 +423,7 @@ export function renderViewsNextJs() {
         { name: '% above 50-day', short: '50d', type: 'line', data: ser(b.a50), format: pctFmt },
         { name: '% above 200-day', short: '200d', type: 'line', data: ser(b.a200), format: pctFmt },
         { name: 'SPY', short: 'SPY', type: 'line', axis: 'left', data: ser(b.spy), dashed: true, width: 1, format: function(v){ return '$' + Number(v).toFixed(0); } }
-      ], source: 'Daily closes · tracked stocks'
+      ], source: 'Daily closes · ' + bs.label
     });
     var hl = [];
     b.dates.forEach(function(t, i){
@@ -445,6 +474,12 @@ export function renderViewsNextJs() {
   }
 
   document.addEventListener('click', function(ev){
+    var bsrc = ev.target && ev.target.closest ? ev.target.closest('[data-mm-breadth-src]') : null;
+    if (bsrc){
+      mmSetView('breadthSrc', bsrc.getAttribute('data-mm-breadth-src') === 'wide' ? 'wide' : null);
+      renderMarketMap();
+      return;
+    }
     var t = ev.target && ev.target.closest ? ev.target.closest('[data-mm-tab]') : null;
     if (!t) return;
     mmSetView('tab', t.getAttribute('data-mm-tab'));

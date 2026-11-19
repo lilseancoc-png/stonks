@@ -12,7 +12,7 @@ const pick = { symbol: "TEST", side: "call", entryDate: "2026-10-28T19:33:00Z", 
   legs: [{ qty: 1, strike: 100, type: "call", expiry: EXP }, { qty: -1, strike: 110, type: "call", expiry: EXP }] } };
 const id = pickTradeId(pick), start = Date.parse("2026-10-28T19:35:00Z");
 function fixture() {
-  const orders = new Map(), submitted = [], cancelled = [];
+  const orders = new Map(), submitted = [], cancelled = [], pauses = [];
   let ledger, saved, delayCancel = false, quote = { bid: 0.9, ask: 1.15 };
   const client = {
     accountList: async () => [{ account_id: "PAPER" }],
@@ -44,13 +44,13 @@ function fixture() {
     },
   };
   const acc = { builtAtIso: pick.entryDate, open: [pick], closed: [] };
-  return { orders, submitted, cancelled, client, acc,
+  return { orders, submitted, cancelled, pauses, client, acc,
     get ledger() { return ledger; }, get saved() { return saved; },
     quote(q) { quote = q; }, delay(v) { delayCancel = v; },
     fill(index, price, quantity = 1) { const o = orders.get(submitted[index].client_order_id); o.status = quantity === Number(o.body.quantity) ? "FILLED" : "PARTIAL_FILLED"; o.filledQty = quantity; o.fillPrice = price; o.fillIso = "2026-10-28T19:52:00Z"; },
     async run(nowMs, extra = {}) {
       const r = await runWebullMirror({ client, accountId: "PAPER", acc, ledger, nowMs, quoteFn: async () => quote,
-        checkpoint: async l => { saved = structuredClone(l); }, clock: () => 0, ...extra });
+        checkpoint: async l => { saved = structuredClone(l); }, clock: () => 0, pause: async (ms) => { pauses.push(ms); }, ...extra });
       ledger = r.ledger; return r;
     },
   };
@@ -129,7 +129,12 @@ const f = fixture();
 await f.run(start); assert.equal(f.submitted[0].limit_price, "1.02");
 await f.run(start + 60000); assert.equal(f.submitted.length, 1);
 f.delay(true);
-await f.run(start + 120000); assert.equal(f.submitted.length, 1); assert.equal(f.ledger.trades[id].entryAttempts.length, 1);
+{
+  const r = await f.run(start + 120000); assert.equal(f.submitted.length, 1); assert.equal(f.ledger.trades[id].entryAttempts.length, 1);
+  assert.deepEqual(f.pauses, [1000, 2000], "a cancel still working is read again after 1 s and 2 s before it is called unconfirmed");
+  assert.deepEqual(r.summary.errorKinds, { "cancel unconfirmed": 1 });
+  assert.equal(f.ledger.trades[id].entryAttempts[0].status, "CANCEL_FAILED");
+}
 f.orders.get(f.submitted[0].client_order_id).status = "CANCELLED";
 await f.run(start + 180000); assert.equal(f.submitted[1].limit_price, "1.04");
 await f.run(start + 300000); assert.equal(f.submitted.length, 2); assert.equal(f.cancelled.length, 1, "final normal order keeps working");
@@ -144,6 +149,36 @@ await f.run(Date.parse("2026-10-28T19:52:00Z"), { endOfDayOnly: true });
 assert.equal(f.ledger.trades[id].fillPrice, 1.03);
 assert.match(f.ledger.trades[id].labels.join(" "), /3.0% above engine/);
 assert.equal(f.ledger.trades[id].state, "open");
+
+// Webull answers a cancel before it applies it (first live sized window,
+// 2026-11-19). A cancel that lands by the next read is confirmed in the same
+// run and the re-priced order goes out then, not on a later follow-up.
+{
+  const g = fixture(); await g.run(start); await g.run(start + 60000);
+  const base = g.client.orderDetail;
+  g.client.cancelOrder = async (_, coid) => { g.cancelled.push(coid); g.orders.get(coid).readsBeforeCancel = 1; };
+  g.client.orderDetail = async (acct, coid) => {
+    const o = g.orders.get(coid);
+    if (o && o.readsBeforeCancel !== undefined && o.readsBeforeCancel-- <= 0) { o.status = "CANCELLED"; delete o.readsBeforeCancel; }
+    return base(acct, coid);
+  };
+  const r = await g.run(start + 120000);
+  assert.deepEqual(g.pauses, [1000], "one wait was enough");
+  assert.equal(r.summary.errors, 0); assert.equal(r.summary.errorKinds, undefined);
+  assert.equal(g.ledger.trades[id].entryAttempts[0].status, "CANCELLED");
+  assert.equal(r.summary.cancelled, 1);
+  assert.equal(g.submitted.length, 2); assert.equal(g.submitted[1].limit_price, "1.04", "the re-price goes out in the same run");
+  // Near the end of the run's time budget the mirror does not wait; the
+  // cancel is left unconfirmed and the next run reads it again.
+  const h = fixture(); await h.run(start); await h.run(start + 60000); h.delay(true);
+  const late = await h.run(start + 120000, { budgetMs: 5500 });
+  assert.deepEqual(h.pauses, [], "no wait that could run past the time budget");
+  assert.deepEqual(late.summary.errorKinds, { "cancel unconfirmed": 1 });
+  h.orders.get(h.submitted[0].client_order_id).status = "CANCELLED";
+  await h.run(start + 180000);
+  assert.equal(h.ledger.trades[id].entryAttempts[0].status, "CANCELLED", "the next run settles an unconfirmed cancel from the broker's own record");
+  assert.equal(h.submitted.length, 2); assert.equal(h.submitted[1].limit_price, "1.04");
+}
 
 // Site closes: 2% then 4%, and the close deadline removes the normal floor.
 f.acc.open = []; f.acc.closed = [{ ...pick, exitDate: "2026-10-28T19:52:00Z", status: "hit-tp-prem", optionPnlPct: 25 }];

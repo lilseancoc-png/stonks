@@ -33,7 +33,9 @@ async function trigger() {
     : body?.error ? `, failed (${["code", "status", "kind"].filter((k) => body[k] != null).map((k) => `${k} ${String(body[k]).slice(0, 40)}`).join(", ") || "no code"}${body.detail ? `: ${String(body.detail).slice(0, 120)}` : ""})`
     : body?.ran === true ? `, ran${body.summary?.note ? ` (${String(body.summary.note).slice(0, 60)})` : ""}${body.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors${describeKinds(body.summary.errorKinds) ? ` (${describeKinds(body.summary.errorKinds)})` : ""}` : ""}` : "";
   const kinds = describeReviewKinds(body?.summary);
-  console.log(`Webull mirror: HTTP ${res.status}${why}${body?.summary?.alerts ? `, review required (${kinds ? `${kinds}; ` : ""}Owner Webull test view)` : ""}`);
+  // Warnings (fixed words, e.g. the cash check could not run) never fail the window.
+  const warn = describeKinds(body?.summary?.warnings);
+  console.log(`Webull mirror: HTTP ${res.status}${why}${warn ? `, warning (${warn})` : ""}${body?.summary?.alerts ? `, review required (${kinds ? `${kinds}; ` : ""}Owner Webull test view)` : ""}`);
   return { ok: res.ok, body };
 }
 try {

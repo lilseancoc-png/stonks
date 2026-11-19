@@ -62,7 +62,8 @@ import { MACRO_HISTORY_KEEP, VIX_RANK_WINDOW, macroLevelsFromBackdrop, macroLeve
 import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIONS_BACKFILL_VERSION, TREASURY_AUCTIONS_BACKFILL_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
 import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
-import { buildMarketMap, MARKET_MAP_FILE } from "../lib/market-map.mjs";
+import { buildMarketMap, MARKET_MAP_FILE, barsOf as marketMapBarsOf } from "../lib/market-map.mjs";
+import { runWideTier, wideTierEnabled, WIDE_TIER_KEY, WIDE_TIER_STATE_KEY, WIDE_QUOTE_FIELDS, WIDE_LIMITS, fetchWideListText, carryIntraday, unusualSymbols } from "../lib/wide-tier.mjs";
 import { buildSiteSnapshot, nextSiteChanges, SITE_CHANGES_FILE } from "../lib/site-changes.mjs";
 import { buildMarketDays, buildMarketDayBriefs, MARKET_DAYS_FILE, MARKET_DAYS_BRIEFS_FILE } from "../lib/market-days.mjs";
 import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
@@ -130,7 +131,7 @@ import { OVERNIGHT_TONE, OVERNIGHT_TONE_VERSION } from "../lib/overnight-tone.mj
 import { buildOvernightCall, priorUsSession, isBeforeUsOpen, etParts as overnightEtParts, preOpenCutoffMs, usCloseMs as overnightUsCloseMs, sigmaPct as overnightSigmaPct, fitAsiaEcho } from "../lib/overnight-inputs.mjs";
 import { fetchOvernightSeries } from "../lib/overnight-fetch.mjs";
 import { mergeOvernightLog, overnightLogSummary, OVERNIGHT_LOG_KEY, OVERNIGHT_PREOPEN_KEY } from "../lib/overnight-log.mjs";
-import { sectorGroupOfLabel } from "../lib/sector-groups.mjs";
+import { sectorGroupOfLabel, SECTOR_GROUP_ORDER } from "../lib/sector-groups.mjs";
 import { outcomeFromPnl, realFillMark, exitDetailFor, mergeArchive } from "../lib/track-record-fills.mjs";
 import { assessDecisionInputsBeforeAi, pruneUnpublishableTickers } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
@@ -261,16 +262,21 @@ export const TICKERS = [
   "DELL", "ASML", "VST",
   // Software / SaaS / cloud / space / consumer / semis / hardware
   "NOW", "MDB", "ACN", "OKTA", "SNOW",
-  "RKLB", "CRM", "ASTS", "FTNT", "INTU", "TEAM",
-  "NKE", "PANW", "DIS", "IBM", "QCOM",
-  "HD", "PLTR", "PYPL", "DDOG",
-  "SBUX", "ANET", "TXN", "INTC", "SMCI", "NVO",
+  "RKLB", "CRM", "FTNT", "INTU", "TEAM",
+  "NKE", "PANW", "IBM", "QCOM",
+  "HD", "PLTR", "DDOG",
+  "SBUX", "ANET", "TXN", "INTC", "NVO",
   "CRWV", "MRVL", "AMAT", "MU", "BE", "SNDK",
   "WDC", "DRAM",
   // Space — launch
   "SPCX",
-  // Added coverage — AI silicon, Arm IP, DC infra, retail
-  "CBRS", "ARM", "VRT", "TGT",
+  // Added coverage — Arm IP, DC infra, retail
+  "ARM", "VRT", "TGT",
+  // SMCI, ASTS, DIS, CBRS and PYPL moved to the wide tier on 2026-11-19 (user
+  // decision, engine roadmap): no chain, grade or AI read; they stay on the
+  // wide heat map (lib/wide-tier.mjs WIDE_EXTRAS) and keep their SECTORS
+  // labels below for old Track Record rows. Open Top Picks and engine trades
+  // on them close as not-counted "left-coverage" at the next run.
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
@@ -20787,7 +20793,8 @@ export function buildPutCallAxisInput(chains) {
 // rotation often LEADS the index level. Pure + exported; attached to
 // macroBackdrop.rotation in main() + regen-picks. Baked-only (needs the whole
 // universe, so the browser can't refresh it live — it carries the baked score).
-const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "SMCI", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "CRWD", "DDOG"];
+// SMCI left the basket on 2026-11-19 when it moved to the wide tier (no chain).
+const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "CRWD", "DDOG"];
 const ROTATION_DEFENSE = ["WMT", "COST", "SBUX", "LLY", "UNH"];
 export function buildRotationAxisInput(chains) {
   const pnum = marketAnalysis.number;
@@ -31782,6 +31789,60 @@ async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null, prio
   };
 }
 
+// Wide tier (lib/wide-tier.mjs, 2026-11-19): S&P 500 + Nasdaq-100 members
+// watched with rules only. Public wide-tier.json (heat map Wide view, sector
+// table, worth a look, wide breadth on Market map, MCP) and the private bar
+// store wide-tier-state.json. Network: batched Yahoo quotes after the close
+// (about 11 calls), two years of daily bars the first time a name is seen
+// (WIDE_BACKFILL_PER_RUN, default 150 a bake), a Yahoo profile for names the
+// S&P list doesn't classify (up to 40 a bake, cached), and the two member
+// lists at most once every 30 days. No AI. Non-fatal: a failure keeps the
+// prior files. WIDE_TIER=0 writes the off stub and keeps the bar store.
+async function writeWideTierFiles({ chains, unusual, builtAtIso, priorState = null, priorPayload = null }) {
+  const enabled = wideTierEnabled(process.env);
+  try {
+    let seedMembers = null;
+    try { seedMembers = JSON.parse(await readFile(resolve(ROOT, "lib/wide-tier-members.json"), "utf8")); } catch { seedMembers = null; }
+    const tracked = TICKERS.filter((s) => sectorGroupOf(s) && sectorGroupOf(s) !== "ETF");
+    const perRun = Number(process.env.WIDE_BACKFILL_PER_RUN);
+    const out = await runWideTier({
+      // A copy, so a failure part-way leaves the prior store intact for the
+      // catch below.
+      enabled, builtAtIso, priorState: priorState ? structuredClone(priorState) : null, seedMembers, tracked, unusual,
+      groupOf: (s) => sectorGroupOf(s), groupOrder: SECTOR_GROUP_ORDER.filter((g) => g !== "ETF"),
+      chainBarsOf: (s) => (chains?.[s] ? marketMapBarsOf(chains[s]) : null),
+      chainProfileOf: (s) => { const f = chains?.[s]?.fundamentals; return f ? { sector: f.sector || null, industry: f.industry || null, name: f.name || null } : null; },
+      quote: (list) => yahooFinance.quote(list, { fields: [...WIDE_QUOTE_FIELDS] }),
+      chart: (sym, query) => chartSkippingSchemaErrors(sym, query),
+      profile: async (sym) => {
+        const r = await yahooFinance.quoteSummary(sym, { modules: ["assetProfile", "price"] }, { validateResult: false });
+        return { sector: r?.assetProfile?.sector || null, industry: r?.assetProfile?.industry || null, name: r?.price?.longName || r?.price?.shortName || null };
+      },
+      fetchText: fetchWideListText,
+      backfillPerRun: Number.isFinite(perRun) && perRun >= 0 ? perRun : WIDE_LIMITS.backfillPerRun,
+      log: (m) => console.log(`  · wide tier: ${m}`),
+    });
+    if (out.state) await writeFile(resolve(DATA_DIR, WIDE_TIER_STATE_KEY), JSON.stringify(out.state), "utf8");
+    // In-session bakes have closes only; keep the hourly job's intraday marks.
+    if (enabled && !out.postClose) {
+      const kept = carryIntraday(out.payload, priorPayload, { nowMs: Date.parse(builtAtIso) || Date.now(), groupOrder: SECTOR_GROUP_ORDER.filter((g) => g !== "ETF"), unusual: unusualSymbols(unusual, Date.parse(builtAtIso) || Date.now()) });
+      if (kept.carried) { out.payload = kept.payload; console.log(`  · wide tier: kept today's intraday marks for ${kept.carried} names`); }
+    }
+    const json = JSON.stringify(out.payload);
+    await writeFile(resolve(DATA_DIR, WIDE_TIER_KEY), json, "utf8");
+    const c = out.cost;
+    console.log(enabled
+      ? `wrote data/${WIDE_TIER_KEY} — ${out.payload.counts?.names ?? 0} names (${out.payload.counts?.missing ?? 0} still loading), ${json.length} bytes; Yahoo: ${c.quoteCalls} quote, ${c.chartCalls} chart (${c.chartFailed} failed), ${c.profileCalls} profile calls; ${c.memberReads} member-list reads; backlog ${out.backlog}; ${(out.ms / 1000).toFixed(1)}s${out.postClose ? " (post-close bar)" : ""}`
+      : `wrote data/${WIDE_TIER_KEY} — switched off (WIDE_TIER=0)`);
+  } catch (err) {
+    console.log(`  ⚠ wide tier failed (non-fatal, prior files kept): ${err?.message || err}`);
+    try {
+      if (priorState) await writeFile(resolve(DATA_DIR, WIDE_TIER_STATE_KEY), JSON.stringify(priorState), "utf8");
+      if (priorPayload) await writeFile(resolve(DATA_DIR, WIDE_TIER_KEY), JSON.stringify({ ...priorPayload, stale: true }), "utf8");
+    } catch { /* nothing more to keep */ }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Global market correlations (data/correlations.json) — see GLOBAL_MARKETS.
 const GLOBAL_HISTORY_DAYS = PATTERN_HISTORY_DAYS;
@@ -39927,6 +39988,10 @@ async function main() {
   // carries them forward (and records today's close after the bell).
   const priorHeatmapRotation = await readPriorHeatmapSectorRotation();
   const priorMarketAnalysis = await readPriorMarketAnalysis();
+  // Wide tier (lib/wide-tier.mjs): its bar store and last public file, read
+  // before the wipe; the step after the new views writes both back.
+  const priorWideState = await readPriorDataJson(WIDE_TIER_STATE_KEY);
+  const priorWide = await readPriorDataJson(WIDE_TIER_KEY);
   // Prior correlations snapshot — fall back to it if tonight's foreign sweep
   // came back too thin (graceful degradation; data/ is about to be wiped).
   const priorCorrelations = await readPriorCorrelations();
@@ -42322,6 +42387,7 @@ async function main() {
   // from data already in memory or just written; no fetch, no AI. Each is
   // non-fatal and leaves the prior copy (or nothing) on failure.
   await writeNewViewFiles({ chains, oiTracker, unusual, builtAtIso, priorSiteChanges, priorMarketDays, priorMarketDayBriefs });
+  await writeWideTierFiles({ chains, unusual, builtAtIso, priorState: priorWideState, priorPayload: priorWide });
   // Data source health (lib/source-health.mjs): reads the payloads written
   // above and records what each outside source delivered (newest observation,
   // carried parts, failed source checks) plus a 60-day day history. Owner-only,
