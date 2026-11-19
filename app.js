@@ -8425,7 +8425,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engCap(s){ s = String(s == null ? '' : s); return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'; }
   function engSide(s){ return s === 'put' ? '<span class="eng-side eng-put">Put</span>' : '<span class="eng-side eng-call">Call</span>'; }
   // A trade's badge: Shares for a share trade (2026-11-17), else Call / Put.
-  function engSideT(t){ return engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side); }
+  function engSideT(t){ return (engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side)) + (t && t.trial ? ENG_TRIAL_BADGE : ''); }
+  // Paper trials (2026-11-19): unproven setups, scored apart from the engine.
+  var ENG_TRIAL_BADGE = ' <span class="eng-side eng-trial" title="An unproven setup on paper, scored apart from the engine">Paper trial</span>';
   // Exit plan of one open trade: premium exits for an option, stock levels for shares.
   function engExitPlan(t){ var x = t.exits || {}; if (engIsShares(t) && t.stopLevel == null && t.targetLevel == null && !x.maxSessions && !t.exitBy) return 'Held until a monthly check swaps it'; return (engIsShares(t) ? 'Stock levels' + (x.maxSessions ? '<div class="crd-dim">' + x.maxSessions + ' sessions at most</div>' : '') : (x.tp == null ? 'no take-profit' : '+' + x.tp + '%') + ' / ' + (x.stop == null ? 'no stop' : x.stop + '%')) + (t.exitBy ? '<div class="crd-dim">out by ' + escapeHtml(engDay(t.exitBy)) + '</div>' : '') + (t.stopLevel != null ? '<div class="crd-dim">stock stop ' + engMoney(t.stopLevel) + '</div>' : '') + (t.targetLevel != null ? '<div class="crd-dim">stock target ' + engMoney(t.targetLevel) + '</div>' : ''); }
   function engPill(text, cls){ return '<span class="evb-pill ' + (cls || 'evb-s-unclear') + '">' + escapeHtml(text) + '</span>'; }
@@ -8677,7 +8679,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var st = ENG_VS_READ[r.read] || ENG_VS_READ['too-early'], sh = r.instrument === 'shares', dp = sh ? 2 : 1;
       if (r.modelGain) caveat = true;
       var diff = r.diff == null ? '—' : '<span class="' + slpSign(r.diff) + '">' + (r.diff > 0 ? '+' : '') + Number(r.diff).toFixed(1) + ' pts</span>';
-      return '<tr><td><b>' + escapeHtml(r.label) + '</b>' + (sh ? ' <span class="eng-side eng-shr">Shares</span>' : '') + (r.modelGain ? '<div class="crd-dim">Test gain mostly from the price model *</div>' : '') + '</td>' +
+      return '<tr><td><b>' + escapeHtml(r.label) + '</b>' + (sh ? ' <span class="eng-side eng-shr">Shares</span>' : '') + (r.trial ? ENG_TRIAL_BADGE : '') + (r.modelGain ? '<div class="crd-dim">Test gain mostly from the price model *</div>' : '') + '</td>' +
         '<td class="num">' + (r.live.n || 0) + (r.live.open ? '<div class="crd-dim">' + r.live.open + ' open</div>' : '') + '</td><td class="num">' + engPnl(r.live.avg, dp) + '</td><td class="num">' + engRate(r.live.winRate) + '</td>' +
         '<td class="num">' + (r.history ? (r.history.n || 0) : '—') + '</td><td class="num">' + (r.history ? engPnl(r.history.avg, dp) : '—') + '</td><td class="num">' + (r.history ? engRate(r.history.winRate) : '—') + '</td>' +
         '<td class="num">' + diff + '</td><td>' + engPill(st[0] + (r.read === 'too-early' ? ' (' + (r.live.n || 0) + ' of ' + lim.minLive + ')' : ''), st[1]) + '</td></tr>';
@@ -8697,6 +8699,10 @@ function recoveryEvidence(row, data, now = Date.now()) {
         engShareKpis(e.sharesStats, [['Open now', (e.sharesStats.open || 0) + ' (' + engUsd(e.sharesStats.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', e.sharesStats.maxDrawdownUsd ? '−$' + Number(e.sharesStats.maxDrawdownUsd).toLocaleString('en-US') : '—']]) +
         engCurveHtml(e.sharesStats.curve, e.name + ' share trades, running total in dollars') +
         ((e.sharesStats.bySetup || []).length ? engDetails('Share trades by setup', engSplitTable(e.sharesStats.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true)) : '')) : '') +
+      (e.trialStats ? slpSection('eng-trials', 'Paper trials', '<p class="evb-note">Unproven setups on paper, added to see how they do live. They buy stock, use their own slots, teach the engine nothing and are scored here on their own, never mixed into the engine’s numbers above. In the history test their edge over random entries held for the same number of sessions was small, so read this record as the real test.</p>' +
+        engShareKpis(e.trialStats, [['Open now', (e.trialStats.open || 0) + ' (' + engUsd(e.trialStats.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', e.trialStats.maxDrawdownUsd ? '−$' + Number(e.trialStats.maxDrawdownUsd).toLocaleString('en-US') : '—']]) +
+        engCurveHtml(e.trialStats.curve, e.name + ' paper trials, running total in dollars') +
+        ((e.trialStats.bySetup || []).length ? engDetails('Paper trials by setup', engSplitTable(e.trialStats.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true)) : '')) : '') +
       (e.vsHistory ? slpSection('eng-vs-hist', 'Live against the history test', engVsHistHtml(e, d)) : '') +
       slpSection('eng-closed', 'Closed trades', arch + more + engClosedTable(e, d)) +
       slpSection('eng-splits', 'Scorecard', '<p class="evb-note">The same record cut different ways. A split with a handful of trades says very little.</p>' +
@@ -8715,7 +8721,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var x = (s.exitsAll ? '<div class="crd-dim">Own exits: ' + escapeHtml(engExitsText(s.exitsAll)) + '</div>' : '') + (s.contract ? '<div class="crd-dim">Own contract: about ' + slpNum(s.contract.delta, 2) + ' delta, ' + s.contract.dteMin + ' to ' + s.contract.dteMax + ' days (ideal ' + s.contract.dteIdeal + ')</div>' : '');
       // Share results (% of the price) sit under the option ones, never mixed.
       var sub = function(b){ return b && b.n ? '<div class="crd-dim">shares: ' + b.n + '</div>' : ''; }, subAvg = function(b){ return b && b.n ? '<div class="crd-dim">shares: ' + engPnl(b.avg, 2) + '</div>' : ''; };
-      return '<tr><td><b>' + escapeHtml(s.label) + '</b>' + (s.calls === 'shares' && !s.retired ? ' <span class="eng-side eng-shr">Shares</span>' : '') + (s.startsOnShadow ? '<div class="crd-dim">Started on shadow</div>' : '') + '</td><td class="l">' + escapeHtml(s.how || '') + x + '</td><td>' + engPill(st[0], st[1]) + (s.since ? '<div class="crd-dim">since ' + escapeHtml(engDay(s.since)) + '</div>' : '') + '</td><td class="num">' + ((s.real && s.real.n) || 0) + sub(s.realShares) + '</td><td class="num">' + engPnl(s.real && s.real.avg) + subAvg(s.realShares) + '</td><td class="num">' + ((s.shadow && s.shadow.n) || 0) + sub(s.shadowShares) + '</td><td class="num">' + engPnl(s.shadow && s.shadow.avg) + subAvg(s.shadowShares) + '</td></tr>';
+      return '<tr><td><b>' + escapeHtml(s.label) + '</b>' + (s.calls === 'shares' && !s.retired ? ' <span class="eng-side eng-shr">Shares</span>' : '') + (s.trial && !s.retired ? ENG_TRIAL_BADGE : '') + (s.startsOnShadow ? '<div class="crd-dim">Started on shadow</div>' : '') + '</td><td class="l">' + escapeHtml(s.how || '') + x + '</td><td>' + engPill(st[0], st[1]) + (s.since ? '<div class="crd-dim">since ' + escapeHtml(engDay(s.since)) + '</div>' : '') + '</td><td class="num">' + ((s.real && s.real.n) || 0) + sub(s.realShares) + '</td><td class="num">' + engPnl(s.real && s.real.avg) + subAvg(s.realShares) + '</td><td class="num">' + ((s.shadow && s.shadow.n) || 0) + sub(s.shadowShares) + '</td><td class="num">' + engPnl(s.shadow && s.shadow.avg) + subAvg(s.shadowShares) + '</td></tr>';
     }).join(''));
     var log = (e.learning && e.learning.log) || [];
     var logHtml = log.length ? slpTable([['Date'], ['Rules version'], ['What changed', 'l']], log.map(function(c){ return '<tr><td>' + escapeHtml(engDay(c.date)) + '</td><td>' + escapeHtml(c.v || '') + '</td><td class="l">' + escapeHtml(c.text || '') + '</td></tr>'; }).join('')) : '<p class="hint">No changes since the engine started.</p>';
@@ -8771,11 +8777,15 @@ function recoveryEvidence(row, data, now = Date.now()) {
       pick + '<p class="evb-note">' + escapeHtml(what ? what[2] : '') + (h.changes ? ' The learning rules made ' + h.changes + ' changes over the test and ended on version ' + escapeHtml(h.rulesVersion || '') + ' with the bar at ' + h.bar + '.' : '') + '</p>' +
       engHistKpis(h) +
       engCurveHtml(h.curve, e.name + ' history test running total in dollars') +
-      (h.shares && h.shares.n ? slpSection('eng-hist-shares', 'Share trades in this test', '<p class="evb-note">The setups that buy stock instead of a call, replayed at the open and close prices with 0.1% costs a round trip and scored on their own (% of the share price). Their random books buy the same $5,000 lot on random days with the same stock exits.</p>' +
+      (h.shares && h.shares.n ? slpSection('eng-hist-shares', 'Share trades in this test', '<p class="evb-note">The setups that buy stock instead of a call, replayed at the open and close prices with 0.1% costs a round trip and scored on their own (% of the share price). Their random books buy the same $5,000 lot on random days with the same stock exits, held no longer than the real trade drawn beside it.</p>' +
         engShareKpis(h.shares, [['Random entries', h.shares.control ? engPnl(h.shares.control.avg, 2) : '—', h.shares.control ? 'Average of ' + h.shares.control.books + ' books of random share lots' : 'Needs 20 or more trades'], ['Beat random', h.shares.control ? h.shares.control.beat + '%' : '—']]) +
         engDetails('Share trades by setup', engSplitTable(h.shares.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true), true) +
         engDetails('Share trades by time period', engSplitTable(h.shares.byWindow, 'Period', null, true)) +
         engDetails('Share trades by market type', engSplitTable(h.shares.byCell, 'Market type', function(r){ return engCell(r.key); }, true))) : '') +
+      (h.trials && h.trials.n ? slpSection('eng-hist-trials', 'Paper trials in this test', '<p class="evb-note">Unproven setups that run on paper beside the engine, scored on their own. Their random books buy the same $5,000 lot on random days and hold it no longer than the real trade drawn beside it, with the same exits, so a setup that sells after a few sessions is compared with a few sessions of random holding. The edge over those books is small; the live record is the real test.</p>' +
+        engShareKpis(h.trials, [['Random entries', h.trials.control ? engPnl(h.trials.control.avg, 2) : '—', h.trials.control ? 'Average of ' + h.trials.control.books + ' books of random share lots, matched hold' : 'Needs 20 or more trades'], ['Beat random', h.trials.control ? h.trials.control.beat + '%' : '—']]) +
+        engDetails('Paper trials by setup', engSplitTable(h.trials.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true), true) +
+        engDetails('Paper trials by time period', engSplitTable(h.trials.byWindow, 'Period', null, true))) : '') +
       slpSection('eng-hist-windows', 'By time period', engSplitTable(h.byWindow, 'Period')) +
       slpSection('eng-hist-cells', 'By market type', '<p class="evb-note">The Regime Lab label on the day each trade opened: the trend of the market and whether volatility was calm or stressed.</p>' + engSplitTable(h.byCell, 'Market type', function(r){ return engCell(r.key); })) +
       slpSection('eng-hist-env', 'By macro environment', '<p class="evb-note">What the economy looked like when each trade opened, using only numbers that were public that day.</p>' + (engEnvTables(h.byEnv) || '<p class="hint">No macro labels in this run.</p>')) +
@@ -9014,7 +9024,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
         ['Avg entry gap', avgGap == null ? '—' : slpPts(avgGap, 1) + '%', 'Paper fill against the engine’s entry price; above zero means the paper account paid more'],
         ['Avg paper result', engPnl(avgPaper), 'Closed paper trades only'],
       ]) +
-      (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
+      (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + (h.held ? ' (' + h.held + ' held back by your controls)' : '') + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
       (issues.length ? '<ul class="eng-notes">' + issues.map(function(i){ return '<li>' + escapeHtml(i.message || i.code) + '</li>'; }).join('') + '</ul>' : '') +
       '<p class="evb-note">Entry and Exit show the paper fill, with the engine’s own price and the gap between them underneath.</p>' +
       engMirrorTable(rows, id === 'all') +
@@ -9168,6 +9178,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       engState.error = engState.data ? null : 'not written yet';
       engState.fetchedAt = Date.now(); engState.loading = false;
       renderEngines();
+      if (typeof ocRenderPanel === 'function' && OC.checkSym) ocRenderPanel();
       var op = $('page-pane-open-picks'); if (op && !op.hidden && typeof renderOpenPicks === 'function') renderOpenPicks();
     }).catch(function(err){
       engState.loading = false; engState.fetchedAt = Date.now();
@@ -9232,6 +9243,245 @@ function recoveryEvidence(row, data, now = Date.now()) {
     engUrl();
     if (HAS_OWNER_ACCESS) loadEngines(false); else renderEngines();
   }
+
+
+  // ---- Owner controls (lib/owner-controls.mjs) ------------------------------
+  var OC = { data: null, loading: false, saving: false, error: null, msg: null, check: null, checkSym: '', score: null, scoreLoading: false, livePx: {} };
+  function ocEsc(s){ return escapeHtml(s == null ? '' : String(s)); }
+  function ocWhen(iso, withDay){
+    var d = new Date(iso);
+    if (!iso || isNaN(d.getTime())) return '';
+    // In the site's chosen display zone, which names itself (ET, UTC, local).
+    return formatDisplayInstant(d, withDay === false ? { hour: 'numeric', minute: '2-digit', hour12: true } : { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  }
+  function ocDay(date){
+    if (!date) return '';
+    var d = new Date(date + 'T12:00:00Z');
+    if (isNaN(d.getTime())) return date;
+    return d.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
+  }
+  function ocUsd(v){ return v == null || !isFinite(v) ? 'off' : '$' + Math.round(v).toLocaleString('en-US'); }
+  // A reply from the controls action always carries the dial and the log.
+  function ocValid(j){ return !!(j && typeof j === 'object' && j.dial && j.dial.level && Array.isArray(j.log) && Array.isArray(j.avoid)); }
+  function ocLoad(force){
+    if (!HAS_OWNER_ACCESS) return;
+    if (OC.loading || (OC.data && !force)) { ocRenderAll(); return; }
+    OC.loading = true;
+    fetch('/api/auth/owner-controls', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ if (!ocValid(j)) throw new Error('bad reply'); OC.data = j; OC.error = null; })
+      .catch(function(){ OC.error = 'load'; })
+      .then(function(){ OC.loading = false; ocRenderAll(); });
+  }
+  function ocPost(body, okMsg){
+    if (OC.saving) return;
+    OC.saving = true; OC.msg = null; ocRenderAll();
+    fetch('/api/auth/owner-controls', { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j && j.error ? j.error : 'HTTP ' + r.status); return j; }); })
+      .then(function(j){ if (!ocValid(j)) throw new Error('unexpected reply'); OC.data = j; OC.msg = { ok: true, text: j.changed === false ? 'No change.' : (j.text || okMsg || 'Saved.') + (j.changed === false ? '' : ' Logged; Undo is in the change log.') }; OC.score = null; })
+      .catch(function(err){ OC.msg = { ok: false, text: 'Couldn’t save: ' + (err && err.message ? err.message : 'try again') + '.' }; })
+      .then(function(){ OC.saving = false; ocRenderAll(); });
+  }
+  function ocSummary(d){
+    var bits = [];
+    if (d.dial && d.dial.level !== 'normal') bits.push('Risk dial <b>' + ocEsc(d.dial.label) + '</b> until ' + ocEsc(ocWhen(d.dial.until)));
+    var av = (d.avoid || []).filter(function(a){ return a.active; });
+    if (av.length) bits.push('Avoid ' + av.map(function(a){ return '<b>' + ocEsc(a.sym) + '</b>'; }).join(', '));
+    var wa = (d.watch || []).filter(function(w){ return w.active; });
+    if (wa.length) bits.push('Watching ' + wa.map(function(w){ return '<b>' + ocEsc(w.sym) + '</b>'; }).join(', '));
+    var ca = (d.catalysts || []).filter(function(k){ return k.active; });
+    if (ca.length) bits.push('Catalyst' + (ca.length === 1 ? '' : 's') + ': ' + ca.slice(0, 3).map(function(k){ return ocEsc(ocDay(k.date)) + (k.sym ? ' <b>' + ocEsc(k.sym) + '</b>' : '') + ' ' + ocEsc(k.text); }).join('; ') + (ca.length > 3 ? '; +' + (ca.length - 3) + ' more' : ''));
+    return bits;
+  }
+  function ocBannerHtml(where){
+    var d = OC.data;
+    if (!d) return OC.error ? '<span class="oc-b-line muted">Owner controls couldn’t load. The engines read “no control” when nothing is saved.</span>' : '';
+    var link = where === 'engines' ? ' <button type="button" class="oc-b-link oc-b-jump" data-oc-act="jump">Controls below &darr;</button>' : ' <a class="oc-b-link" href="?tab=engines">Open controls &rarr;</a>';
+    var btn = d.stop
+      ? '<button type="button" class="oc-btn oc-btn-go" data-oc-act="resume"' + (OC.saving ? ' disabled' : '') + '>Resume new trades</button>'
+      : '<button type="button" class="oc-btn oc-btn-stop" data-oc-act="stop"' + (OC.saving ? ' disabled' : '') + '>Stop new trades</button>';
+    if (d.enabled === false) return '<span class="oc-b-line"><b class="oc-b-title">Owner controls are off</b> in Owner Settings (Account limits tab). Nothing saved here applies: trades open as if no control were set. The account limits still apply.</span><span class="oc-b-act"><a class="oc-b-link" href="?tab=owner-settings">Owner Settings &rarr;</a></span>';
+    var bits = ocSummary(d);
+    var head = d.stop
+      ? '<b class="oc-b-title">New trades are stopped.</b> Since ' + ocEsc(ocWhen(d.stop.at)) + (d.stop.by ? ' by ' + ocEsc(d.stop.by) : '') + '. No new Top Picks record trades, engine trades or Webull paper opens. Exits keep running. The LEAPS, Leveraged ETFs and Sector rotation paper logs keep logging (they never trade).'
+      : bits.length ? '<b class="oc-b-title">Controls in force:</b> ' + bits.join(' · ') + '.' : '<span class="muted">Owner controls: none in force.</span>';
+    return '<span class="oc-b-line">' + head + (d.stop && bits.length ? ' <span class="muted">' + bits.join(' · ') + '.</span>' : '') + '</span><span class="oc-b-act">' + btn + link + '</span>';
+  }
+  function ocRenderBanners(){
+    var list = document.querySelectorAll('[data-oc-banner]');
+    for (var i = 0; i < list.length; i++){
+      var el = list[i];
+      var where = el.getAttribute('data-oc-banner');
+      // A failed load is said only where the controls live (the engines page
+      // and Owner Settings); elsewhere the banner stays out of the way.
+      if (!HAS_OWNER_ACCESS || (!OC.data && (!OC.error || (where !== 'engines' && where !== 'settings')))){ el.hidden = true; el.innerHTML = ''; continue; }
+      el.hidden = false;
+      el.className = 'oc-banner' + (OC.data && OC.data.enabled === false ? ' is-on' : OC.data && OC.data.stop ? ' is-stop' : OC.data && OC.data.any ? ' is-on' : '');
+      el.innerHTML = ocBannerHtml(where);
+    }
+  }
+  function ocListHtml(rows, kind){
+    if (!rows.length) return '<p class="oc-empty">' + (kind === 'avoid' ? 'No stock is on the avoid list.' : kind === 'watch' ? 'No stock is being watched closely.' : 'No catalyst flagged.') + '</p>';
+    return '<ul class="oc-list">' + rows.map(function(r){
+      if (kind === 'avoid') return '<li' + (r.active ? '' : ' class="is-off"') + '><b>' + ocEsc(r.sym) + '</b> <span class="muted">since ' + ocEsc(ocWhen(r.at)) + (r.until ? ', until ' + ocEsc(ocDay(r.until)) : ', until lifted') + (r.close ? ', open trades close at the next run' : '') + (r.px ? ', then $' + Number(r.px).toFixed(2) : '') + '</span> <button type="button" class="oc-btn oc-btn-sm" data-oc-act="lift" data-oc-sym="' + ocEsc(r.sym) + '">Lift</button></li>';
+      if (kind === 'watch') return '<li' + (r.active ? '' : ' class="is-off"') + '><b>' + ocEsc(r.sym) + '</b> <span class="muted">front of the queue through ' + ocEsc(ocDay(r.until)) + '</span> <button type="button" class="oc-btn oc-btn-sm" data-oc-act="unwatch" data-oc-sym="' + ocEsc(r.sym) + '">Stop watching</button></li>';
+      return '<li' + (r.active ? '' : ' class="is-off"') + '><b>' + ocEsc(ocDay(r.date)) + '</b>' + (r.sym ? ' <b>' + ocEsc(r.sym) + '</b>' : '') + ' ' + ocEsc(r.text) + ' <button type="button" class="oc-btn oc-btn-sm" data-oc-act="uncatalyst" data-oc-id="' + r.id + '">Remove</button></li>';
+    }).join('') + '</ul>';
+  }
+  function ocCheckHtml(){
+    var sym = OC.checkSym;
+    if (!sym) return '<p class="oc-empty">Type a ticker to see what every engine read on its last run, with a live quote. Nothing is saved.</p>';
+    var ed = typeof engState !== 'undefined' && engState && engState.data ? engState.data : null;
+    var q = OC.check;
+    var out = '<div class="oc-check-head"><b>' + ocEsc(sym) + '</b> ' + (q === 'loading' ? '<span class="muted">quote loading…</span>' : q && q.spot != null ? '<span>$' + Number(q.spot).toFixed(2) + '</span>' + (q.changePct != null ? ' <span class="' + (q.changePct >= 0 ? 'pos' : 'neg') + '">' + (q.changePct > 0 ? '+' : '') + Number(q.changePct).toFixed(2) + '% today</span>' : '') + ' <span class="muted">live quote</span>' : '<span class="muted">no live quote</span>') + '</div>';
+    if (!ed){ return out + '<p class="oc-empty">The engines’ last run has not loaded yet.</p>'; }
+    var rows = ed.checks && ed.checks.rows ? ed.checks.rows[sym] || [] : null;
+    var held = [];
+    (ed.engines || []).forEach(function(e){ (e.open || []).forEach(function(t){ if (t.symbol === sym) held.push({ e: e, t: t }); }); });
+    var asOf = ed.checks && ed.checks.iso ? ' (run of ' + ocEsc(ocWhen(ed.checks.iso)) + ')' : '';
+    var body = '';
+    if (rows == null) body += '<p class="oc-empty">The last engines run is from before this check existed; the next 11:00 or 15:30 ET run fills it.</p>';
+    else if (!rows.length) body += '<p class="oc-empty">No engine had a setup on ' + ocEsc(sym) + ' near its entry bar at its last run' + asOf + '.</p>';
+    else body += '<table class="vt oc-check-table" data-nosort><thead><tr><th>Engine</th><th>Setup</th><th>Side</th><th>Score</th><th>Result</th></tr></thead><tbody>' + rows.map(function(r){
+      var e = null; (ed.engines || []).forEach(function(x){ if (x.id === r.engine) e = x; });
+      var lbl = r.setup; if (e) (e.setups || []).forEach(function(s){ if (s.key === r.setup) lbl = s.label; });
+      return '<tr><td>' + ocEsc(e ? e.name : r.engine) + '</td><td>' + ocEsc(lbl) + '</td><td>' + ocEsc(r.side) + '</td><td>' + (r.score == null ? '—' : Math.round(r.score) + (e ? ' <span class="muted">/ bar ' + Math.round(e.bar.now) + '</span>' : '')) + '</td><td>' + (r.taken ? '<b class="pos">Opened</b>' : ocEsc(r.why || (r.skipped ? 'price filter' : 'not taken'))) + '</td></tr>';
+    }).join('') + '</tbody></table><p class="oc-note">Last run' + asOf + '. Engines that are not listed did not score a setup on it.</p>';
+    if (held.length) body += '<p class="oc-note">Open now: ' + held.map(function(h){ return ocEsc(h.e.name) + ' ' + ocEsc(h.t.side) + (h.t.optionPnlPct != null ? ' (' + (h.t.optionPnlPct > 0 ? '+' : '') + Number(h.t.optionPnlPct).toFixed(1) + '%)' : ''); }).join(', ') + '.</p>';
+    var d = OC.data || {};
+    var av = (d.avoid || []).some(function(a){ return a.sym === sym && a.active; }), wa = (d.watch || []).some(function(w){ return w.sym === sym && w.active; });
+    body += '<div class="oc-row">' +
+      (av ? '<button type="button" class="oc-btn" data-oc-act="lift" data-oc-sym="' + ocEsc(sym) + '">Lift avoid</button>' : '<button type="button" class="oc-btn" data-oc-act="avoid-from-check">Avoid ' + ocEsc(sym) + '</button>') +
+      (wa ? '<button type="button" class="oc-btn" data-oc-act="unwatch" data-oc-sym="' + ocEsc(sym) + '">Stop watching</button>' : '<button type="button" class="oc-btn" data-oc-act="watch" data-oc-sym="' + ocEsc(sym) + '">Watch closely</button>') +
+      '<button type="button" class="oc-btn" data-oc-act="catalyst-from-check">Flag a catalyst</button></div>';
+    return out + body;
+  }
+  function ocScoreHtml(){
+    var s = OC.score;
+    if (OC.scoreLoading) return '<p class="oc-empty">Loading the scorecard…</p>';
+    if (!s) return '<p class="oc-empty">Open to load: how closed trades did under each setting, and what avoided stocks did next.</p>';
+    if (s.error) return '<p class="oc-empty">The scorecard couldn’t load.</p>';
+    var groups = (s.groups || []).map(function(g){ return '<tr><td>' + ocEsc(g.label) + '</td><td class="oc-num">' + g.n + '</td><td class="oc-num">' + (g.winRate == null ? '—' : Math.round(g.winRate * 100) + '%') + '</td><td class="oc-num">' + (g.avg == null ? '—' : '<span class="' + (g.avg >= 0 ? 'pos' : 'neg') + '">' + (g.avg > 0 ? '+' : '') + g.avg.toFixed(1) + '%</span>') + '</td></tr>'; }).join('');
+    var av = (s.avoided || []).map(function(a){
+      var now = a.open ? OC.livePx[a.sym] : a.pxEnd;
+      var mv = a.px && now ? (now / a.px - 1) * 100 : null;
+      return '<tr><td><b>' + ocEsc(a.sym) + '</b></td><td>' + ocEsc(ocWhen(a.at)) + '</td><td class="oc-num">' + (a.px ? '$' + Number(a.px).toFixed(2) : '—') + '</td><td class="oc-num">' + (now ? '$' + Number(now).toFixed(2) + (a.open ? ' <span class="muted">live</span>' : ' <span class="muted">at lift</span>') : '—') + '</td><td class="oc-num">' + (mv == null ? '—' : '<span class="' + (mv >= 0 ? 'pos' : 'neg') + '">' + (mv > 0 ? '+' : '') + mv.toFixed(1) + '%</span>') + '</td></tr>';
+    }).join('');
+    return '<p class="oc-note">' + (s.ready ? 'A month or more of controls' : 'Early: ' + s.days + ' day' + (s.days === 1 ? '' : 's') + ' of controls so far; the read means more after a month') + '. Closed trades from both records, each result per contract or per share lot.</p>' +
+      '<table class="vt" data-nosort><thead><tr><th>Setting</th><th class="oc-num">Closed</th><th class="oc-num">Win rate</th><th class="oc-num">Average</th></tr></thead><tbody>' + groups + '</tbody></table>' +
+      '<h4 class="oc-h4">Avoided stocks: what they did next</h4>' + (av ? '<table class="vt" data-nosort><thead><tr><th>Stock</th><th>Avoided</th><th class="oc-num">Price then</th><th class="oc-num">Price now</th><th class="oc-num">Move</th></tr></thead><tbody>' + av + '</tbody></table>' : '<p class="oc-empty">No stock has been avoided yet.</p>');
+  }
+  function ocLoadScore(){
+    if (OC.scoreLoading) return;
+    OC.scoreLoading = true; ocRenderPanel();
+    fetch('/api/auth/owner-controls?scorecard=1', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        OC.score = j.scorecard || { error: true };
+        var syms = (OC.score.avoided || []).filter(function(a){ return a.open; }).map(function(a){ return a.sym; });
+        if (!syms.length) return null;
+        return fetch('/api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' }).then(function(r){ return r.ok ? r.json() : null; }).then(function(q){
+          var list = q && (q.quotes || q.data || q) ; if (!list) return;
+          if (!Array.isArray(list)) list = Object.keys(list).map(function(k){ var v = list[k]; return v && typeof v === 'object' ? Object.assign({ symbol: k }, v) : null; }).filter(Boolean);
+          list.forEach(function(x){ var p = x && (x.spot != null ? x.spot : x.price != null ? x.price : x.regularMarketPrice); if (x && x.symbol && p > 0) OC.livePx[String(x.symbol).toUpperCase()] = Number(p); });
+        }).catch(function(){});
+      })
+      .catch(function(){ OC.score = { error: true }; })
+      .then(function(){ OC.scoreLoading = false; ocRenderPanel(); });
+  }
+  function ocRunCheck(sym){
+    sym = String(sym || '').trim().toUpperCase();
+    OC.checkSym = sym; OC.check = sym ? 'loading' : null;
+    ocRenderPanel();
+    if (!sym) return;
+    fetch('/api/quote?symbol=' + encodeURIComponent(sym), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(q){ if (OC.checkSym === sym) OC.check = q && q.spot != null ? q : null; })
+      .catch(function(){ if (OC.checkSym === sym) OC.check = null; })
+      .then(function(){ if (OC.checkSym === sym) ocRenderPanel(); });
+  }
+  function ocRenderPanel(){
+    var box = document.getElementById('oc-panel');
+    if (!box) return;
+    if (!HAS_OWNER_ACCESS){ box.hidden = true; box.innerHTML = ''; return; }
+    var d = OC.data;
+    box.hidden = false;
+    if (!d){ box.innerHTML = '<p class="oc-empty">' + (OC.error ? 'The controls couldn’t load. Try again in a moment.' : 'Loading the controls…') + '</p>'; return; }
+    var dis = OC.saving ? ' disabled' : '';
+    var dials = (d.dials || []).map(function(x){ return '<button type="button" class="oc-pill' + (x.level === d.dial.level ? ' is-on' : '') + (x.level !== 'normal' ? ' is-' + x.level : '') + '" data-oc-act="dial" data-oc-level="' + x.level + '" aria-pressed="' + (x.level === d.dial.level ? 'true' : 'false') + '" title="' + ocEsc(x.help) + '"' + dis + '>' + ocEsc(x.label) + '</button>'; }).join('');
+    var lim = d.limits || {};
+    var limTxt = d.limits ? ['Open option premium ' + ocUsd(lim.openUsd), 'Daily loss stop ' + ocUsd(lim.dayLossUsd), 'Per stock ' + ocUsd(lim.nameUsd), 'New trades a day ' + (lim.newPerDay == null ? 'off' : lim.newPerDay)].join(' · ') : 'Unavailable';
+    var log = (d.log || []).slice(0, 12).map(function(l){ return '<li' + (l.undone ? ' class="is-off"' : '') + '>' + ocEsc(l.text) + (l.undone ? ' <em>(undone)</em>' : '') + ' <span class="muted">· ' + ocEsc(ocWhen(l.at)) + (l.by ? ' · ' + ocEsc(l.by) : '') + '</span></li>'; }).join('');
+    var today = d.now ? String(d.now).slice(0, 10) : '';
+    box.innerHTML =
+      '<header class="card-header"><h2 class="card-title" id="oc-title">Controls</h2><span class="card-eyebrow">Owner · applies to Top Picks, every engine and the Webull paper account</span></header>' +
+      (d.enabled === false ? '<p class="oc-msg is-bad">Owner controls are off in Owner Settings (Account limits tab). You can still change them here, but nothing applies to Top Picks, the engines or the Webull paper account until the switch is back on.</p>' : '') +
+      (OC.msg ? '<p class="oc-msg ' + (OC.msg.ok ? 'is-ok' : 'is-bad') + '" role="status">' + ocEsc(OC.msg.text) + '</p>' : '') +
+      '<div class="oc-grid">' +
+        '<div class="oc-cell oc-cell-stop' + (d.stop ? ' is-stop' : '') + '"><h3 class="oc-h3">Stop new trades</h3><p class="oc-note">' + (d.stop ? '<b>On</b> since ' + ocEsc(ocWhen(d.stop.at)) + (d.stop.by ? ' by ' + ocEsc(d.stop.by) : '') + '. No new Top Picks record trades, engine trades or Webull paper opens; exits keep running. The LEAPS, Leveraged ETFs and Sector rotation paper logs keep logging (they never trade).' : 'Off. One click stops new Top Picks record trades, engine trades and Webull paper opens. Exits keep running.') + '</p>' +
+          (d.stop ? '<button type="button" class="oc-btn oc-btn-go" data-oc-act="resume"' + dis + '>Resume new trades</button>' : '<button type="button" class="oc-btn oc-btn-stop" data-oc-act="stop"' + dis + '>Stop new trades</button>') + '</div>' +
+        '<div class="oc-cell"><h3 class="oc-h3">Risk dial</h3><div class="oc-pills" role="group" aria-label="Risk dial">' + dials + '</div><p class="oc-note">' + ocEsc(d.dial.help) + (d.dial.level !== 'normal' ? ' Until ' + ocEsc(ocWhen(d.dial.until)) + '.' : ' A change lasts until ' + ocEsc(ocWhen(d.nextDialUntil)) + ' (Friday’s close), then goes back to Normal.') + ' Not tied to fear.</p></div>' +
+      '</div>' +
+      '<div class="oc-cell"><h3 class="oc-h3">Check this stock</h3><form class="oc-form" data-oc-form="check"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" value="' + ocEsc(OC.checkSym) + '"></label><button type="submit" class="oc-btn">Check</button></form><div class="oc-check">' + ocCheckHtml() + '</div></div>' +
+      '<div class="oc-grid">' +
+        '<div class="oc-cell"><h3 class="oc-h3">Avoid</h3><p class="oc-note">No new entries on the stock in any engine or Top Picks until you lift it.</p><form class="oc-form" data-oc-form="avoid"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><label class="oc-lbl">Until (optional) <input class="oc-in" type="date" name="until" min="' + ocEsc(today) + '"></label><label class="oc-chk"><input type="checkbox" name="close"> Close its open trades at the next run</label><button type="submit" class="oc-btn"' + dis + '>Avoid</button></form>' + ocListHtml(d.avoid || [], 'avoid') + '</div>' +
+        '<div class="oc-cell"><h3 class="oc-h3">Watch closely</h3><p class="oc-note">Front of each engine’s queue and first for Top Picks’ AI review slots for ' + d.watchSessions + ' sessions (through ' + ocEsc(ocDay(d.nextWatchUntil)) + ' if set now). No bar is lowered.</p><form class="oc-form" data-oc-form="watch"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><button type="submit" class="oc-btn"' + dis + '>Watch</button></form>' + ocListHtml(d.watch || [], 'watch') + '</div>' +
+      '</div>' +
+      '<div class="oc-cell"><h3 class="oc-h3">Catalyst log</h3><p class="oc-note">One line, shown on Top Picks, Open picks and here until its date. It changes no trade.</p><form class="oc-form" data-oc-form="catalyst"><label class="oc-lbl">Ticker (optional) <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false"></label><label class="oc-lbl oc-lbl-wide">What <input class="oc-in" name="text" maxlength="140" required></label><label class="oc-lbl">Date <input class="oc-in" type="date" name="date" min="' + ocEsc(today) + '" required></label><button type="submit" class="oc-btn"' + dis + '>Flag</button></form>' + ocListHtml(d.catalysts || [], 'catalyst') + '</div>' +
+      '<div class="oc-grid">' +
+        '<div class="oc-cell"><h3 class="oc-h3">Account limits</h3><p class="oc-note">' + ocEsc(limTxt) + '. Off until you set them in <a href="?tab=owner-settings">Owner Settings → Account limits</a>. Enforced in the engines and the Webull paper mirror.</p></div>' +
+        '<div class="oc-cell"><h3 class="oc-h3">Change log</h3>' + (log ? '<ol class="oc-log">' + log + '</ol>' : '<p class="oc-empty">No changes yet.</p>') + '<button type="button" class="oc-btn" data-oc-act="undo"' + (d.canUndo ? dis : ' disabled') + '>Undo the last change</button></div>' +
+      '</div>' +
+      '<details class="oc-cell oc-score" data-oc-score' + (OC.score || OC.scoreLoading ? ' open' : '') + '><summary class="oc-h3">Scorecard</summary>' + ocScoreHtml() + '</details>';
+  }
+  function ocRenderAll(){ ocRenderBanners(); ocRenderPanel(); }
+  function ocConfirm(text){ try { return window.confirm(text); } catch (e) { return false; } }
+  function ocAct(btn){
+    var act = btn.getAttribute('data-oc-act'), sym = btn.getAttribute('data-oc-sym');
+    if (act === 'stop'){ if (ocConfirm('Stop new trades? No new Top Picks record trades, engine trades or Webull paper opens until you resume. Exits keep running.')) ocPost({ act: 'stop', confirm: true }); return; }
+    if (act === 'resume'){ ocPost({ act: 'resume' }); return; }
+    if (act === 'jump'){ var pn = document.getElementById('oc-panel'); if (pn && pn.scrollIntoView) pn.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+    if (act === 'dial'){
+      var level = btn.getAttribute('data-oc-level');
+      if (level === 'riskier' && !ocConfirm('Riskier until Friday’s close? Engine trades buy 1.5x the size (inside the account limits) and the entry bar drops 3 points.')) return;
+      ocPost({ act: 'dial', level: level, confirm: level === 'riskier' ? true : undefined }); return;
+    }
+    if (act === 'lift'){ ocPost({ act: 'lift', sym: sym, px: OC.checkSym === sym && OC.check && OC.check.spot ? OC.check.spot : undefined }); return; }
+    if (act === 'watch' || act === 'unwatch'){ ocPost({ act: act, sym: sym }); return; }
+    if (act === 'uncatalyst'){ ocPost({ act: 'uncatalyst', id: Number(btn.getAttribute('data-oc-id')) }); return; }
+    if (act === 'undo'){ if (ocConfirm('Undo the last change?')) ocPost({ act: 'undo' }); return; }
+    if (act === 'avoid-from-check' || act === 'catalyst-from-check'){
+      var f = document.querySelector('[data-oc-form="' + (act === 'avoid-from-check' ? 'avoid' : 'catalyst') + '"]');
+      if (f && f.elements.sym){ f.elements.sym.value = OC.checkSym; var next = act === 'avoid-from-check' ? f.elements.sym : f.elements.text; if (next && next.focus) next.focus(); }
+    }
+  }
+  function ocSubmit(form){
+    var kind = form.getAttribute('data-oc-form'), el = form.elements;
+    var sym = el.sym ? String(el.sym.value || '').trim().toUpperCase() : '';
+    if (kind === 'check'){ ocRunCheck(sym); return; }
+    if (kind === 'avoid'){
+      var close = !!(el.close && el.close.checked);
+      if (close && !ocConfirm('Avoid ' + sym + ' and close its open trades at the next 11:00 or 15:30 ET run, in every engine and Top Picks?')) return;
+      ocPost({ act: 'avoid', sym: sym, close: close, until: el.until && el.until.value ? el.until.value : undefined, confirm: close ? true : undefined, px: OC.checkSym === sym && OC.check && OC.check.spot ? OC.check.spot : undefined });
+      return;
+    }
+    if (kind === 'watch'){ ocPost({ act: 'watch', sym: sym }); return; }
+    if (kind === 'catalyst'){ ocPost({ act: 'catalyst', sym: sym || undefined, text: el.text ? el.text.value : '', date: el.date ? el.date.value : '' }); }
+  }
+  document.addEventListener('click', function(ev){
+    var t = ev.target;
+    var btn = t && t.closest ? t.closest('[data-oc-act]') : null;
+    if (btn && HAS_OWNER_ACCESS && !btn.disabled){ ev.preventDefault(); ocAct(btn); }
+  });
+  document.addEventListener('submit', function(ev){
+    var f = ev.target;
+    if (f && f.getAttribute && f.getAttribute('data-oc-form')){ ev.preventDefault(); if (HAS_OWNER_ACCESS) ocSubmit(f); }
+  });
+  document.addEventListener('toggle', function(ev){
+    var t = ev.target;
+    if (t && t.hasAttribute && t.hasAttribute('data-oc-score') && t.open && !OC.score && !OC.scoreLoading) ocLoadScore();
+  }, true);
+  document.addEventListener('stonks-owner-ready', function(){ if (HAS_OWNER_ACCESS) ocLoad(true); });
 
 
   // ---- Closed-trade post-mortem (lib/trade-postmortem.mjs) ------------------
@@ -10551,7 +10801,8 @@ function validNewsFeedPayload(data) {
     'hit-tp-prem': 'take-profit hit', 'trail-stop': 'trail stop', 'hit-stop-prem': 'premium stop hit',
     'hit-stop-under': 'stock stop hit', 'thesis-broken': 'thesis broken', 'theta-stop': 'theta stop',
     'event-review': 'event review', 'shock-time': 'post-shock time limit', 'expired': 'contract expired',
-    'dropped': 'left the universe', 'left-coverage': 'left coverage (not counted)'
+    'dropped': 'left the universe', 'left-coverage': 'left coverage (not counted)',
+    'owner-avoid': "closed by the owner's Avoid"
   };
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -10765,7 +11016,8 @@ function validNewsFeedPayload(data) {
     'event-cap': 'Event-trade limit reached', 'below-bar': 'Score below the bar',
     'event-wait': 'Waiting for an economic release', 'earnings-wait': 'Waiting for its earnings report',
     'ai-skipped': 'AI review skipped (nothing could open)',
-    'market-mode': 'Held back by your market mode'
+    'market-mode': 'Held back by your market mode',
+    'owner-control': 'Held back by your controls (stop or avoid)'
   };
   // What it would take to get through, in plain words.
   var GATE_NEXT = {
@@ -10798,7 +11050,8 @@ function validNewsFeedPayload(data) {
     'event-wait': 'A CPI, jobs or Fed release is close; it looks again once the release is out.',
     'earnings-wait': 'Its earnings report is close; it looks again after the report.',
     'ai-skipped': 'No name passed the other open-pick checks this run, so the AI review did not run.',
-    'market-mode': 'Your market mode on Top Picks holds this side back. Switch to Auto to allow it.'
+    'market-mode': 'Your market mode on Top Picks holds this side back. Switch to Auto to allow it.',
+    'owner-control': 'Stop new trades is on, or the stock is on your avoid list. Resume or lift it in the controls on the Strategy engines page.'
   };
   function num(v) {
     if (v == null || v === '') return null;
@@ -11415,7 +11668,8 @@ function validNewsFeedPayload(data) {
     'hit-stop-under': 'stock stop', 'thesis-broken': 'thesis broken', 'event-review': 'event review',
     'shock-time': 'post-shock time limit', 'theta-stop': 'theta stop', 'timed-out': '14-day time stop (retired)',
     'expired': 'expired', 'pre-earnings': 'pre-earnings exit (retired)', 'dropped': 'left universe',
-    'left-coverage': 'name left coverage (not counted)', 'reset': 'weekly reset close (retired)'
+    'left-coverage': 'name left coverage (not counted)', 'reset': 'weekly reset close (retired)',
+    'owner-avoid': "closed by the owner's Avoid"
   };
   // The stock has to move at least this much (direction-adjusted, %) before the
   // read calls it a direction result rather than a flat one.
@@ -57448,7 +57702,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // time stop, the pre-earnings close and the weekly reset) kept only so
   // legacy resolved rows still label + sort; new closes use 'thesis-broken'
   // for the invalidation path.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','reset'];
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -57693,7 +57947,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     { key:'settings', get:function(e){ return (e && typeof e.ownerSettings === 'string' && e.ownerSettings) || ''; } },
     // Unusual volume vote rules (measured intraday curve + session-so-far
     // read), stamped on new trades; empty while both volume switches are off.
-    { key:'volume', get:function(e){ return (e && typeof e.volumeReadVersion === 'string' && e.volumeReadVersion) || ''; } }
+    { key:'volume', get:function(e){ return (e && typeof e.volumeReadVersion === 'string' && e.volumeReadVersion) || ''; } },
+    // Owner risk dial (lib/owner-controls.mjs, from 2026-11-19): Safer is the
+    // only setting that changes Top Picks (one new trade a run), so only it
+    // splits the record. Riskier is stamped for the scorecard, no divider.
+    { key:'dial', get:function(e){ return e && e.ownerControls && e.ownerControls.dial === 'safer' ? 'safer' : ''; } }
   ];
   var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","FLOW_OPEN_WINDOW":"Flow scan: count the opening half hour","FLOW_STOCK_BARS":"Flow scan: a bar per stock","VOLUME_MEASURED_CURVE":"Measured intraday volume curve","VOLUME_SESSION_READ":"Session-so-far volume vote","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
   function ownerSettingsTagText(tag){
@@ -57735,6 +57993,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '2026-11-17-read': { note:'Unusual volume vote reads the session so far (fixed intraday curve)' }
     },
     // No fixed dates: each mode's divider dates from its first trade.
+    dial: { 'safer': { note:'Risk dial Safer (your controls): one new trade a run until Friday’s close' } },
     grader: { 'off': { note:'AI final grader off (AI_THESIS=0): deterministic grades and entries only' }, 'keyless': { note:'AI final grader had no key: deterministic grades and entries only' }, 'live': { note:'AI final grader back on' } }
   };
   function accRuleSegments(list){
@@ -60112,7 +60371,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
@@ -61972,7 +62231,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // text, and "Copy all" copies exactly what the feed link shows). Change one,
   // change the other. Ids and times are always ET so the tab matches the feed.
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)' };
+  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control' };
   var TL_RULE = '============================================================';
   var TL_LABEL_W = 10;
   var tlFmt = null;
