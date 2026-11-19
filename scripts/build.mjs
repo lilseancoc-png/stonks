@@ -37513,7 +37513,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
   // before the rest go.
   const pc = _judgmentPromptCache;
   const ticket = pc ? await pc.gate.enter() : null;
-  const releasePrime = () => { if (ticket?.primer) ticket.release(); };
+  const releasePrime = (ok) => { if (ticket?.primer) ticket.release(ok); };
   let response;
   let lastErr;
   try {
@@ -37552,7 +37552,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
           attempt -= 1; // same attempt again, without the cache
           continue;
         }
-        releasePrime();
+        releasePrime(false);
         const wait = classifyAiError(err, attempt, model);
         if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
         const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
@@ -37561,7 +37561,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
       }
     }
   } finally {
-    releasePrime();
+    releasePrime(!!response);
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
 

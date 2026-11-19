@@ -74,7 +74,7 @@ function fakeAi({ createFails = null, cachedRequestFails = null, latencyMs = 20,
 // the caching parts: gate, explicit cache, request shape, cache-error retry.
 async function judgmentCall(ai, pc, symbol, { model = "flash-lite", fallbackModel = "flash-lite-2", failFirstAttempt = false } = {}) {
   const ticket = pc ? await pc.gate.enter() : null;
-  const releasePrime = () => { if (ticket?.primer) ticket.release(); };
+  const releasePrime = (ok) => { if (ticket?.primer) ticket.release(ok); };
   let response;
   try {
     if (pc) await pc.explicit.ensure();
@@ -94,12 +94,12 @@ async function judgmentCall(ai, pc, symbol, { model = "flash-lite", fallbackMode
           attempt -= 1;
           continue;
         }
-        releasePrime();
+        releasePrime(false);
         if (attempt === 2) throw err;
       }
     }
   } finally {
-    releasePrime();
+    releasePrime(!!response);
   }
   return response;
 }
@@ -218,6 +218,24 @@ await test("a failed primer still opens the gate (no one waits for the timeout)"
   assert.ok(Date.now() - t0 < 1000, "released promptly");
   p.release(); // safe twice
   assert.equal(gate.stats.timedOut, 0);
+});
+
+await test("a primer that fails reports primed: no and opens the gate without the settle wait", async () => {
+  const gate = createPrimeGate({ enabled: true, waitMs: 5000, settleMs: 400 });
+  const p = await gate.enter();
+  const t0 = Date.now();
+  const waiter = gate.enter();
+  p.release(false);
+  await waiter;
+  assert.ok(Date.now() - t0 < 300, "no settle wait after a failed primer");
+  assert.equal(gate.stats.primed, false);
+  // A primer whose first attempt fails and whose retry succeeds still counts as failed:
+  // the waiters went ahead without a cached prefix.
+  const ai = fakeAi();
+  const pc = passState(ai, { prime: true, explicit: false });
+  await Promise.all(SYMS.slice(0, 5).map((s, i) => judgmentCall(ai, pc, s, { failFirstAttempt: i === 0 })));
+  assert.equal(pc.gate.stats.primed, false);
+  assert.equal(pc.tally.totals.calls, 5, "every call still answers");
 });
 
 await test("a primer that never releases: waiters give up after waitMs", async () => {
