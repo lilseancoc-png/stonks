@@ -1156,13 +1156,19 @@ const enginesMirrorOn = () => !["0", "off", "false", "no"].includes(String(proce
 const envOn = (v) => !["0", "off", "false", "no"].includes(String(v ?? "").trim().toLowerCase());
 async function webullSizing(store) {
   const sizing = { shares: envOn(process.env.WEBULL_SHARES), quantities: envOn(process.env.WEBULL_QTY), picksSizing: envOn(process.env.WEBULL_PICKS_SIZING), riskUsd: null };
-  let saved = null;
+  let saved = null, values = {};
   try {
     const { readOwnerSettingsDoc, OWNER_SETTINGS_KEY } = await import("../../lib/owner-settings.mjs");
-    saved = Number(readOwnerSettingsDoc(await store.get(OWNER_SETTINGS_KEY)).values?.ENGINES_RISK_USD);
-  } catch { saved = null; }
+    values = readOwnerSettingsDoc(await store.get(OWNER_SETTINGS_KEY)).values || {};
+    saved = Number(values.ENGINES_RISK_USD);
+  } catch { saved = null; values = {}; }
   const fromEnv = Number(String(process.env.ENGINES_RISK_USD ?? "").trim() || NaN);
   sizing.riskUsd = Number.isFinite(saved) && saved > 0 ? saved : Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : null;
+  // Engine stock order range (Owner Settings WEBULL_STOCK_MIN_USD /
+  // WEBULL_STOCK_MAX_USD, $2,000 to $25,000 unless changed; a Vercel value
+  // wins). An unreadable settings file uses the defaults.
+  const { stockRangeFromSettings } = await import("../../lib/webull-mirror.mjs");
+  Object.assign(sizing, stockRangeFromSettings(values));
   return sizing;
 }
 
@@ -1229,7 +1235,8 @@ async function webullMirror(req, res) {
         health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on", engines: enginesRecord, enginesMirror, sharesMirror: sizing.shares }),
         executionLock,
         enginesMirror,
-        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY },
+        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY,
+          stockMinUsd: sizing.stockMinUsd, stockMaxUsd: sizing.stockMaxUsd },
         sharesGoLiveIso: ledger.sharesGoLiveIso ?? null,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
