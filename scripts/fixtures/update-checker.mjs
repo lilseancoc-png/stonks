@@ -15,6 +15,8 @@ export function healthyPayload(spec){
 export function fixtureArtifacts(){
   const entries=new Map(BAKE_REQUIRED_REWRITTEN_FILES.map(k=>[k,Buffer.from('{}')]));
   for(const spec of UPDATE_FEATURES.filter(s=>s.key))entries.set(spec.key,Buffer.from(JSON.stringify(healthyPayload(spec))));
+  // A page's second file (spec.also), e.g. the Heatmap's wide-tier.json.
+  for(const spec of UPDATE_FEATURES)for(const a of spec.also || [])if(!entries.has(a.key))entries.set(a.key,Buffer.from(JSON.stringify({...healthyPayload({key:a.key,fields:a.fields}),...(a.stamp?{[a.stamp]:CHECKER_FIXTURE_TIME}:{})})));
   return entries;
 }
 export function fixtureReport(healthy=false){

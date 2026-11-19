@@ -79,7 +79,7 @@ import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomes
 import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mjs";
 import {
   readWebullW3, w3LogLine, w3ShadowInputs, w3BottomContextRow, w3EvidenceTests, buildBackupCheck, writeBackupCheck,
-  chainsWithEarningsBackup, streetTargetBackup, fearGreedCheck, fearGreedStandIn,
+  chainsWithEarningsBackup, earningsBackupMap, streetTargetBackup, fearGreedCheck, fearGreedStandIn,
 } from "../lib/webull-data/bake.mjs";
 // Self-improving loop (lib/self-loop/, docs/self-loop.md): prediction ledger,
 // option outcomes, scorecard. Measurement only; LOOP=0 skips it.
@@ -111,7 +111,7 @@ import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEn
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 import { updateDisruptionState, buildDisruptionFiles, readDisruptionPrior, writeDisruptionFiles, AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY } from "../lib/ai-disruption/log.mjs";
-import { updatePolicyNews, readPolicyNewsPrior, writePolicyNewsFile, policyNewsShadow, POLICY_NEWS_KEY } from "../lib/policy-news/index.mjs";
+import { updatePolicyNews, readPolicyNewsPrior, writePolicyNewsFile, policyNewsShadow, heldPolicyNews, POLICY_NEWS_KEY } from "../lib/policy-news/index.mjs";
 import { buildScorecard as buildDisruptionScorecard } from "../lib/ai-disruption/scorecard.mjs";
 import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
@@ -42042,6 +42042,11 @@ async function main() {
           isEtf: (sym) => SECTORS[sym] === "ETF",
           barsOf: (sym) => chains?.[sym]?._patternBars || chains?.[sym]?._bars || [],
           earningsStore: earningsHxStore, groupOf: (sym) => sectorGroupOf(sym),
+          // Webull earnings-date backup (data integration, 2026-11-19): the
+          // same backup the Top Picks run reads, for names the main source
+          // has no upcoming date for; the engines use it to stay out of the
+          // report, never to open a run-in trade (lib/engines/index.mjs).
+          earningsBackup: webullW3?.backup ? earningsBackupMap(TICKERS, webullW3.backup, etDateKey(new Date(builtAtIso)), { isEtf: (s) => SECTORS[s] === "ETF" }) : null,
           unusual: scoringUnusual, crowdRollup: crowdPayload?.rollup || null,
           fred: Object.fromEntries(["DGS10", "DGS2", "T10Y2Y", "DFF", "NFCI", "DTWEXBGS", "CPIAUCSL", "UNRATE", "USREC"].map((id) => [id, fredRows(id)])),
           vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
@@ -42638,6 +42643,17 @@ async function main() {
     publicScan.missing.push(...ownerBriefCoreSources.filter(([,present])=>!present).map(([label])=>label));
     publicScan.total = publicScan.checked.length + publicScan.coreChecked.length + publicScan.missing.length;
     const publicCore = briefRenderFields(gatherBriefSignals(kind, { chains, fearGreed: scoringFearGreed, macro: macroBackdrop, correlations: correlationsInfo?.payload?.stale ? null : correlationsInfo?.payload, unusual: scoringUnusual, calendar: ownerBriefCalendar(calendarInfo.payload,ownerBriefNow.toISOString(),macroReleaseReads), rfr: riskFreeRate?.rate, headlines: trends.macroHeadlines || [], ivTrending: ivTrendingForBrief, siteTools: publicScan, now: ownerBriefNow }));
+    // Policy and news on held names (data integration, 2026-11-19): open Top
+    // Picks and strategy-engine trades against policy-news.json. Display only.
+    try {
+      const held = [];
+      for (const key of [PICKS_ACCURACY_FILE, ENGINES_RECORD_KEY]) {
+        try { for (const t of JSON.parse(await readFile(resolve(DATA_DIR, key), "utf8"))?.open || []) if (t?.symbol) held.push(t.symbol); } catch { /* no record yet */ }
+      }
+      ownerDeskForBrief.policy = policyNewsState ? heldPolicyNews(policyNewsState, held, { nowMs: ownerBriefNow.getTime() }) : [];
+    } catch (err) {
+      console.warn(`[owner-brief] policy and news on held names skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
     const ownerBrief = await publishOwnerMarketBrief({ dataDir: DATA_DIR, builtAtIso: ownerBriefNow.toISOString(), publicScan, publicCore, previous: priorOwnerMarketBrief, desk: ownerDeskForBrief });
     console.log(`wrote data/owner-market-brief.json — ${ownerBrief.ideas.length} research priorities; no extra model calls`);
   } catch (err) {

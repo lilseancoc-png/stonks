@@ -62,6 +62,16 @@ three days or filed for tomorrow; 0 when read and nothing matched), `nvr`
 spike, when 10+ were read). Measured by `lib/shadow-research.mjs` on the
 Evidence board like every other shadow key; nothing scores them.
 
+## Held names on the Owner brief (2026-11-19)
+
+`heldPolicyNews` lists the names with an open Top Picks or strategy-engine
+trade that have a tagged Register document in the last three days (or on the
+public inspection list) or a news spike (2x usual volume, 10+ articles),
+two documents per name at most, from fresh reads only. The bake passes it to
+the Owner Market Brief as `desk.policy`, which shows one finding, "News or a
+federal rule on a name you hold" (priority 1 when a document is marked
+significant or the spike is 4x or more). Context only: no trade rule reads it.
+
 ## Switches
 
 Owner Settings, Data & desks, Data sources: `FEDERAL_REGISTER` and

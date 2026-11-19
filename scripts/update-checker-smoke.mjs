@@ -70,7 +70,7 @@ let publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(!publicS
 const brokenTicker={...publicTicker,priceSeries:{t:[1],c:[]}};assert(publishedTickerError(brokenTicker));entries.set('TEST.json',Buffer.from(JSON.stringify(brokenTicker)));publicScan=await scanPublishedArtifacts(store,new Map(),now);assert(publicScan.issues.some(i=>i.key==='TEST.json'),'broken stored series is detected');entries.delete('TEST.json');
 const manifestSpec=UPDATE_FEATURES.find(f=>f.id==='home');assert.equal(inspectFeature(manifestSpec,{_meta:{dataBuiltAtIso:clock},unusual:{}},now).status,'available','actual manifest sidecar uses provenance; symbol universe stays in the HTML shell');
 
-const featureScan=await inspectPublishedFeatures(store,now);assert.equal(featureScan.length,UPDATE_FEATURES.length);assert(!featureScan.some(f=>['missing','invalid','unavailable','undated'].includes(f.status)));
+const featureScan=await inspectPublishedFeatures(store,now);assert.equal(featureScan.length,UPDATE_FEATURES.length);assert(!featureScan.some(f=>['missing','invalid','unavailable','undated','degraded'].includes(f.status)),'every page and its second file are healthy in the fixture');
 const makeRes=()=>({statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v;},status(n){this.statusCode=n;return this;},json(value){this.body=value;return this;},end(value){this.body=value;return this;}});
 reads=0;
 for(const session of [null,{}, {tr:true},{tp:true},{tr:true,tp:false}]){const res=makeRes();await handleUpdateChecker({method:'GET',query:{checker:'status'}},res,{env:{PRIVATE_DATA_ENABLED:'1'},getSession:async()=>session,store});assert.equal(res.statusCode,401);assert.equal(reads,0);assert.equal(res.headers['Cache-Control'],'private, no-store');}
@@ -105,6 +105,23 @@ for(const [id,key]of Object.entries(SOURCE_KEYS))assert(UPDATE_FEATURES.some(f=>
 assert.deepEqual([...MONITORED_WORKFLOWS].sort(),(await readdir(new URL('../.github/workflows/',import.meta.url))).filter(f=>f.endsWith('.yml')).sort(),'Every workflow monitored');
 const workflow=await readFile(new URL('../.github/workflows/update-checker.yml',import.meta.url),'utf8');
 assert(workflow.includes('cron:'));assert(workflow.includes('persist-credentials: false'));assert(workflow.includes('github.event.repository.default_branch'));assert(!workflow.includes('issues: write'));assert(!workflow.includes('DISCORD'));
+// The Heatmap's second file (wide-tier.json, data integration 2026-11-19).
+{
+  const hm=UPDATE_FEATURES.find(f=>f.id==='heatmap');assert.equal(hm.also[0].key,'wide-tier.json','the heat map names its wide file');
+  const t0=Date.parse('2026-11-18T19:05:00Z'),fresh=new Date(t0-10*60000).toISOString(),old=new Date(t0-5*86400000).toISOString();
+  const heat={tickers:{AAA:{}},builtAtIso:fresh};
+  const scanOf=async(wide)=>{const files=new Map([['heatmap.json',heat],['wide-tier.json',wide]]);const st={async get(k){const v=files.get(k);return v===undefined?null:Buffer.from(JSON.stringify(v));}};return (await inspectPublishedFeatures(st,t0)).find(f=>f.id==='heatmap');};
+  let row=await scanOf({tickers:[],builtAtIso:old,refreshedAtIso:fresh});assert.equal(row.status,'available','a fresh hourly re-mark counts, not the bake time');assert.equal(row.also[0].status,'available');
+  row=await scanOf({tickers:[],builtAtIso:old,refreshedAtIso:old});assert.equal(row.status,'stale','a stale wide file shows on the heat map row');assert(/Wide heat map/.test(row.detail) && /main file is current/.test(row.detail));
+  row=await scanOf({tickers:[],builtAtIso:fresh,refreshedAtIso:fresh,stale:true});assert.equal(row.status,'stale','a wide file flagged stale by the bake');
+  row=await scanOf(undefined);assert.equal(row.status,'degraded','a missing wide file is an issue, not a missing heat map');
+  row=await scanOf({enabled:false,builtAtIso:old});assert.equal(row.status,'available','switched off (WIDE_TIER=0) is not an issue');assert.equal(row.also[0].status,'off');
+  // Cadence: the heat map refreshed on time but the wide file missed the 14:00 ET re-mark.
+  const at=Date.parse('2026-11-18T19:20:00Z'),onTime=new Date(at-12*60000).toISOString(),late=new Date(at-90*60000).toISOString();
+  const rowOf=(w)=>({...hm,status:'available',asOf:onTime,also:[{key:'wide-tier.json',label:hm.also[0].label,status:'available',asOf:w}]});
+  let [c]=await checkFeatureCadence([rowOf(late)],new Map(),{runs:[]},at);assert.equal(c.status,'stale','a wide re-mark that fell behind the schedule');assert(/Wide heat map/.test(c.detail));
+  [c]=await checkFeatureCadence([rowOf(onTime)],new Map(),{runs:[]},at);assert.equal(c.status,'available');
+}
 for(const file of MONITORED_WORKFLOWS.filter(f=>!['update-checker.yml','update-checker-tests.yml'].includes(f))){const source=await readFile(new URL('../.github/workflows/'+file,import.meta.url),'utf8');assert(workflow.includes('"'+source.match(/^name: (.+)$/m)[1]+'"'));}
 assert(OWNER_PAGE_IDS.includes('update-checker'));const app=renderAppJs();new vm.Script(app);assert.equal(JSON.parse(app.match(/var OWNER_TABS = (\{[^;]+\});/)[1])['update-checker'],1);
 console.log('Update Checker passed: all '+UPDATE_FEATURES.length+' features, all '+MONITORED_WORKFLOWS.length+' workflows, logs, artifact integrity, missed/stuck builds, DST, privacy and collection.');

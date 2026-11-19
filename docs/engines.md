@@ -444,6 +444,14 @@ written. That is when the Webull mirror is pinged, so the record and the paper
 account move together. Every other build re-writes the three files exactly as
 it read them.
 
+The next report date comes from the stock's earnings history (Yahoo /
+Nasdaq). When that has none, the Webull backup date stands in
+(`earningsBackup`, same `WEBULL_BACKUPS` switch as Top Picks, 2026-11-19),
+session unknown. It only holds back new entries near the report (Reversion's
+two-session stand-aside, Fundamentals' six-session hold); the run-in setup
+never opens on it. The data check
+on the page lists the names that took it.
+
 Each run, in order (`stepBook` in `lib/engines/book.mjs`):
 
 1. Mark every open trade and shadow trade on the chain and close the ones

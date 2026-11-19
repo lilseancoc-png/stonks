@@ -27,7 +27,7 @@ import { prepareReports, earnView, fundCore } from "../lib/engines/earn.mjs";
 import { buildMacro, fearReading } from "../lib/engines/macro.mjs";
 import { engineStats, summarize, scoreBand, tradeUsd, flatTradeUsd } from "../lib/engines/record.mjs";
 import { runBacktest, publicResult } from "../lib/engines/backtest.mjs";
-import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare } from "../lib/engines/index.mjs";
+import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEngineViews, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare } from "../lib/engines/index.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { DIAL } from "../lib/owner-controls.mjs";
 import { ownerSettingDef } from "../lib/owner-settings.mjs";
@@ -209,6 +209,11 @@ ok("earnings: drift after a beat that held; run-in closed before the report", ()
   assert.equal(run.length, 1); assert.equal(run[0].setup, "run-in"); assert.equal(run[0].exitBy, "2026-11-23");
   // ... but not into very rich options.
   assert.equal(evalEarnings(V("EEE", baseF({}), { earn: { last: null, hist, next: { date: "2026-11-23", session: "PM", sessionsUntil: 5, exitBy: "2026-11-23" } }, live: { iv: { band: "very-rich" } } }), CTX).length, 0);
+});
+ok("earnings: a Webull backup date never opens a run-in trade", () => {
+  const hist = [1, 2, 3, 4].map(() => ({ movePct: 4, week1Pct: 2, pre10Pct: 3 }));
+  const next = { date: "2026-11-23", session: "TBD", sessionsUntil: 5, exitBy: "2026-11-20", source: "webull-backup" };
+  assert.equal(evalEarnings(V("EEE", baseF({}), { earn: { last: null, hist, next }, live: { iv: { band: "normal" } } }), CTX).length, 0);
 });
 // Thirty stocks: F01 has the strongest fundamentals, F30 the weakest. The
 // weaker half sits under its 200-day (puts are not opened far above it).
@@ -1807,6 +1812,25 @@ ok("book: the Allocator holds a losing setup back as a shadow trade; 'advise' on
   assert.equal(v.rows.find((r) => r.key === allocKey("technicals", "pullback", "call", "option")).status, "closed");
   assert.ok(v.rows.every((r) => !ENGINES[r.engine].setups[r.setup].retired));
   assert.equal(v.cellLabel, "trending-up, calm");
+});
+
+ok("views: the Webull earnings backup fills only names the main source has no report for", () => {
+  const nowIso = "2026-11-18T16:00:00.000Z", today = "2026-11-18";
+  const input = fixture(nowIso);
+  const [a, b] = input.tickers.filter((s) => !MACRO_ETFS.includes(s) && s !== "SPY" && s !== "QQQ");
+  delete input.earningsStore.tickers[a];
+  input.earningsStore.tickers[b].events.push({ date: "2026-11-25", session: "PM" });
+  const backup = { [a]: "2026-11-24", [b]: "2026-12-01" };
+  const off = buildEngineViews({ ...input, today, nowMs: Date.parse(nowIso) });
+  assert.equal(off.views[a]?.earn?.next ?? null, null);
+  const on = buildEngineViews({ ...input, today, nowMs: Date.parse(nowIso), earningsBackup: backup });
+  assert.equal(on.views[a].earn.next.date, "2026-11-24");
+  assert.equal(on.views[a].earn.next.source, "webull-backup");
+  assert.equal(on.views[a].earn.next.exitBy, "2026-11-23");
+  // The main source's date stands; the backup is not read for it.
+  assert.equal(on.views[b].earn.next.date, "2026-11-25");
+  assert.equal(on.views[b].earn.next.source, undefined);
+  assert.deepEqual(on.health.earnBackup, [a]);
 });
 
 console.log(`${passed} engine checks passed${process.exitCode ? " (with failures)" : ""}`);
