@@ -40,6 +40,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-19
+
+### Fixed
+- Make the ticker-judgment AI pass actually use the prompt cache. It sent about 84 calls within four seconds, so almost none arrived after an earlier call had written the shared ~2,900-token instructions to Gemini's cache (16 of 539 calls hit it on 2026-11-17/18). The first call of each pass now goes alone and the rest wait for its answer, and an explicit cache of the instructions is made at the start of the pass and deleted at the end; if Gemini refuses the explicit cache (Flash-Lite lists no minimum size), the pass carries on with the primed implicit cache. Cached input bills at 10% of the input price, about $0.18 a trading day saved. Switches `AI_TICKER_PRIME=0` and `AI_TICKER_EXPLICIT_CACHE=0`; each build log prints a "Ticker-judgment prompt cache" line with the cached share (`lib/ai-prompt-cache.mjs`, test `node scripts/ai-prompt-cache-smoke.mjs`).
+
 ## 2026-11-18
 
 ### Fixed
