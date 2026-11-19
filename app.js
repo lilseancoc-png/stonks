@@ -1641,13 +1641,67 @@ function recoveryEvidence(row, data, now = Date.now()) {
         }).catch(function(){
           if (token !== state.token) return;
           parkGrade();
-          root.innerHTML = '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
+          wideCard(root, sym, token);
         });
       } else {
         render(root);
         liveQuote(sym, token);
       }
       try { if (typeof wfNoteRecent === 'function') wfNoteRecent('sym:' + sym); } catch (_) {}
+    }
+    // A stock that is not one of the 80 tracked names (an S&P 500 or
+    // Nasdaq-100 member on the wide tier, or a name that left coverage, such
+    // as an old Track Record row) has no per-ticker file. Its row in the
+    // public wide-tier.json (rules only: closes, ranges, the next report)
+    // stands in, lazy-loaded only on that miss; a name on neither list keeps
+    // the plain "could not load" note.
+    function missingHtml(sym){
+      return '<div class="stp-missing"><p>We could not load <b>' + escapeHtml(sym) + '</b>. It may not be one of the stocks this site follows.</p><p><a href="?tab=tickers" data-go-tab="tickers">See all stocks</a></p></div>';
+    }
+    function wideRows(){
+      if (cache.wideP) return cache.wideP;
+      cache.wideP = getJson('wide-tier.json').then(function(j){
+        var map = {};
+        if (j && j.enabled !== false && Array.isArray(j.tickers)) j.tickers.forEach(function(r){ if (r && r.t && !r.fund) map[r.t] = r; });
+        return { rows: map, asOf: j && j.asOf, perfStart: (j && j.perfStart) || {} };
+      }).catch(function(){ cache.wideP = null; return null; });
+      return cache.wideP;
+    }
+    function wideCard(root, sym, token){
+      root.innerHTML = missingHtml(sym);
+      wideRows().then(function(w){
+        if (token !== state.token) return;
+        var r = w && w.rows[sym];
+        if (!r || r.tr) return;
+        var range = (r.hi52 > r.lo52 && r.sp > 0) ? Math.max(0, Math.min(1, (r.sp - r.lo52) / (r.hi52 - r.lo52))) : null;
+        var vsMa = function(ma){ return ma > 0 && r.sp > 0 ? pctRaw((r.sp / ma - 1) * 100, 1) : '—'; };
+        var per = [['1d', r.ch], ['1w', r.perf && r.perf['1w']], ['1m', r.perf && r.perf['1m']], ['3m', r.perf && r.perf['3m']], ['YTD', r.perf && r.perf.ytd], ['1y', r.perf && r.perf['1y']]];
+        var idx = String(r.x || '').split('').map(function(c){ return c === 'S' ? 'S&P 500' : c === 'N' ? 'Nasdaq-100' : ''; }).filter(Boolean).join(' and ');
+        setHeader(r.n || sym, '');
+        root.innerHTML = '<div class="stp-wide" data-stp-wide>' +
+          '<div class="stp-head"><div class="stp-id"><span class="stp-ticker">' + escapeHtml(sym) + '</span><span class="stp-wide-name">' + escapeHtml(r.n || sym) + '</span></div>' +
+          '<div class="stp-price-row"><span class="stp-price">' + money(r.sp) + '</span><span class="stp-change">' + chg(r.ch) + '</span><span class="stp-session">Last close · ' + dateLabel(r.d) + (r.stale ? ' · not updated with the rest' : '') + '</span></div></div>' +
+          '<p class="stp-wide-note">' + escapeHtml(sym) + ' is on the wide list' + (idx ? ' (' + escapeHtml(idx) + ')' : '') + ', not one of the stocks this site follows in full, so there is no grade, option chain or AI read here. These numbers come from its daily closes.</p>' +
+          '<dl class="stp-wide-grid">' +
+            '<div><dt>Sector</dt><dd>' + escapeHtml(r.s || '—') + (r.i ? '<small>' + escapeHtml(r.i) + '</small>' : '') + '</dd></div>' +
+            '<div><dt>Market value</dt><dd>' + big(r.mc) + '</dd></div>' +
+            '<div><dt>52-week range</dt><dd>' + money(r.lo52) + ' to ' + money(r.hi52) + (range != null ? '<small>' + Math.round(range * 100) + '% of the way up</small>' : '') + '</dd></div>' +
+            '<div><dt>Vs 50-day average</dt><dd>' + vsMa(r.ma50) + '</dd></div>' +
+            '<div><dt>Vs 200-day average</dt><dd>' + vsMa(r.ma200) + '</dd></div>' +
+            '<div><dt>Next report</dt><dd>' + (r.er ? dateLabel(r.er) + (r.erEst ? '<small>estimated</small>' : '') : '—') + '</dd></div>' +
+          '</dl>' +
+          '<div class="stp-wide-perf">' + per.map(function(p){ return '<span><b>' + p[0] + '</b> ' + chg(p[1], 1) + '</span>'; }).join('') + '</div>' +
+          '<p class="stp-src"><a href="?tab=heatmap" data-stp-wide-map>See it on the Heatmap, Wide view</a> · <a href="?tab=tickers" data-go-tab="tickers">See all followed stocks</a></p>' +
+        '</div>';
+        var link = root.querySelector('[data-stp-wide-map]');
+        if (link) link.addEventListener('click', function(ev){
+          ev.preventDefault();
+          var b = document.querySelector('[data-page-tab="heatmap"]');
+          if (!b){ window.location.href = '?tab=heatmap'; return; }
+          b.click();
+          try { if (typeof heatmapSetSource === 'function') heatmapSetSource('wide'); } catch (_) {}
+        });
+      });
     }
     function liveQuote(sym, token){
       fetch('/api/quote?symbol=' + encodeURIComponent(sym), { cache: 'no-store' })
@@ -2146,6 +2200,9 @@ function recoveryEvidence(row, data, now = Date.now()) {
           (f.numberOfAnalystOpinions ? '<div class="stp-ret"><span>Analysts</span><b>' + escapeHtml(String(f.numberOfAnalystOpinions)) + '</b></div>' : '') +
           '</div></section>';
       }
+      // The Owner's controls on this stock (owner-controls-client.mjs
+      // ocRenderStock): avoid / watch / catalysts, filled from the live read.
+      if (HAS_OWNER_ACCESS) html += '<section class="stp-sec" id="stp-oc" data-oc-stock="' + escapeHtml(state.sym) + '" hidden></section>';
       html += '<section class="stp-sec" id="stp-valuation" hidden></section>';
       html += '<section class="stp-sec" id="stp-odds" hidden></section>';
       html += '<section class="stp-sec" id="stp-aid" hidden></section>';
@@ -2159,7 +2216,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       // The valuation band fills in once its public file arrives, after any
       // chart this tab already queued.
       var prevAfter = state.afterTab, vSym = state.sym, vToken = state.token;
-      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); fillAid(vSym, vToken); };
+      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); fillAid(vSym, vToken); if (typeof ocRenderStock === 'function') ocRenderStock(); };
       return html;
     }
     function tabNews(){
@@ -2614,6 +2671,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
             }).join('') + '</tbody></table></div><p class="stp-src"><a href="?tab=track" data-go-tab="track">Open Track record</a></p></section>';
         }
         if (!trades.length) html += '<p class="stp-empty">No Top Picks trades in ' + escapeHtml(sym) + ' yet. The Grade tab shows its current grade.</p>';
+        // Webull order flow (webull-data-client.mjs fills it, Owner only).
+        html += '<div data-wb="flow" data-wb-sym="' + escapeHtml(sym) + '" hidden></div>';
         return html;
       });
     }
@@ -5480,6 +5539,210 @@ function recoveryEvidence(row, data, now = Date.now()) {
   ehQueue();
 
 
+  (function(){
+  var WB = { files: {}, loading: {} };
+  var WB_BUCKETS = ['\u2264 -10%', '-10 to -5%', '-5 to -2%', '-2 to 0%', '0%', '0 to 2%', '2 to 5%', '5 to 10%', '\u2265 10%'];
+  // Short axis labels; the hover tip keeps the full range.
+  var WB_BUCKETS_SHORT = ['\u2264-10', '-10/-5', '-5/-2', '-2/0', '0', '0/2', '2/5', '5/10', '\u226510'];
+  var WB_LISTS = [['gainers', 'Top gainers'], ['losers', 'Top losers'], ['actives', 'Most active']];
+  var WB_52 = [['newHigh', 'New 52-week highs'], ['nearHigh', 'Near 52-week highs'], ['newLow', 'New 52-week lows'], ['nearLow', 'Near 52-week lows']];
+  function wbNum(v){ return v == null || v === '' || !isFinite(Number(v)) ? null : Number(v); }
+  function wbInt(n){ n = wbNum(n); return n == null ? '\u2014' : Math.round(n).toLocaleString('en-US'); }
+  function wbPct(v, d){ v = wbNum(v); return v == null ? '\u2014' : (v > 0 ? '+' : '') + v.toFixed(d == null ? 1 : d) + '%'; }
+  function wbCls(v){ v = wbNum(v); return v == null ? '' : v > 0 ? 'pos' : v < 0 ? 'neg' : ''; }
+  function wbMoney(v){
+    v = wbNum(v); if (v == null) return '\u2014';
+    var a = Math.abs(v), s = v < 0 ? '-' : '';
+    return s + '$' + (a >= 1e9 ? (a / 1e9).toFixed(2) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (a / 1e3).toFixed(0) + 'K' : a.toFixed(0));
+  }
+  function wbVol(v){ v = wbNum(v); if (v == null) return '\u2014'; var a = Math.abs(v); return a >= 1e9 ? (a / 1e9).toFixed(2) + 'B' : a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (a / 1e3).toFixed(0) + 'K' : String(Math.round(a)); }
+  function wbDate(d){ return d ? escapeHtml(String(d).slice(0, 10)) : '\u2014'; }
+  function wbCount(l){ return l ? wbInt(l.n) + (l.capped ? '+' : '') : '\u2014'; }
+  function wbLoad(key){
+    if (Object.prototype.hasOwnProperty.call(WB.files, key)) return Promise.resolve(WB.files[key]);
+    if (WB.loading[key]) return WB.loading[key];
+    WB.loading[key] = vnJson(key, true).then(function(j){ WB.files[key] = j && typeof j === 'object' ? j : null; delete WB.loading[key]; return WB.files[key]; });
+    return WB.loading[key];
+  }
+  function wbSrc(text){ return '<p class="wbd-src">' + text + ' Webull OpenAPI, about 15 minutes delayed, saved once a day after the close. Owner only (Webull\'s terms do not allow republishing).</p>'; }
+
+  // ---- market breadth (Market analysis) ----------------------------------
+  function wbTotals(day){
+    var adv = 0, dec = 0, flat = 0, n = 0;
+    var s = day && day.sectors || {};
+    for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)){ adv += s[k].adv || 0; dec += s[k].dec || 0; flat += s[k].flat || 0; n++; }
+    return n ? { adv: adv, dec: dec, flat: flat, sectors: n, advPct: adv + dec > 0 ? adv / (adv + dec) * 100 : null } : null;
+  }
+  function wbHistHtml(day){
+    var b = day && day.buckets;
+    if (!b || !b.n) return '<p class="wbd-empty">No stock-by-stock read saved for this session yet.</p>';
+    var counts = b.counts || [], max = 1;
+    for (var i = 0; i < counts.length; i++) max = Math.max(max, counts[i] || 0);
+    var total = Object.keys(day.sectors || {}).length, done = Object.keys(b.sectorsDone || {}).length;
+    var W = 540, H = 170, P = 20, bw = (W - P * 2) / counts.length, pts = [];
+    var svg = '<svg class="wbd-hist" viewBox="0 0 ' + W + ' ' + (H + 34) + '" role="img" aria-label="How many US stocks moved by how much today">';
+    for (var j = 0; j < counts.length; j++){
+      var c = counts[j] || 0, h = Math.round((c / max) * (H - 18)), x = P + j * bw + 4, y = H - h;
+      var cls = j < 4 ? 'wbd-bar-neg' : j === 4 ? 'wbd-bar-flat' : 'wbd-bar-pos';
+      svg += '<rect class="' + cls + '" x="' + x.toFixed(1) + '" y="' + y + '" width="' + (bw - 8).toFixed(1) + '" height="' + Math.max(h, 1) + '" rx="3"></rect>';
+      svg += '<text class="wbd-bar-n" x="' + (x + (bw - 8) / 2).toFixed(1) + '" y="' + (y - 4) + '" text-anchor="middle">' + wbInt(c) + '</text>';
+      svg += '<text class="wbd-bar-l" x="' + (x + (bw - 8) / 2).toFixed(1) + '" y="' + (H + 16) + '" text-anchor="middle">' + escapeHtml(WB_BUCKETS_SHORT[j]) + '</text>';
+      pts.push({ x: x + (bw - 8) / 2, y: y, label: WB_BUCKETS[j] + '\n' + wbInt(c) + ' stocks (' + (b.n ? (c / b.n * 100).toFixed(1) : '0') + '%)' });
+    }
+    svg = svg.replace('<svg ', '<svg ' + chHoverAttr(pts) + ' ');
+    var down = (counts[0] || 0) + (counts[1] || 0) + (counts[2] || 0) + (counts[3] || 0), up = (counts[5] || 0) + (counts[6] || 0) + (counts[7] || 0) + (counts[8] || 0);
+    return '<div class="wbd-hist-wrap">' + svg + '</svg></div>' +
+      '<p class="wbd-line"><b class="pos">' + wbInt(up) + ' up</b> \u00b7 <b class="neg">' + wbInt(down) + ' down</b> \u00b7 ' + wbInt(counts[4]) + ' unchanged, of ' + wbInt(b.n) + ' stocks read' +
+      (done < total ? ' <span class="wbd-warn">(' + done + ' of ' + total + ' sectors read to the end, so this is a partial count)</span>' : '') + '</p>';
+  }
+  function wbAdvLineHtml(hist){
+    var rows = (hist || []).filter(function(h){ return h && wbNum(h.advPct) != null; }).slice(-120);
+    if (rows.length < 2) return '';
+    var W = 540, H = 90, P = 6, pts = [], d = '';
+    for (var i = 0; i < rows.length; i++){
+      var x = P + i * (W - P * 2) / (rows.length - 1), y = P + (100 - rows[i].advPct) / 100 * (H - P * 2);
+      d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      pts.push({ x: x, y: y, label: rows[i].date + '\n' + rows[i].advPct.toFixed(1) + '% of movers up' + (rows[i].newHigh != null ? '\n' + rows[i].newHigh + (rows[i].newHighCapped ? '+' : '') + ' new highs, ' + (rows[i].newLow != null ? rows[i].newLow + (rows[i].newLowCapped ? '+' : '') : '\u2014') + ' new lows' : '') });
+    }
+    var mid = P + 0.5 * (H - P * 2);
+    return '<div class="wbd-sub"><h4>Share of movers that rose, by session</h4><svg class="wbd-line-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' + chHoverAttr(pts) + ' role="img" aria-label="Advancers as a share of advancers plus decliners, by session">' +
+      '<line class="wbd-mid" x1="' + P + '" x2="' + (W - P) + '" y1="' + mid + '" y2="' + mid + '"></line><path class="wbd-path" d="' + d + '"></path></svg>' +
+      '<p class="wbd-src">50% line marked. ' + rows.length + ' session' + (rows.length === 1 ? '' : 's') + ' logged since ' + wbDate(rows[0].date) + '.</p></div>';
+  }
+  function wbSectorTable(day){
+    var list = [];
+    var s = day && day.sectors || {};
+    for (var k in s) if (Object.prototype.hasOwnProperty.call(s, k)) list.push(s[k]);
+    if (!list.length) return '';
+    list.sort(function(a, b){ return (b.adv + b.dec) - (a.adv + a.dec); });
+    var cols = [
+      { label: 'Sector', cell: function(r){ return escapeHtml(r.name || r.id); }, sort: function(r){ return r.name || r.id; } },
+      { label: 'Up', num: true, cell: function(r){ return '<span class="pos">' + wbInt(r.adv) + '</span>'; }, sort: function(r){ return r.adv; } },
+      { label: 'Down', num: true, cell: function(r){ return '<span class="neg">' + wbInt(r.dec) + '</span>'; }, sort: function(r){ return r.dec; } },
+      { label: 'Flat or untraded', num: true, cell: function(r){ return wbInt(r.flat); }, sort: function(r){ return r.flat; } },
+      { label: '% of movers up', num: true, cell: function(r){ var p = r.adv + r.dec > 0 ? r.adv / (r.adv + r.dec) * 100 : null; return p == null ? '' : vtBarHtml(p / 100) + ' ' + p.toFixed(0) + '%'; }, sort: function(r){ return r.adv + r.dec > 0 ? r.adv / (r.adv + r.dec) : null; } },
+      { label: 'Sector move', num: true, cell: function(r){ return '<span class="' + wbCls(r.chg) + '">' + wbPct(r.chg, 2) + '</span>'; }, sort: function(r){ return wbNum(r.chg); } }
+    ];
+    return '<details class="wbd-sub"><summary>Every Webull sector (' + list.length + ')</summary>' + VIEWS.tableHtml(cols, list, { key: 'wbd-sectors', cls: 'wbd-table' }) + '</details>';
+  }
+  function wbListTable(l, key, opt){
+    var rows = l && Array.isArray(l.rows) ? l.rows.slice(0, opt && opt.top || 15) : [];
+    if (!rows.length) return '<p class="wbd-empty">Not saved for this session.</p>';
+    var cols = [
+      { label: 'Stock', cell: function(r){ return '<b>' + escapeHtml(r.s) + '</b>' + (r.n ? ' <small class="wbd-dim">' + escapeHtml(r.n) + '</small>' : ''); }, sort: function(r){ return r.s; } },
+      { label: 'Price', num: true, cell: function(r){ return wbNum(r.p) == null ? '' : '$' + wbNum(r.p).toFixed(2); }, sort: function(r){ return wbNum(r.p); } },
+      { label: 'Day', num: true, cell: function(r){ return '<span class="' + wbCls(r.c) + '">' + wbPct(r.c) + '</span>'; }, sort: function(r){ return wbNum(r.c); } },
+      { label: 'Volume', num: true, cell: function(r){ return wbVol(r.v); }, sort: function(r){ return wbNum(r.v); } }
+    ];
+    return VIEWS.tableHtml(cols, rows, { key: 'wbd-' + key, cls: 'wbd-table' });
+  }
+  function wbBackupHtml(chk){
+    if (!chk) return '';
+    var parts = [];
+    var ef = chk.earnings && chk.earnings.filled || [], ed = chk.earnings && chk.earnings.disagree || [], tf = chk.targets && chk.targets.filled || [], xd = chk.econ && chk.econ.disagree || [];
+    var fg = chk.fearGreed;
+    parts.push('<li><b>Earnings dates filled in</b> for the Top Picks decision (no Yahoo or Nasdaq date): ' + (ef.length ? ef.map(function(x){ return escapeHtml(x.symbol) + ' ' + wbDate(x.date); }).join(', ') : 'none') + '.</li>');
+    parts.push('<li><b>Earnings dates that disagree</b> with our main source by more than a day: ' + (ed.length ? ed.map(function(x){ return escapeHtml(x.symbol) + ' ours ' + wbDate(x.main) + ', Webull ' + wbDate(x.backup); }).join('; ') : 'none') + '.</li>');
+    parts.push('<li><b>Street targets filled in</b> on the Valuation lab (no Yahoo target): ' + (tf.length ? tf.map(escapeHtml).join(', ') : 'none') + '.</li>');
+    parts.push('<li><b>Release dates that disagree</b> with our calendar: ' + (xd.length ? xd.map(function(x){ return escapeHtml(x.group || '') + ' ours ' + wbDate(x.ours) + ', Webull ' + wbDate(x.webull); }).join('; ') : 'none') + '.</li>');
+    if (fg) parts.push('<li><b>Fear &amp; Greed</b>: ' + (fg.verdict === 'same-index' ? 'Webull\'s index matches CNN\'s (' + fg.matched + ' dates, largest gap ' + fg.maxGap + ' points), so it may stand in for the engines\' fear reads when CNN fails' + (fg.standIn ? '; <b>it stood in this build</b>' : '') : fg.verdict === 'different-index' ? 'Webull\'s index is not CNN\'s (' + fg.matched + ' dates, largest gap ' + fg.maxGap + ' points); shown as context only' : 'not enough matching dates yet (' + (fg.matched || 0) + ') to tell whether Webull\'s index is CNN\'s; context only until it is') + '.</li>');
+    return '<details class="wbd-sub"><summary>Backup sources: what Webull filled in and where it disagrees</summary><ul class="wbd-list">' + parts.join('') + '</ul>' +
+      '<p class="wbd-src">Built ' + wbDate(chk.builtAt) + '. A Webull value is used only when our main source has none, and is labeled backup source. Nothing public reads it.</p></details>';
+  }
+  function wbMarketHtml(br, chk){
+    var day = br && br.today;
+    if (!day) return chk ? '<section class="wbd-card"><h3>Whole-market breadth (Webull)</h3><p class="wbd-empty">No Webull breadth saved yet.</p>' + wbBackupHtml(chk) + '</section>' : '';
+    var t = wbTotals(day);
+    var l = day.lists || {};
+    var kpis = '<div class="wbd-kpis">' +
+      '<div class="wbd-kpi"><span>Movers up</span><b class="' + (t && t.advPct >= 50 ? 'pos' : 'neg') + '">' + (t && t.advPct != null ? t.advPct.toFixed(0) + '%' : '\u2014') + '</b><small>' + (t ? wbInt(t.adv) + ' up, ' + wbInt(t.dec) + ' down' : '') + '</small></div>' +
+      WB_52.map(function(x){ return '<div class="wbd-kpi"><span>' + escapeHtml(x[1]) + '</span><b>' + wbCount(l[x[0]]) + '</b>' + (l[x[0]] && l[x[0]].capped ? '<small>The list stops at 200</small>' : '<small>&nbsp;</small>') + '</div>'; }).join('') +
+      '</div>';
+    var movers = '<div class="wbd-cols">' + WB_LISTS.map(function(x){ return '<div class="wbd-col"><h4>' + escapeHtml(x[1]) + '</h4>' + wbListTable(l[x[0]], x[0]) + '</div>'; }).join('') + '</div>';
+    var highs = '<details class="wbd-sub"><summary>52-week highs and lows</summary><div class="wbd-cols">' + WB_52.map(function(x){ return '<div class="wbd-col"><h4>' + escapeHtml(x[1]) + ' (' + wbCount(l[x[0]]) + ')</h4>' + wbListTable(l[x[0]], x[0], { top: 20 }) + '</div>'; }).join('') + '</div></details>';
+    var errs = day.errors && Object.keys(day.errors).length ? '<p class="wbd-warn">Parts Webull did not answer this session: ' + Object.keys(day.errors).map(escapeHtml).join(', ') + '.</p>' : '';
+    return '<section class="wbd-card"><header class="wbd-head"><span class="wbd-kicker">Owner \u00b7 Webull data \u00b7 ' + wbDate(day.date) + '</span><h3>Whole-market breadth (Webull)</h3>' +
+      '<p class="wbd-lede">Every US stock Webull lists, a different and wider source than the S&amp;P 500 + Nasdaq-100 breadth on the Heatmap\'s Wide view. Context only, never a vote.</p></header>' +
+      kpis + '<div class="wbd-sub"><h4>How many stocks moved by how much (% change today)</h4>' + wbHistHtml(day) + '</div>' + wbAdvLineHtml(br.history) + movers + highs + wbSectorTable(day) + errs + wbBackupHtml(chk) +
+      wbSrc('Webull market sectors, sector stock lists and screeners.') + '</section>';
+  }
+
+  // ---- order flow (stock page, Owner tab) --------------------------------
+  function wbFlowHtml(file, sym){
+    var rows = file && file.rows && Array.isArray(file.rows[sym]) ? file.rows[sym] : null;
+    if (!rows || !rows.length){
+      var miss = file && file.misses && file.misses[sym];
+      return '<section class="stp-sec wbd-flow"><h3 class="stp-h3">Order flow (Webull)</h3><p class="stp-empty">' + (miss ? 'Webull has no capital flow for ' + escapeHtml(sym) + ' (' + escapeHtml(miss.reason || 'no data') + ').' : 'No Webull order flow saved for ' + escapeHtml(sym) + ' yet.') + '</p></section>';
+    }
+    var list = rows.slice(-30).map(function(r){
+      var li = r[1], lo = r[2], mi = r[3], mo = r[4], si = r[5], so = r[6], tot = li + lo + mi + mo + si + so;
+      return { date: r[0], large: li - lo, medium: mi - mo, small: si - so, all: li - lo + mi - mo + si - so, total: tot, largePct: tot > 0 ? (li - lo) / tot * 100 : null };
+    });
+    var max = 1;
+    list.forEach(function(x){ max = Math.max(max, Math.abs(x.large), Math.abs(x.medium), Math.abs(x.small)); });
+    var W = 540, H = 150, P = 8, mid = H / 2, gw = (W - P * 2) / list.length, bw = Math.max(1.5, gw / 3 - 1), pts = [];
+    var svg = '';
+    list.forEach(function(x, i){
+      var gx = P + i * gw;
+      [['large', 'wbd-f-large'], ['medium', 'wbd-f-medium'], ['small', 'wbd-f-small']].forEach(function(k, j){
+        var v = x[k[0]], h = Math.abs(v) / max * (mid - 6), y = v >= 0 ? mid - h : mid;
+        svg += '<rect class="' + k[1] + '" x="' + (gx + j * (bw + 1)).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(h, 0.5).toFixed(1) + '"></rect>';
+      });
+      pts.push({ x: gx + gw / 2, y: mid, label: x.date + '\nLarge ' + wbMoney(x.large) + '\nMedium ' + wbMoney(x.medium) + '\nSmall ' + wbMoney(x.small) + '\nAll sizes ' + wbMoney(x.all) });
+    });
+    var chart = '<svg class="wbd-flow-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' + chHoverAttr(pts) + ' role="img" aria-label="Net money in by order size, by session"><line class="wbd-mid" x1="' + P + '" x2="' + (W - P) + '" y1="' + mid + '" y2="' + mid + '"></line>' + svg + '</svg>' +
+      '<p class="wbd-legend"><span class="wbd-li"><span class="wbd-key wbd-f-large"></span>Large orders</span><span class="wbd-li"><span class="wbd-key wbd-f-medium"></span>Medium</span><span class="wbd-li"><span class="wbd-key wbd-f-small"></span>Small</span><span class="wbd-li">Above the line = more bought than sold</span></p>';
+    var recent = list.slice(-10).reverse();
+    var cols = [
+      { label: 'Session', cell: function(r){ return wbDate(r.date); }, sort: function(r){ return r.date; } },
+      { label: 'Large net', num: true, cell: function(r){ return '<span class="' + wbCls(r.large) + '">' + wbMoney(r.large) + '</span>'; }, sort: function(r){ return r.large; } },
+      { label: 'Medium net', num: true, cell: function(r){ return '<span class="' + wbCls(r.medium) + '">' + wbMoney(r.medium) + '</span>'; }, sort: function(r){ return r.medium; } },
+      { label: 'Small net', num: true, cell: function(r){ return '<span class="' + wbCls(r.small) + '">' + wbMoney(r.small) + '</span>'; }, sort: function(r){ return r.small; } },
+      { label: 'Large, % of traded', num: true, cell: function(r){ return '<span class="' + wbCls(r.largePct) + '">' + wbPct(r.largePct, 2) + '</span>'; }, sort: function(r){ return r.largePct; } },
+      { label: 'Traded', num: true, cell: function(r){ return wbMoney(r.total); }, sort: function(r){ return r.total; } }
+    ];
+    var five = list.slice(-5), big5 = 0, tot5 = 0;
+    five.forEach(function(x){ big5 += x.large; tot5 += x.total; });
+    return '<section class="stp-sec wbd-flow"><h3 class="stp-h3">Order flow (Webull)</h3>' +
+      '<p class="wbd-line">Large orders, last five sessions: <b class="' + wbCls(big5) + '">' + wbMoney(big5) + '</b>' + (tot5 > 0 ? ' (' + wbPct(big5 / tot5 * 100, 2) + ' of everything traded)' : '') + '.</p>' +
+      chart + VIEWS.tableHtml(cols, recent, { key: 'wbd-flow', cls: 'wbd-table' }) +
+      '<p class="stp-src">Dollars traded on the buy side (in) minus the sell side (out), split by order size, as Webull counts them. Logged daily to test later (about three months); not a vote and not part of the grade. ' + rows.length + ' session' + (rows.length === 1 ? '' : 's') + ' saved. Webull OpenAPI, Owner only.</p></section>';
+  }
+
+  // ---- placeholders ------------------------------------------------------
+  function wbFill(el){
+    var kind = el.getAttribute('data-wb');
+    el.setAttribute('data-wb-done', '1');
+    if (kind === 'market'){
+      Promise.all([wbLoad('webull-breadth.json'), wbLoad('webull-backup-check.json')]).then(function(r){
+        var html = wbMarketHtml(r[0], r[1]);
+        el.hidden = !html; el.innerHTML = html;
+      });
+    } else if (kind === 'flow'){
+      var sym = String(el.getAttribute('data-wb-sym') || '').toUpperCase();
+      wbLoad('webull-flow.json').then(function(f){
+        if (!f){ el.hidden = true; el.innerHTML = ''; return; }
+        el.innerHTML = wbFlowHtml(f, sym); el.hidden = false;
+      });
+    }
+  }
+  function wbHydrate(){
+    if (typeof document === 'undefined' || !HAS_OWNER_ACCESS) return;
+    var list = document.querySelectorAll('[data-wb]:not([data-wb-done])');
+    for (var i = 0; i < list.length; i++) wbFill(list[i]);
+  }
+  var wbQueued = false;
+  function wbQueue(){ if (wbQueued) return; wbQueued = true; (window.requestAnimationFrame || setTimeout)(function(){ wbQueued = false; wbHydrate(); }); }
+  if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined'){
+    new MutationObserver(function(muts){
+      for (var i = 0; i < muts.length; i++) if (muts[i].addedNodes && muts[i].addedNodes.length){ wbQueue(); return; }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    document.addEventListener('stonks-owner-ready', wbQueue);
+  }
+  wbQueue();
+  })();
+
+
   // ---- Similar-setup odds ---------------------------------------------------
   var ODDS_LEVEL_TIP = {
     'side-band-market': 'Matched on side, grade band and market type at entry.',
@@ -5943,7 +6206,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       var r5 = (k.read && k.read['5']) || {}, r10 = (k.read && k.read['10']) || {};
       var st = EVB_KEY_STATUS[k.status] || EVB_KEY_STATUS.collecting;
       var halves = r10.half1 == null ? '—' : (r10.half1 > 0 ? '+' : '') + Number(r10.half1).toFixed(3) + ' / ' + (r10.half2 == null ? '—' : (r10.half2 > 0 ? '+' : '') + Number(r10.half2).toFixed(3));
-      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : k.odds ? ' · odds' : '') + '</div></td>' +
+      return '<tr><td><strong>' + escapeHtml(k.label || k.key) + '</strong><div class="evb-q">' + escapeHtml(k.key) + (k.crowd ? ' · crowd' : k.distress ? ' · distress' : k.odds ? ' · odds' : k.flow ? ' · option flow' : k.webull ? ' · Webull flow' : k.policy ? ' · policy &amp; news' : '') + '</div></td>' +
         '<td class="num">' + (r10.days || 0) + '<div class="evb-q">' + (k.daysLogged || 0) + ' logged</div></td>' +
         evbIcCell(r5.ic) + evbIcCell(r10.ic) +
         '<td class="num">' + (r10.t == null ? '—' : Number(r10.t).toFixed(2)) + '</td>' +
@@ -8143,7 +8406,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (m.key === 'peg' && vlFin(v)) detail = 'Fair P/E ' + vlNum(x.fairPE) + 'x = PEG ' + vlNum(r.inputs.targetPeg, 2) + ' x ' + vlNum(r.inputs.epsGrowth) + '% EPS growth';
       if (m.key === 'book' && vlFin(v)) detail = 'Book ' + vlMoney(x.bookPerShare) + ' a share; return on equity ' + (x.spreadPct >= 0 ? vlNum(x.spreadPct) + ' points above' : vlNum(-x.spreadPct) + ' points below') + ' the cost of equity';
       if (m.key === 'power' && vlFin(v)) detail = 'Justified P/E ' + vlNum(x.justifiedPE) + 'x at a ' + vlNum(r.rates.ke, 2) + '% cost of equity, ROE ' + vlNum(r.inputs.roe) + '%';
-      if (m.key === 'street' && vlFin(v)) detail = vlMoney(x.low) + ' to ' + vlMoney(x.high) + (x.n ? ' · ' + x.n + ' analysts' : '') + (row.street.rating ? ' · ' + escapeHtml(row.street.rating) : '');
+      if (m.key === 'street' && vlFin(v)) detail = vlMoney(x.low) + ' to ' + vlMoney(x.high) + (x.n ? ' · ' + x.n + ' analysts' : '') + (row.street.rating ? ' · ' + escapeHtml(row.street.rating) : '') + (row.street.source === 'webull-backup' ? ' · backup source (Webull)' : '');
       if (!vlFin(v)) detail = escapeHtml(x.reason || 'Not available');
       return '<tr><td><span class="vl-sw" style="background:' + VL_COLORS[m.key] + '"></span>' + escapeHtml(m.label) + '<div class="vl-detail">' + detail + '</div></td>' +
         '<td class="num">' + vlMoney(v) + '</td><td class="num ' + vlGapCls(gap) + '">' + vlPct(gap) + '</td>' +
@@ -8242,7 +8505,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     if (vlFin(an.revision30)) chips.push('EPS estimate ' + vlPct(an.revision30) + ' in 30 days' + (vlFin(an.revision90) ? ', ' + vlPct(an.revision90) + ' in 90' : ''));
     if (vlFin(an.up30) || vlFin(an.down30)) chips.push((an.up30 || 0) + ' raised, ' + (an.down30 || 0) + ' cut (30 days)');
     if (vlFin(an.upgrades) || vlFin(an.downgrades)) chips.push((an.upgrades || 0) + ' upgrades, ' + (an.downgrades || 0) + ' downgrades' + (an.ratingWindowDays ? ' (' + an.ratingWindowDays + ' days)' : ''));
-    if (row.street && vlFin(row.street.mean)) chips.push('Target ' + vlMoney(row.street.low) + ' / ' + vlMoney(row.street.mean) + ' / ' + vlMoney(row.street.high) + (row.street.n ? ' · ' + row.street.n + ' analysts' : ''));
+    if (row.street && vlFin(row.street.mean)) chips.push('Target ' + vlMoney(row.street.low) + ' / ' + vlMoney(row.street.mean) + ' / ' + vlMoney(row.street.high) + (row.street.n ? ' · ' + row.street.n + ' analysts' : '') + (row.street.source === 'webull-backup' ? ' · backup source (Webull)' : ''));
     if (st.ourForecast && (vlFin(st.ourForecast.vsStreetRevPct) || vlFin(st.ourForecast.vsStreetEpsPct))) chips.push('Our forecast vs street, quarter to ' + st.ourForecast.quarterEnd + ': revenue ' + vlPct(st.ourForecast.vsStreetRevPct) + ', EPS ' + vlPct(st.ourForecast.vsStreetEpsPct));
     if (st.capital && vlFin(st.capital.shareholderYield)) chips.push('Shareholder yield ' + vlNum(st.capital.shareholderYield) + '% (buybacks ' + vlNum(st.capital.buybackYield) + '%, dividends ' + vlNum(st.capital.dividendYield) + '%)');
     o += '<div><h4 class="slp-h4">The analysts\' record</h4>' + (beatRows ? '<div class="acc-tscroll"><table class="acc-qtable vl-beats" data-nosort><thead><tr><th>Quarter</th><th class="num">Estimate</th><th class="num">Actual</th><th class="num">Surprise</th></tr></thead><tbody>' + beatRows + '</tbody></table></div>' : '<p class="hint">No recent EPS estimates on file.</p>') +
@@ -9029,7 +9292,19 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engFillHtml(t){
     var f = ENG_FILL[t.fillOutcome] || null, req = Number(t.requestedQty) || 0, got = Number(t.filledQty) || 0;
     var size = req ? (got === req || !got ? String(req) + ' ' + engUnit(t, req) + (got ? '' : ' asked') : got + ' of ' + req + ' ' + engUnit(t, req)) : '';
-    return (f ? engPill(f[0], f[1]) : '—') + (size ? '<div class="crd-dim">' + escapeHtml(size) + '</div>' : '');
+    return (f ? engPill(f[0], f[1]) : '—') + (size ? '<div class="crd-dim">' + escapeHtml(size) + '</div>' : '') + engStockRangeHtml(t);
+  }
+  // The Owner's stock order range at Webull (Owner Settings, 2026-11-19): why
+  // a stock order's share count differs from the engine record's.
+  function engUsd(v){ return '$' + Math.round(Number(v) || 0).toLocaleString('en-US'); }
+  function engStockRangeHtml(t){
+    var r = t && t.stockRange;
+    if (!r || t.instrument !== 'stock') return '';
+    var rec = t.recordQty != null ? ' (record ' + t.recordQty + ')' : '';
+    var txt = t.qtyBasis === 'shares-min' ? 'Raised to the ' + engUsd(r.minUsd) + ' minimum' + rec
+      : t.qtyBasis === 'shares-max' ? 'Cut to the ' + engUsd(r.maxUsd) + ' maximum' + rec
+      : t.qtyBasis === 'shares-over-max' ? 'One share costs more than the ' + engUsd(r.maxUsd) + ' maximum' : '';
+    return txt ? '<div class="crd-dim" title="Owner Settings, Account limits: the smallest and largest engine stock order at Webull. The engine record keeps its own share count.">' + escapeHtml(txt) + '</div>' : '';
   }
   function engMirrorById(){
     var m = engState.mirror; if (!m) return null;
@@ -9067,7 +9342,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function engMirrorHtml(id){
     var m = engState.mirror;
     var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks. Option trades are sent at the engine record’s size (1 to 10 contracts) and share trades, including the Trend follower and Momentum basket holdings, are bought as stock (long only, never short). Trades sent before 19 November 2026 were one contract each, so compare the % results here, not the dollars.</p>' +
-      engDetails('How orders are sized, filled and labeled', '<p class="evb-note">An engine option trade asks for the record’s contract count, capped at 10. A partly filled entry keeps what filled and sells only that; an entry that never fills inside the price allowance (2%, then 4%, then 5% in the last minutes of the day) is logged as missed. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has made_by and setup columns. Top Picks orders have no tag (ms followed by letters and digits). When two engines want the exact same option contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it. Stock is not shared that way: each engine buys its own shares.</p>');
+      engDetails('How orders are sized, filled and labeled', '<p class="evb-note">An engine option trade asks for the record’s contract count, capped at 10. An engine stock order buys the record’s share count when it costs between the smallest and largest stock order set in Owner Settings (Account limits tab; $2,000 and $25,000 unless changed); a smaller lot is raised to the fewest whole shares that reach the smallest, a bigger one is cut to the most that fit under the largest, and a stock whose single share costs more than the largest is not bought. The engine record keeps its own share count either way. A partly filled entry keeps what filled and sells only that; an entry that never fills inside the price allowance (2%, then 4%, then 5% in the last minutes of the day) is logged as missed. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has made_by and setup columns. Top Picks orders have no tag (ms followed by letters and digits). When two engines want the exact same option contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it. Stock is not shared that way: each engine buys its own shares.</p>');
     if (!m){
       if (engState.mirrorLoading || (!engState.mirrorError && HAS_OWNER_ACCESS)) return lead + '<p class="hint">Loading the paper account…</p>';
       return lead + '<p class="hint">The paper account could not be read (' + escapeHtml(engState.mirrorError || 'not signed in') + '). It is only available on the live site with the Owner session. <button type="button" class="eng-link" data-eng-mirror-retry>Try again</button></p>';
@@ -9075,7 +9350,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var rows = engMirrorRows(m, id), h = (m.health && m.health.engines) || null;
     var byOut = function(k){ return rows.filter(function(t){ return t.fillOutcome === k; }).length; };
     var z = m.sizing || null;
-    var sizeLine = z ? '<p class="evb-note">Owner Settings: share orders ' + (z.shares ? 'on' : '<b>off</b> (share trades stay on the engine record only)') + '; quantities above one ' + (z.quantities ? 'on' : '<b>off</b> (every option trade is sent as one contract)') + '.</p>' : '';
+    var rangeTxt = z && z.shares && Number(z.stockMaxUsd) > 0 ? '; each stock order ' + (Number(z.stockMinUsd) > 0 ? engUsd(z.stockMinUsd) + ' to ' : 'up to ') + engUsd(z.stockMaxUsd) + ' of stock (Account limits tab)' : '';
+    var sizeLine = z ? '<p class="evb-note">Owner Settings: share orders ' + (z.shares ? 'on' : '<b>off</b> (share trades stay on the engine record only)') + rangeTxt + '; quantities above one ' + (z.quantities ? 'on' : '<b>off</b> (every option trade is sent as one contract)') + '.</p>' : '';
     var filled = rows.filter(function(t){ return t.fillPrice != null; }), done = rows.filter(function(t){ return t.paperPnlPct != null; });
     var gaps = filled.map(function(t){ return Number(t.entryDiffPct); }).filter(function(v){ return isFinite(v); });
     var avgGap = gaps.length ? gaps.reduce(function(a, b){ return a + b; }, 0) / gaps.length : null;
@@ -9506,7 +9782,44 @@ function recoveryEvidence(row, data, now = Date.now()) {
       '</div>' +
       '<details class="oc-cell oc-score" data-oc-score' + (OC.score || OC.scoreLoading ? ' open' : '') + '><summary class="oc-h3">Scorecard</summary>' + ocScoreHtml() + '</details>';
   }
-  function ocRenderAll(){ ocRenderBanners(); ocRenderPanel(); }
+  // The stock page's "Your controls" section (stock-page-js.mjs, #stp-oc):
+  // what is set on this stock, with Watch / Avoid / Lift buttons. A catalyst
+  // and an avoid that also closes open trades are set on the Strategy engines
+  // page (that one asks to confirm).
+  function ocRenderStock(){
+    var host = document.getElementById('stp-oc');
+    if (!host) return;
+    var sym = host.getAttribute('data-oc-stock') || '';
+    var d = OC.data;
+    if (!HAS_OWNER_ACCESS || !sym || !d){ host.hidden = true; host.innerHTML = ''; return; }
+    var av = null, wa = null;
+    (d.avoid || []).forEach(function(a){ if (a.sym === sym && a.active) av = a; });
+    (d.watch || []).forEach(function(w){ if (w.sym === sym && w.active) wa = w; });
+    var cats = (d.catalysts || []).filter(function(k){ return k.active && k.sym === sym; });
+    var bits = [];
+    if (d.enabled === false) bits.push('<span class="muted">Owner controls are off in Owner Settings; nothing saved here applies.</span>');
+    else if (d.stop) bits.push('<b class="sig-neg">New trades are stopped</b> on every stock.');
+    if (d.enabled !== false && av) bits.push('<b>Avoided</b> since ' + ocEsc(ocWhen(av.at)) + (av.until ? ', until ' + ocEsc(ocDay(av.until)) : ', until lifted') + (av.close ? '; its open trades close at the next run' : '') + '.');
+    if (d.enabled !== false && wa) bits.push('<b>Watched closely</b>: front of each queue through ' + ocEsc(ocDay(wa.until)) + '.');
+    if (d.enabled !== false) cats.forEach(function(k){ bits.push('<b>Catalyst</b> ' + ocEsc(ocDay(k.date)) + ': ' + ocEsc(k.text)); });
+    var dis = OC.saving ? ' disabled' : '';
+    host.innerHTML = '<h3 class="stp-h3">Your controls</h3>' +
+      '<p class="stp-lede">' + (bits.length ? bits.join(' ') : 'No control is set on ' + ocEsc(sym) + '.') + '</p>' +
+      '<div class="oc-row">' +
+        (av ? '<button type="button" class="oc-btn" data-oc-act="lift" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Lift avoid</button>' : '<button type="button" class="oc-btn" data-oc-act="avoid-stock" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Avoid ' + ocEsc(sym) + '</button>') +
+        (wa ? '<button type="button" class="oc-btn" data-oc-act="unwatch" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Stop watching</button>' : '<button type="button" class="oc-btn" data-oc-act="watch" data-oc-sym="' + ocEsc(sym) + '"' + dis + '>Watch closely</button>') +
+        '<a class="oc-b-link" href="?tab=engines">Check, flag a catalyst or close trades on the Strategy engines page &rarr;</a>' +
+      '</div>' + (OC.msg && OC.msg.text ? '<p class="oc-msg ' + (OC.msg.ok ? 'is-ok' : 'is-bad') + '" role="status">' + ocEsc(OC.msg.text) + '</p>' : '') +
+      '<p class="stp-src">Avoid: no new Top Picks, engine or Webull paper trade on it; open trades stay. Watch closely: front of each engine queue for five sessions, no bar lowered. Neither changes the grade.</p>';
+    host.hidden = false;
+  }
+  // Home's "Your desk" carries an Owner controls tile (app-js.mjs renderHomeDesk).
+  function ocRenderAll(){ ocRenderBanners(); ocRenderPanel(); ocRenderStock(); if (typeof renderHomeDesk === 'function' && document.getElementById('landing-desk')) renderHomeDesk(); ocRenderCalendar(); }
+  // The Calendar shows the catalyst log as Owner rows (app-js.mjs calWithOwnerCatalysts).
+  function ocRenderCalendar(){
+    var pane = document.getElementById('page-pane-calendar');
+    if (pane && !pane.hidden && typeof calendarState !== 'undefined' && calendarState.data && !calendarState.loading && typeof renderCalendar === 'function') renderCalendar();
+  }
   function ocConfirm(text){ try { return window.confirm(text); } catch (e) { return false; } }
   function ocAct(btn){
     var act = btn.getAttribute('data-oc-act'), sym = btn.getAttribute('data-oc-sym');
@@ -9518,6 +9831,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       if (level === 'riskier' && !ocConfirm('Riskier until Friday’s close? Engine trades buy 1.5x the size (inside the account limits) and the entry bar drops 3 points.')) return;
       ocPost({ act: 'dial', level: level, confirm: level === 'riskier' ? true : undefined }); return;
     }
+    if (act === 'avoid-stock'){ if (ocConfirm('Avoid ' + sym + '? No new Top Picks, engine or Webull paper trade on it until you lift it. Open trades stay.')) ocPost({ act: 'avoid', sym: sym }); return; }
     if (act === 'lift'){ ocPost({ act: 'lift', sym: sym, px: OC.checkSym === sym && OC.check && OC.check.spot ? OC.check.spot : undefined }); return; }
     if (act === 'watch' || act === 'unwatch'){ ocPost({ act: act, sym: sym }); return; }
     if (act === 'uncatalyst'){ ocPost({ act: 'uncatalyst', id: Number(btn.getAttribute('data-oc-id')) }); return; }
@@ -52031,7 +52345,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (cat === 'merger') return 'M&A';
     if (cat === 'investor') return 'Investor day';
     if (cat === 'guidance') return 'Guidance';
+    if (cat === 'owner') return 'Your flag';
     return 'Event';
+  }
+  // The Owner's catalyst log (owner-controls-client.mjs, live read) as
+  // calendar rows, Owner only. A display layer: the bake's calendar.json and
+  // the public calendar are unchanged.
+  function calWithOwnerCatalysts(data){
+    var d = typeof OC !== 'undefined' && OC ? OC.data : null;
+    if (!HAS_OWNER_ACCESS || !d || d.enabled === false || !Array.isArray(d.catalysts)) return data;
+    var mine = d.catalysts.filter(function(k){ return k && k.active && /^\d{4}-\d{2}-\d{2}$/.test(String(k.date || '')); }).map(function(k){
+      return { type: 'catalyst', date: k.date, symbol: k.sym || null, title: k.text || 'Your catalyst', category: 'owner', confidence: 'high', source: 'Your catalyst log', ownerCatalyst: true };
+    });
+    return mine.length ? Object.assign({}, data, { events: (data.events || []).concat(mine) }) : data;
   }
   function calendarTypeMatches(eventType, filter){
     if (filter === 'all') return true;
@@ -53362,7 +53688,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (empty) empty.hidden = true;
       return;
     }
-    var data = calendarState.data || { events: [] };
+    var data = calWithOwnerCatalysts(calendarState.data || { events: [] });
     var todayMs = calEtTodayMs();
     var todayYmd = calEtTodayYmd();
     var todayYm = todayYmd.slice(0, 7);
@@ -59260,6 +59586,49 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .catch(function(err){ wbTest.error = (err && err.status === 404) ? 'off' : 'Couldn’t load the Webull trade log.'; })
       .then(function(){ wbTest.loaded = true; wbTest.loading = false; renderWebullTest(); renderWebullEquity(); renderWebullBreakdown(); });
   }
+  // Webull daily data (2026-11-19, docs/webull-data.md): the runner's own
+  // status from /api/auth/webull-data (Owner GET). Counts and dates only, never
+  // a ticker or a price. 404 = the private data gate is off; shown as nothing.
+  var wbData = { loaded: false, loading: false, data: null, error: null };
+  function loadWebullData(){
+    if (wbData.loaded || wbData.loading) return;
+    if (typeof fetch !== 'function'){ wbData.loaded = true; wbData.error = 'off'; return; }
+    wbData.loading = true;
+    fetch('/api/auth/webull-data', { cache: 'no-store', credentials: 'same-origin' })
+      .then(function(r){ if (!r.ok){ var err = new Error('HTTP ' + r.status); err.status = r.status; throw err; } return r.json(); })
+      .then(function(j){ wbData.data = j || {}; wbData.error = null; })
+      .catch(function(err){ wbData.error = (err && err.status === 404) ? 'off' : 'Couldn’t load the Webull data status.'; })
+      .then(function(){ wbData.loaded = true; wbData.loading = false; if (wbTest.loaded) renderWebullTest(); });
+  }
+  function wbDataStatusHtml(){
+    if (!wbData.loaded){ loadWebullData(); return ''; }
+    if (wbData.error === 'off') return '';
+    var head = '<h4 class="wb-data-title">Webull daily data</h4>';
+    if (wbData.error) return '<div class="wb-data" data-wb-data>' + head + '<p class="muted acc-an-note">' + escapeHtml(wbData.error) + '</p></div>';
+    var d = wbData.data || {}, sw = d.switches || {}, t = d.today || null, tot = d.totals || {};
+    var n = function(v){ v = Number(v); return isFinite(v) ? v.toLocaleString('en-US') : '0'; };
+    var c = (t && t.counts) || {};
+    var on = sw.WEBULL_DATA !== false, saver = sw.WEBULL_OPTION_SAVER !== false;
+    var state = !on ? 'Off (Owner Settings: Webull daily data)' : !saver ? 'On, option price saver off' : 'On';
+    var day = t ? (t.date + (t.phase === 'intraday' ? ' (during the session)' : '') + ': ' + (t.finishedAtIso ? 'finished ' + accDateTime(t.finishedAtIso) : 'still saving, last ping ' + (t.updatedAtIso ? accDateTime(t.updatedAtIso) : 'none'))) : 'No run yet';
+    var misses = Object.keys((t && t.misses) || {});
+    var rows = [
+      ['Runner', state],
+      ['Latest day', day],
+      ['That day', n(c['snapshot-names']) + ' names, ' + n(c['snapshot-contracts']) + ' option prices, ' + n(c['expired-saved']) + ' expired contracts saved, ' + n(c['expired-gone']) + ' already deleted by Webull, ' + n(c.calls) + ' Webull calls in ' + n(t && t.invocations) + ' pings'],
+      [(d.days || []).length === 1 ? 'Last day' : 'Last ' + n((d.days || []).length) + ' days', n(tot.days) + (Number(tot.days) === 1 ? ' day' : ' days') + ' saved, ' + n(tot.contracts) + ' option prices, ' + n(tot.expired) + ' expired contracts, ' + n(tot.gone) + ' too late, ' + n(tot.misses) + ' misses']
+    ];
+    // W3 jobs (order flow, breadth, backups): counts only.
+    var w3 = [];
+    if (sw.WEBULL_FLOW_LOG !== false) w3.push(n(c['flow-names']) + ' names of order flow' + (c['flow-misses'] ? ' (' + n(c['flow-misses']) + ' refused)' : ''));
+    else w3.push('order flow off');
+    w3.push(sw.WEBULL_BREADTH_LOG !== false ? n(c['breadth-records']) + ' breadth records' : 'breadth off');
+    w3.push(sw.WEBULL_BACKUPS !== false ? n(c['backup-records']) + ' backup records' : 'backups off');
+    if (t) rows.push(['Order flow, breadth, backups', w3.join(', ')]);
+    if (misses.length) rows.push(['Misses that day', misses.map(function(k){ return escapeHtml(k) + ' ×' + n(t.misses[k]); }).join(', ')]);
+    return '<div class="wb-data" data-wb-data>' + head + '<dl class="wb-data-list">' + rows.map(function(r){ return '<dt>' + escapeHtml(r[0]) + '</dt><dd>' + (r[0] === 'Misses that day' ? r[1] : escapeHtml(r[1])) + '</dd>'; }).join('') +
+      '</dl><p class="hint acc-an-note">Saved once a day after the close for the research history test (15-minute delayed paper data, Owner only). Nothing here changes a pick or a trade.</p></div>';
+  }
   function wbNum(v){ if (v == null || v === '' || typeof v === 'boolean') return null; var n = Number(v); return isFinite(n) ? n : null; }
   function wbMean(v){ if (!v.length) return null; var t = 0; for (var i = 0; i < v.length; i++) t += v[i]; return t / v.length; }
   function wbMedian(v){ if (!v.length) return null; var s = v.slice().sort(function(a, b){ return a - b; }); var m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
@@ -59274,6 +59643,28 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // in less on entry, sold for less / paid more to buy back on exit.
   function wbEntryCost(t){ if (t.entrySource === 'manual') return null; var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
+  // Real Webull fees (order records) vs the order previews' estimates, and
+  // the contract check (2026-11-19, lib/webull-fees.mjs / webull-contracts.mjs).
+  function wbFeeCell(t){
+    if (wbNum(t.fees) == null) return '—';
+    var txt = '$' + Number(t.fees).toFixed(2), est = wbNum(t.feesEstimated);
+    if (t.feeBasis === 'actual') return txt + '<br><small>real' + (est != null ? ' · est. $' + est.toFixed(2) : '') + '</small>';
+    if (t.feeBasis === 'mixed') return txt + '<br><small>part real' + (est != null ? ' · est. $' + est.toFixed(2) : '') + '</small>';
+    if (t.feeBasis === 'estimate') return txt + '<br><small>estimate</small>';
+    return txt;
+  }
+  function wbFeeChip(list){
+    var both = list.filter(function(t){ return t.feeBasis === 'actual' && wbNum(t.feesActual) != null && wbNum(t.feesEstimated) != null; });
+    if (!both.length) return '';
+    var real = both.reduce(function(s, t){ return s + Number(t.feesActual); }, 0), est = both.reduce(function(s, t){ return s + Number(t.feesEstimated); }, 0);
+    return wbChip('$' + real.toFixed(2) + ' vs $' + est.toFixed(2), 'real fees vs preview estimate (' + both.length + ' trades)', '', 'Real fees come from Webull’s own order records (commission plus regulatory fees). The estimate is the order preview before the order was sent.');
+  }
+  function wbContractChip(list){
+    var no = list.filter(function(t){ return t.contractCheck && t.contractCheck.ok === false; }).length;
+    var checked = list.filter(function(t){ return t.contractCheck; }).length;
+    if (!checked) return '';
+    return wbChip(no + ' of ' + checked, 'not tradable at Webull (no order sent)', no ? 'sig-neg' : '', 'Each option trade is looked up in Webull’s contract list before its first order. A contract Webull does not list as tradable gets no order and counts as missed.');
+  }
   function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) * (t.structure === 'shares' ? 100 : 1) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
@@ -59412,7 +59803,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!wbTest.loaded){ loadWebullTest(); box.innerHTML = '<p class="muted acc-an-note">Loading the Webull trade log…</p>'; return; }
     if (wbTest.error){
       accPaneSummary('acc-sum-webull', []);
-      box.innerHTML = '<button type="button" class="wb-refresh" data-acc-action="refresh-webull">Retry loading trades</button><p class="muted acc-an-note">' + (wbTest.error === 'off' ? 'The Webull paper mirror isn’t available on this deployment.' : escapeHtml(wbTest.error)) + '</p>';
+      box.innerHTML = '<button type="button" class="wb-refresh" data-acc-action="refresh-webull">Retry loading trades</button><p class="muted acc-an-note">' + (wbTest.error === 'off' ? 'The Webull paper mirror isn’t available on this deployment.' : escapeHtml(wbTest.error)) + '</p>' + wbDataStatusHtml();
       return;
     }
     var info = wbTest.data || {};
@@ -59428,6 +59819,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var status = '<p class="hint acc-research-note">Review the engine against its mirrored Webull paper trades. Paper fills are simulated. Eligible trades can remain unfilled or be skipped. ' +
       (info.enabled ? 'The mirror is on' : 'The mirror is off') + (info.goLiveIso ? ', live since ' + accDateTime(info.goLiveIso) : '') + (info.lastRunIso ? ', last run ' + accDateTime(info.lastRunIso) : '') + '. All views share the filters below. Returns include known fee estimates; bid/ask scenarios are hypothetical.</p>';
     status += WB_REVIEW.status(info, accuracyState.data || {});
+    status += wbDataStatusHtml();
     var all = (info.trades || []);
     if (!all.length){
       accPaneSummary('acc-sum-webull', []);
@@ -59511,6 +59903,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         wbChip(spreadPos.length ? accPct(wbMean(spreadPos)) : '—', 'fill vs initial order mid, % of the bid/ask spread', '', 'Uses the quote fetched for the initial order, not a verified exchange quote at fill time. 0% = initial mid. +50% = initial ask (or bid for a credit). Negative = better than that mid.') +
         wbChip(hours.length ? (Math.round(wbMedian(hours) * 10) / 10) + ' h' : '—', 'median time to fill') +
         wbChip(exitTries.length ? (Math.round(wbMean(exitTries) * 10) / 10) + '' : '—', 'avg orders to close') +
+        wbFeeChip(T) + wbContractChip(T) +
       '</div>' + splits;
 
     // 2. Real-money estimate -----------------------------------------------------
@@ -59610,7 +60003,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<td>' + (t.engineExitPrice != null || t.closeFillPrice != null ? (accUsd(t.engineExitPrice) || '—') + ' → ' + (accUsd(t.closeFillPrice) || '—') + (xc != null ? ' <small class="' + (xc <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(xc) + ')</small>' : '') + '<br><small>' + wbTime(t.engineExitIso) + ' → ' + wbTime(t.closeFillIso) + '</small>' : '—') + '</td>' +
         '<td class="' + wbSignCls(wbNum(t.enginePnlPct)) + '">' + accPct(wbNum(t.enginePnlPct)) + '</td>' +
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
-        '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>' +
+        '<td>' + wbFeeCell(t) + '</td></tr>' +
         (history ? '<tr class="wb-execution-row"><td colspan="7">' + history + '</td></tr>' : '');
     }).join('');
     var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a> · <a href="/api/auth/webull-mirror?format=orders">Download order attempts (CSV)</a></p>' +
@@ -62013,7 +62406,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     bindTrackRecordReset(pane);
     pane.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-action]') : null; if (!btn) return;
-      if (btn.getAttribute('data-acc-action') === 'refresh-webull'){ wbTest.loaded = false; wbTest.error = null; renderWebullTest(); renderWebullEquity(); renderWebullBreakdown(); return; }
+      if (btn.getAttribute('data-acc-action') === 'refresh-webull'){ wbTest.loaded = false; wbTest.error = null; wbData.loaded = false; wbData.error = null; renderWebullTest(); renderWebullEquity(); renderWebullBreakdown(); return; }
       if (btn.getAttribute('data-acc-action') === 'open-realfills'){ var rfTab = $('acc-tab-webull'); if (rfTab){ rfTab.click(); rfTab.focus(); } return; }
       if (btn.getAttribute('data-acc-action') === 'run-mc'){ accView.mcSeed = (accView.mcSeed || 1337) + 1; renderMonteCarlo(true); }
     });
@@ -69638,6 +70031,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     else if (health && health.state === 'late') runSub += ' · last run published late (' + escapeHtml(health.lastText) + ')';
     else if (health && health.state === 'ok') runSub += ' · last ran ' + escapeHtml(health.lastText);
     tiles.push(homeDeskTile('picks', 'Next Top Picks run', run ? escapeHtml(run.time + ' ET') : '—', runSub));
+    // Owner controls in force (live, owner-controls-client.mjs): a stop or any
+    // saved control gets its own tile, so it is never missed from Home.
+    var ocd = typeof OC !== 'undefined' && OC ? OC.data : null;
+    if (ocd && ocd.enabled !== false && (ocd.stop || ocd.any)){
+      var ocBits = typeof ocSummary === 'function' ? ocSummary(ocd).map(function(b){ return String(b).replace(/<[^>]*>/g, ''); }) : [];
+      tiles.push(homeDeskTile('engines', 'Owner controls', ocd.stop ? 'New trades stopped' : 'In force',
+        ocd.stop ? escapeHtml('since ' + ocWhen(ocd.stop.at) + ' · exits keep running' + (ocBits.length ? ' · ' + ocBits.join(' · ') : ''))
+          : escapeHtml(ocBits.join(' · ') || 'see the controls'), ocd.stop ? 'sig-neg' : ''));
+    }
     if (open){
       var flags = [];
       open.forEach(function(o){
@@ -69662,6 +70064,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       tiles.push(homeDeskTile('owner-market-brief', 'Owner brief', nCh ? nCh + (nCh === 1 ? ' change' : ' changes') : 'No changes',
         escapeHtml((b.headline ? b.headline : 'latest read') + since)));
+    }
+    // How the Webull paper account filled the record's recent trades, from
+    // the Owner brief's desk block (lib/owner-desk-state.mjs, read by the bake).
+    var wb = b && b.desk && b.desk.webull;
+    if (wb && (wb.picks || wb.engines)){
+      var wbSide = function(x){ return x ? { done: (x.filled || 0), all: (x.filled || 0) + (x.partial || 0) + (x.missed || 0) + (x.pending || 0), miss: (x.missed || 0) + (x.partial || 0) } : { done: 0, all: 0, miss: 0 }; };
+      var wp = wbSide(wb.picks), we = wbSide(wb.engines);
+      var wAll = wp.all + we.all, wDone = wp.done + we.done, wMiss = wp.miss + we.miss;
+      if (wAll) tiles.push(homeDeskTile('track', 'Filled at Webull', wDone + ' of ' + wAll,
+        escapeHtml('last ' + (wb.days || 7) + ' days · Top Picks ' + wp.done + '/' + wp.all + ' · engines ' + we.done + '/' + we.all + (wMiss ? ' · ' + wMiss + ' missed or partial' : '')),
+        wMiss ? 'sig-neg' : 'sig-pos').replace('data-go="track"', 'data-go="track" data-acc-pref="webull"'));
     }
     // Friday after the close and over the weekend: the week's recap.
     if (WEEK_RECAP.recapReady()) tiles.push(homeDeskTile('track', 'Week recap', 'Ready', 'opens, closes, the biggest miss and the busiest rule').replace('data-go="track"', 'data-go="track" data-acc-pref="recap"'));

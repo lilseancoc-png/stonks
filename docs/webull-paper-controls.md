@@ -57,7 +57,27 @@ change never resizes a trade already there.
 | Top Picks option trade | `picksRiskQty`: the risk budget (`ENGINES_RISK_USD` from Owner Settings or env, else $2,000) divided by one contract's risk, rounded down, 1 to 10. Risk is the whole premium under 30 days to expiry (or an unknown expiry), else premium × the trade's stop (50%) × 1.25 for gaps, never more than the premium; a credit spread risks width minus credit. A Top Pick is never skipped for size: at least one contract | `risk` |
 | Either, with **Webull quantities above one** off | one contract | `one` |
 | Top Picks, with **Webull Top Picks risk sizing** off | one contract | `one` |
-| Engine share trade, Trend follower and Momentum basket holdings | the record's whole-share count (`contract.shares`), as stock | `shares` |
+| Engine share trade, Trend follower and Momentum basket holdings | the record's whole-share count (`contract.shares`), as stock, moved inside the stock order range (below) | `shares`, `shares-min`, `shares-max` or `shares-over-max` |
+
+**Stock order range** (2026-11-19, Owner rule). Every engine stock order costs
+between $2,000 and $25,000 at the engine's entry price, unless the Owner
+changes the range in Owner Settings → Account limits ("Smallest engine stock
+order" `WEBULL_STOCK_MIN_USD`, "Largest engine stock order"
+`WEBULL_STOCK_MAX_USD`; a Vercel value wins; `stockRangeFromSettings`). A lot
+under the smallest order is raised to the fewest whole shares that reach it
+(`shares-min`), a lot over the largest is cut to the most whole shares that fit
+(`shares-max`; the Trend follower's $50,000 lot becomes about $25,000), and a
+stock whose single share costs more than the largest order is not bought
+(`shares-over-max`, logged as not bought and never bought later). 0 for the
+smallest = no minimum; a smallest above the largest reads as the largest. The
+range is applied at the engine price; the entry ladder may pay up to its price
+allowance (2%, 4%, 5% at the end of the day) above that. The engine records
+keep their own share counts, and paper results are in percent, so the record
+and paper P&L compare as before. A trade already sent keeps its size when the
+range changes. The ledger trade carries `stockRange` and a label ("Cut to the
+$25,000 stock order maximum: 41 shares (record 100)"), shown on the Strategy
+engines page's Webull fill cell. Rule: `stockOrderShares` in
+`lib/webull-mirror.mjs`.
 
 The Top Picks Track Record stays in percent per contract; only the paper order
 changes. Each ledger trade keeps `recordQty` (what the record asked for) and,
@@ -498,3 +518,83 @@ Primary references: [Webull options orders](https://developer.webull.com/apis/do
 [account positions](https://developer.webull.com/apis/docs/reference/account-position/),
 [NYSE calendar](https://www.nyse.com/trade/hours-calendars), and
 [R2 conditional writes](https://developers.cloudflare.com/r2/api/s3/extensions/).
+
+## Webull's own data (2026-11-19)
+
+Three reads from Webull's official OpenAPI, all GET calls on the sandbox host
+through the same signed client (`lib/webull-client.mjs`, host lock unchanged).
+Each one is an Owner Settings live site switch (Live site tab, on by default;
+`0` in Vercel does the same). Nothing here reaches a public page or the MCP.
+
+### Contract check (`WEBULL_CONTRACT_CHECK`, `lib/webull-contracts.mjs`)
+
+Before the first entry order of an option trade, the mirror looks every leg up
+in Webull's option contract list
+(`GET /trading/instruments/options/contracts/list`,
+developer.webull.com/apis/docs/reference/option-contract-list) by its OCC
+symbol, 20 symbols a call, all the run's new trades in one prefetch (at most
+12 calls a run; usually 1). A leg Webull does not list, lists as closing-only
+(`tradable_status` `CO`) or not tradable (`NT`), is being delisted, is
+non-standard, or does not cover 100 shares gets **no order**: the trade is
+logged missed with the note "Not tradable at Webull: <reason>; no order sent."
+and the check is saved on the trade (`contractCheck`, also on the Real fills
+tab and in the CSV column `webull_contract_check`). A failed or
+over-budget lookup never blocks an order: the trade is sent as before and the
+run log warns "contract list unavailable - contract not checked".
+
+"Not listed" needs proof that the lookup worked. A leg the symbol lookup
+misses gets one more call for its underlying's whole expiry (no type or
+strike filter). The leg is blocked as "contract not listed" only when that
+answer holds other rows of the same underlying and expiry (Webull lists the
+expiry but not this strike). An empty answer sends the order as before and
+warns "contract list unconfirmed - contract not checked"; the run summary
+counts it under that warning. Positive evidence
+(`CO`, `NT`, delisting, non-standard, not 100 shares) still blocks.
+
+The same reply's Penny Pilot flag (`ppind`) sets the price step: in the
+program $0.01 under $3 and $0.05 from $3; outside it $0.05 under $3 and
+$0.10 from $3 (Cboe penny interval rules); spreads keep $0.01; a rejected
+order's retry still uses at least a nickel. With no flag the old rule stands
+($0.01 / $0.05), so nothing changes for a trade the check did not see.
+
+This changes which trades the mirror places (a contract Webull would refuse
+now logs a labeled miss instead of a rejected order), so it gets one check
+with the Owner before it merges.
+
+### Real fees (`WEBULL_REAL_FEES`, `lib/webull-fees.mjs`)
+
+Each order keeps its preview estimate (`feeEst`). After every mirror run that
+was not skipped, one read of Webull's order history
+(`GET /trading/orders/historical-orders/list`, last 7 days, at most 2 pages,
+only when a filled order still lacks a real fee) fills `feeActual` from the
+order's `commission.actual_commission` plus `fees[].actual_value` (the fields
+the order-detail page documents and `parseOrderDetail` already reads), marked
+`feeSource: "order-history"` with the fee lines. A row whose filled quantity
+differs from ours is skipped. Trade fees already prefer a real fee over the
+pro-rated estimate (`updateQuantities`). The Real fills tab shows "$real vs
+$estimate, real fees vs preview estimate" and each trade's fee cell says real,
+part real or estimate; the CSVs carry `fees_actual`, `fees_estimated`,
+`fee_basis` and per attempt `fee_source`. The first history reply's key names
+(no values) are saved as `orderHistoryShape` so the first live run shows
+whether the fields are there. A failed sweep is a warning, never a failed run.
+
+### Stock quotes (`WEBULL_STOCK_QUOTES`, `lib/webull-quotes.mjs`)
+
+Share orders price off Webull's stock snapshot
+(`GET /market-data/stocks/snapshots/list`, US_STOCK, then US_ETF once if the
+symbol answered nothing; real time on the paper keys, the 2026-11-19 probe saw
+the last trade 0.0 to 0.1 minutes old). Yahoo is still fetched as the check
+and the backup: the order prices off Yahoo when Webull fails, its last trade
+is over 5 minutes old, or the two mids differ by more than 1%. Each attempt's
+`quoteSource` says which ("Webull stock snapshot" or "Yahoo stock quote
+(<why>)"). Option orders keep Yahoo quotes: Webull's free option quotes are 15
+minutes late. At most two snapshot calls per share symbol a run.
+
+### Watchlist sync (not built)
+
+Build F planned to mirror the Owner watchlist into Webull's watchlists. The
+paper keys answer `GET /market-data/watchlists/list` with an empty list, so
+they do not reach the Webull app's watchlists, and nothing was built.
+
+Test: `node scripts/webull-data-mirror-smoke.mjs` (no npm script), plus the
+fee and contract chips in `webull-view-smoke` and `webull-execution-browser`.

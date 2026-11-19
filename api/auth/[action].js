@@ -11,6 +11,9 @@
 //   picks-fills      -> the Owner's uploaded paper/real trade log (GET / POST)
 //   webull-mirror    -> copy the record's trades into the Webull paper account
 //                       (POST from the build workflow) / its trade log (GET)
+//   webull-data      -> the daily Webull data runner: saves option prices and
+//                       other read-only Webull data (POST from
+//                       webull-data.yml) / its status (GET, Owner session)
 //   track-record-reset -> Owner-only, same-origin wipe of one tracker (POST)
 //   track-record-data  -> Owner-only reporting view, independent of execution
 //   owner-watchlist  -> the Owner's stock-page watchlist, synced across devices
@@ -119,7 +122,12 @@ export function mcpRouteOf(req) {
 // Owner Settings "Live site" switches (lib/owner-settings.mjs) can only turn
 // a feature OFF on top of the Vercel env. Read for the few actions they gate,
 // cached for 30 seconds per warm instance; a failed read keeps the Vercel env.
-const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR", "WEBULL_SHARES", "WEBULL_QTY", "WEBULL_PICKS_SIZING"];
+const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "MCP_PUBLIC_ACCESS", "WEBULL_MIRROR", "WEBULL_SHARES", "WEBULL_QTY", "WEBULL_PICKS_SIZING",
+  "WEBULL_CONTRACT_CHECK", "WEBULL_REAL_FEES", "WEBULL_STOCK_QUOTES",
+  // The daily Webull data runner and its jobs (2026-11-19, lib/webull-data/).
+  "WEBULL_DATA", "WEBULL_OPTION_SAVER",
+  // W3 Webull data logs: order flow, market breadth, backups.
+  "WEBULL_FLOW_LOG", "WEBULL_BREADTH_LOG", "WEBULL_BACKUPS"];
 // Keys this module forced off, with the value they had before. The forced
 // values stay in place between requests and change only when the saved
 // settings change, so two requests running at once on one warm instance can
@@ -141,7 +149,7 @@ function syncSiteSwitches(overrides) {
 }
 // The Vercel value of each switch, without this page's overrides.
 const siteSwitchBase = () => Object.fromEntries(SITE_SWITCH_KEYS.map((k) => [k, siteSwitchForced.has(k) ? siteSwitchForced.get(k) : process.env[k]]));
-const SITE_SWITCH_ACTIONS = new Set(["contact", "contact-inbox", "webull-mirror", "mcp", "mcp-meta", "mcp-oauth"]);
+const SITE_SWITCH_ACTIONS = new Set(["contact", "contact-inbox", "webull-mirror", "webull-data", "mcp", "mcp-meta", "mcp-oauth"]);
 let siteSwitchCache = { at: 0, overrides: {} };
 async function applySiteSwitches(req, action) {
   if (!SITE_SWITCH_ACTIONS.has(action) && !(action === "me" && req.query?.sports)) return;
@@ -176,6 +184,8 @@ export default async function handler(req, res) {
       return picksFills(req, res);
     case "webull-mirror":
       return webullMirror(req, res);
+    case "webull-data":
+      return webullData(req, res);
     case "track-record-reset":
       return trackRecordReset(req, res);
     case "track-record-data":
@@ -451,9 +461,21 @@ async function picksFeed(req, res) {
     ]);
     const buf = await store.get("picks-accuracy.json");
     const acc = buf == null ? {} : JSON.parse(buf.toString("utf8"));
+    // The Owner controls in force (a stop, avoid-and-close names), so a reader
+    // knows no OPEN is coming. Unreadable = no status line, the feed still serves.
+    let controls = null;
+    try {
+      const [oc, os] = await Promise.all([import("../../lib/owner-controls.mjs"), import("../../lib/owner-settings.mjs")]);
+      const [ctlBuf, setBuf] = await Promise.all([store.get(oc.OWNER_CONTROLS_KEY), store.get(os.OWNER_SETTINGS_KEY)]);
+      const values = os.readOwnerSettingsDoc(setBuf).values;
+      if (oc.controlsEnabledFromSettings(values)) {
+        const active = oc.activeControls(oc.readOwnerControlsDoc(ctlBuf), Date.now());
+        controls = { ...oc.controlsSummary(active), stopAt: active.stopAt };
+      }
+    } catch (err) { console.error("picks feed controls read failed", { message: String(err?.message || err) }); }
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.statusCode = 200;
-    return res.end(buildPicksFeedText(acc));
+    return res.end(buildPicksFeedText(acc, { controls }));
   } catch (err) {
     console.error("picks feed failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "feed unavailable" });
@@ -1154,15 +1176,29 @@ const enginesMirrorOn = () => !["0", "off", "false", "no"].includes(String(proce
 // risk budget is the engines' ENGINES_RISK_USD (Owner Settings number, or a
 // Vercel value), $2,000 when neither is set.
 const envOn = (v) => !["0", "off", "false", "no"].includes(String(v ?? "").trim().toLowerCase());
+// Webull's own data in the mirror (2026-11-19, wave 2 build A). Each is on
+// unless Vercel or the Owner Settings "Live site" tab turns it off:
+// WEBULL_CONTRACT_CHECK (option contracts checked against Webull's contract
+// list before the first entry order, and Webull's price step),
+// WEBULL_REAL_FEES (real fees read from Webull's order history after each
+// run), WEBULL_STOCK_QUOTES (share orders priced off Webull's real-time stock
+// snapshot, Yahoo as the check and the backup).
+const mirrorDataSwitches = () => ({ contractCheck: envOn(process.env.WEBULL_CONTRACT_CHECK), realFees: envOn(process.env.WEBULL_REAL_FEES), stockQuotes: envOn(process.env.WEBULL_STOCK_QUOTES) });
 async function webullSizing(store) {
   const sizing = { shares: envOn(process.env.WEBULL_SHARES), quantities: envOn(process.env.WEBULL_QTY), picksSizing: envOn(process.env.WEBULL_PICKS_SIZING), riskUsd: null };
-  let saved = null;
+  let saved = null, values = {};
   try {
     const { readOwnerSettingsDoc, OWNER_SETTINGS_KEY } = await import("../../lib/owner-settings.mjs");
-    saved = Number(readOwnerSettingsDoc(await store.get(OWNER_SETTINGS_KEY)).values?.ENGINES_RISK_USD);
-  } catch { saved = null; }
+    values = readOwnerSettingsDoc(await store.get(OWNER_SETTINGS_KEY)).values || {};
+    saved = Number(values.ENGINES_RISK_USD);
+  } catch { saved = null; values = {}; }
   const fromEnv = Number(String(process.env.ENGINES_RISK_USD ?? "").trim() || NaN);
   sizing.riskUsd = Number.isFinite(saved) && saved > 0 ? saved : Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : null;
+  // Engine stock order range (Owner Settings WEBULL_STOCK_MIN_USD /
+  // WEBULL_STOCK_MAX_USD, $2,000 to $25,000 unless changed; a Vercel value
+  // wins). An unreadable settings file uses the defaults.
+  const { stockRangeFromSettings } = await import("../../lib/webull-mirror.mjs");
+  Object.assign(sizing, stockRangeFromSettings(values));
   return sizing;
 }
 
@@ -1229,7 +1265,9 @@ async function webullMirror(req, res) {
         health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on", engines: enginesRecord, enginesMirror, sharesMirror: sizing.shares }),
         executionLock,
         enginesMirror,
-        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY },
+        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY,
+          stockMinUsd: sizing.stockMinUsd, stockMaxUsd: sizing.stockMaxUsd },
+        webullData: { ...mirrorDataSwitches(), orderHistoryShape: rawLedger.orderHistoryShape ?? null, lastFeeSweep: rawLedger.lastFeeSweep ?? null },
         sharesGoLiveIso: ledger.sharesGoLiveIso ?? null,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
@@ -1315,10 +1353,36 @@ async function webullMirror(req, res) {
         openGate = oc.mirrorOpenGate(active, oc.accountLimitsFromSettings(values), { nowMs });
       } catch (err) { console.error("owner controls read failed", { message: String(err?.message || err) }); openGate = null; }
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
-      const quoteFn = mirror.makeQuoteFn(fetchContract, fetchQuote);
+      const data = mirrorDataSwitches();
+      const [{ makeContractCheck }, { makeWebullStockFetcher }, { backfillFees }] = await Promise.all([
+        import("../../lib/webull-contracts.mjs"), import("../../lib/webull-quotes.mjs"), import("../../lib/webull-fees.mjs")]);
+      // Share orders: Webull's stock snapshot first, Yahoo as the check and
+      // the backup. Option orders keep Yahoo (Webull's free option quotes are
+      // 15 minutes late).
+      const stockEvents = {};
+      const stockFetch = data.stockQuotes ? makeWebullStockFetcher(client, fetchQuote, { onEvent: (k) => { stockEvents[k] = (stockEvents[k] || 0) + 1; } }) : fetchQuote;
+      const quoteFn = mirror.makeQuoteFn(fetchContract, stockFetch);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
       const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable, openGate,
-        sizing: { ...sizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD } });
+        sizing: { ...sizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD }, contractCheck: data.contractCheck ? makeContractCheck(client) : null });
+      if (Object.keys(stockEvents).length) summary.webullData = { ...(summary.webullData || {}), ...stockEvents };
+      // Real fees: one order-history read (only when a filled order lacks
+      // its real fee), never blocking the run. Counts only in the reply.
+      if (data.realFees && !summary.skipped) {
+        try {
+          const fees = await backfillFees({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, ledger, check: guard });
+          if (fees.calls) {
+            ledger.lastFeeSweep = { atIso: new Date().toISOString(), ...fees };
+            if (fees.applied) summary.webullData = { ...(summary.webullData || {}), "real fees added from order history": fees.applied };
+            if (fees.error) summary.warnings = { ...(summary.warnings || {}), "order history unavailable - fees not updated": 1 };
+            await checkpoint(ledger);
+          }
+        } catch (err) {
+          // The mirror run itself is saved; a fee sweep that ran out of
+          // lease time just waits for the next run.
+          console.error("webull fee sweep failed", { message: String(err?.message || err), code: err?.code || null });
+        }
+      }
       return { ran: !summary.skipped, summary };
     });
     return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running", retryAfterMs: lease.retryAfterMs } : lease.result);
@@ -1336,5 +1400,74 @@ async function webullMirror(req, res) {
       kind: err?.name || null,
       detail: webull || err?.code === "ACCOUNT_NOT_FOUND" ? null : String(err?.message || "").slice(0, 120),
     });
+  }
+}
+
+// --- Webull data runner (2026-11-19, docs/webull-data.md) ----------------------
+// POST /api/auth/webull-data  (Authorization: Bearer <data trigger token>)
+//   One ping of the daily runner (lib/webull-data/runner.mjs): works for at
+//   most ~40 s under the per-group call caps, saves its cursor under
+//   _stonks/webull-data/v1/ and answers counts only, { more, waitMs }.
+//   .github/workflows/webull-data.yml pings it until done (after the close).
+//   ?backfill=1 asks the first run's recent-expiry backfill again; 0 skips it.
+// GET  /api/auth/webull-data  (Owner session): the status block (days saved,
+//   contracts saved, last run, misses), never a price.
+// Off unless WEBULL_DATA is on (unset = on; Vercel or the Owner Settings
+// "Live site" switch can turn it off) and the Webull paper keys are set.
+// Read-only: the client's data calls refuse any trading or account path.
+async function webullData(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const { WEBULL_DATA_JOBS } = await import("../../lib/webull-data/jobs/index.mjs");
+  // Each switch is on unless Vercel or the Owner Settings "Live site" tab
+  // turns it off (applySiteSwitches has already applied the saved file).
+  const switches = { WEBULL_DATA: envOn(process.env.WEBULL_DATA), WEBULL_OPTION_SAVER: envOn(process.env.WEBULL_OPTION_SAVER) };
+  for (const j of WEBULL_DATA_JOBS) if (!(j.switchKey in switches)) switches[j.switchKey] = envOn(process.env[j.switchKey]);
+  if (req.method === "GET") {
+    const session = await getSession(req).catch(() => null);
+    if (!session) return res.status(401).json({ error: "auth required" });
+    if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+    try {
+      const [{ store }, { readGz, webullDataKeys }, { statusView }] = await Promise.all([
+        import("../../lib/datastore.mjs"), import("../../lib/webull-data/store.mjs"), import("../../lib/webull-data/runner.mjs")]);
+      const state = await readGz(store, webullDataKeys.state());
+      return res.status(200).json(statusView(state, { switches }));
+    } catch (err) {
+      console.error("webull data status failed", { message: String(err?.message || err) });
+      return res.status(502).json({ error: "status unavailable" });
+    }
+  }
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  const secret = process.env.R2_SECRET_ACCESS_KEY || "";
+  const auth = String(req.headers.authorization || "");
+  const given = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const { webullDataTriggerToken } = await import("../../lib/webull-data/trigger.mjs");
+  if (!secret || !given || !keyMatches(given, webullDataTriggerToken(secret))) return res.status(404).json({ error: "not found" });
+  if (!switches.WEBULL_DATA) return res.status(200).json({ ran: false, more: false, reason: "runner off" });
+  const env = (k) => String(process.env[k] || "").trim();
+  const appKey = env("WEBULL_APP_KEY"), appSecret = env("WEBULL_APP_SECRET"), accessToken = env("WEBULL_ACCESS_TOKEN");
+  if (!appKey || !appSecret) return res.status(200).json({ ran: false, more: false, reason: "webull keys not configured" });
+  try {
+    const [{ store }, { createWebullClient }, { runWebullData }] = await Promise.all([
+      import("../../lib/datastore.mjs"), import("../../lib/webull-client.mjs"), import("../../lib/webull-data/runner.mjs")]);
+    const client = createWebullClient({ appKey, appSecret, accessToken: accessToken || null, timeoutMs: 10000 });
+    const q = req.query || {};
+    const options = {
+      maxContracts: env("WEBULL_OPTION_MAX_CONTRACTS"), strikeBand: env("WEBULL_OPTION_STRIKE_BAND"),
+      minDte: env("WEBULL_OPTION_MIN_DTE"), maxDte: env("WEBULL_OPTION_MAX_DTE"),
+      backfill: ["0", "1"].includes(String(q.backfill)) ? String(q.backfill) : "",
+    };
+    const lease = await store.withLease("webull-data", (guard) => runWebullData({ client, store, jobs: WEBULL_DATA_JOBS, guard, options,
+      switchOn: (k) => switches[k] !== false }));
+    if (lease.busy) return res.status(200).json({ ran: false, more: true, reason: "runner already running", waitMs: Math.min(60000, lease.retryAfterMs || 15000) });
+    return res.status(200).json(lease.result);
+  } catch (err) {
+    console.error("webull data failed", { message: String(err?.message || err), code: err?.code || null });
+    const webull = err?.name === "WebullError";
+    return res.status(502).json({ error: "runner failed", code: err?.code || null, status: webull ? err?.status ?? null : null, kind: err?.name || null,
+      detail: webull ? null : String(err?.message || "").slice(0, 120) });
   }
 }

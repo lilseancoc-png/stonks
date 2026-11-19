@@ -53,7 +53,7 @@ ratio, tone24?, toneBase? }] }, health } }`. A failed read keeps the prior
 block marked `stale`. Source health rows `federal-register` and `gdelt-news`.
 MCP: `get_feature quant` dataset `policy-news`.
 
-## Shadow keys (version 8)
+## Shadow keys (version 9)
 
 `lib/shadow-signals.mjs`: per name `frn` (tagged Register documents, last
 three days or filed for tomorrow; 0 when read and nothing matched), `nvr`

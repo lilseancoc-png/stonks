@@ -82,6 +82,15 @@ beat holding the S&P 500 in the 1972-2026 and 2006-2026 research
   and close, idle money earning fed funds, 0.1% costs a round trip, against
   SPY bought the same day (`coreMark` in `backtest.mjs`).
 
+### Real option prices for later history tests (2026-11-19)
+
+The Webull daily data runner (`docs/webull-data.md`) now saves a daily snapshot
+of every covered name's option quotes and the daily bars of each contract after
+it expires. `scripts/webull-options-export.mjs` writes them as research-kit
+files in the same row shape as the DoltHub history pull. Nothing in
+`lib/engines/backtest.mjs` reads them yet; using them in place of the
+model price is a later step.
+
 ### Shares for the slow setups (rules 2, 2026-11-17)
 
 The 1971-2026 history test split every trade into idea, timing and contract.
@@ -118,7 +127,8 @@ A share trade (`sharesContract` in `contracts.mjs`, `BOOK.shares*`):
   engines' options) so its thresholds mean the same thing; its change notes
   say so.
 - Bought as stock in the Webull paper account since 2026-11-19 (the record's
-  whole-share count, long only; Owner Settings `WEBULL_SHARES` off leaves them
+  whole-share count, moved inside the Owner's $2,000 to $25,000 stock order
+  range, long only; Owner Settings `WEBULL_SHARES` off leaves them
   on the record only, as before). Share trades opened before share orders went
   live (`sharesGoLiveIso`) are never bought late. The same-contract rule does
   not apply: each engine buys its own shares. See docs/webull-paper-controls.md.
@@ -301,6 +311,13 @@ research kit's fear and greed rebuild):
   trades, +5.3% → +9.2% a trade (the crash stand-aside, and the fear test's
   126 calls at +19.4%), Technicals options to none and 1,600 share trades at
   +1.1%. Side effect: capitulation shares now get through on some crash days.
+- Those numbers ran on the 85 names covered before the wide tier (#875). The
+  committed result (`research/engines/results/latest.json`, re-run
+  2026-11-19 on the 80 tracked names, risk sizing, `--fg` from the research
+  kit) reads: Technicals 1,600 share trades at +1.3% a trade, Reversion 1,024
+  option trades at +9.6% and 242 share trades at +0.1%, Macro 551 option
+  trades at +1.4%, the Momentum basket 540 swaps (11.4% a lot), the Trend
+  follower unchanged (33 swaps).
 - Risk sizing changes dollar weights, not percent results: options $82,600
   (flat size $79,526, so the multiplier adds about 4%), shares $337K (lots up
   to $25,000 of stock against the old $5,000). The option total falls because

@@ -35,7 +35,10 @@ async function trigger() {
   const kinds = describeReviewKinds(body?.summary);
   // Warnings (fixed words, e.g. the cash check could not run) never fail the window.
   const warn = describeKinds(body?.summary?.warnings);
-  console.log(`Webull mirror: HTTP ${res.status}${why}${warn ? `, warning (${warn})` : ""}${body?.summary?.alerts ? `, review required (${kinds ? `${kinds}; ` : ""}Owner Webull test view)` : ""}`);
+  // Webull's own data used this run (contract checks, share quotes, real
+  // fees): fixed words and counts only.
+  const data = describeKinds(body?.summary?.webullData);
+  console.log(`Webull mirror: HTTP ${res.status}${why}${data ? `, Webull data (${data})` : ""}${warn ? `, warning (${warn})` : ""}${body?.summary?.alerts ? `, review required (${kinds ? `${kinds}; ` : ""}Owner Webull test view)` : ""}`);
   return { ok: res.ok, body };
 }
 try {

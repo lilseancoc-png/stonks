@@ -191,7 +191,12 @@ await ok("account limits: off until set, a Vercel value wins over the saved sett
     const def = ownerSettingDef(key);
     assert.ok(def, key); assert.equal(def.kind, "number"); assert.equal(Number(def.default), 0); assert.equal(def.impact, "high"); assert.equal(def.tab, "Account limits");
   }
-  assert.equal(OWNER_SETTINGS.filter((d) => d.tab === "Account limits").length, 5);
+  // The Owner-controls settings on the tab: the kill switch and the four
+  // limits. Other settings may share the tab (the Webull stock order range,
+  // checked in webull-shares-smoke), so count these by key.
+  const controlKeys = ["OWNER_CONTROLS", "ACCOUNT_LIMIT_OPEN_USD", "ACCOUNT_LIMIT_DAY_LOSS_USD", "ACCOUNT_LIMIT_NAME_USD", "ACCOUNT_LIMIT_NEW_PER_DAY"];
+  for (const key of controlKeys) assert.equal(ownerSettingDef(key)?.tab, "Account limits", key);
+  assert.deepEqual(OWNER_SETTINGS.filter((d) => d.tab === "Account limits" && d.group !== "Webull paper stock orders").map((d) => d.key).sort(), [...controlKeys].sort());
 });
 
 await ok("kill switch: OWNER_CONTROLS off means no control is in force anywhere; the limits still apply", async () => {
