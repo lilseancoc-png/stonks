@@ -826,6 +826,9 @@ export function renderStockPageJs() {
           (f.numberOfAnalystOpinions ? '<div class="stp-ret"><span>Analysts</span><b>' + escapeHtml(String(f.numberOfAnalystOpinions)) + '</b></div>' : '') +
           '</div></section>';
       }
+      // The Owner's controls on this stock (owner-controls-client.mjs
+      // ocRenderStock): avoid / watch / catalysts, filled from the live read.
+      if (HAS_OWNER_ACCESS) html += '<section class="stp-sec" id="stp-oc" data-oc-stock="' + escapeHtml(state.sym) + '" hidden></section>';
       html += '<section class="stp-sec" id="stp-valuation" hidden></section>';
       html += '<section class="stp-sec" id="stp-odds" hidden></section>';
       html += '<section class="stp-sec" id="stp-aid" hidden></section>';
@@ -839,7 +842,7 @@ export function renderStockPageJs() {
       // The valuation band fills in once its public file arrives, after any
       // chart this tab already queued.
       var prevAfter = state.afterTab, vSym = state.sym, vToken = state.token;
-      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); fillAid(vSym, vToken); };
+      state.afterTab = function(){ if (typeof prevAfter === 'function') prevAfter(); fillValuation(vSym, vToken); fillOdds(vSym, vToken); fillAid(vSym, vToken); if (typeof ocRenderStock === 'function') ocRenderStock(); };
       return html;
     }
     function tabNews(){

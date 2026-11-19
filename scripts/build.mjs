@@ -121,6 +121,7 @@ import { buildSetupOdds } from "../lib/setup-odds.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
 import { ownerBriefCalendar, ownerBriefRunsOn } from '../lib/owner-market-brief.mjs';
 import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
+import { deskControls, webullFillSummary } from '../lib/owner-desk-state.mjs';
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
@@ -39857,6 +39858,15 @@ async function main() {
     const s = controlsSummary(ownerControlsRun);
     console.log(`Owner controls: ${s.stop ? "NEW TRADES STOPPED; " : ""}avoid ${s.avoid.length}, watch ${s.watch.length}, dial ${s.dial}; account limits ${ownerControlsRun.limits.any ? "set" : "off"}`);
   }
+  // The Owner brief's desk block (lib/owner-desk-state.mjs): the controls
+  // above and how the Webull paper account filled recent record trades. The
+  // ledger is request-time-owned, hydrated by the pull, so it is read here,
+  // before the wipe. A missing or bad ledger leaves the Webull line out.
+  let ownerDeskForBrief = { controls: deskControls(ownerControlsRun), webull: null };
+  try {
+    const ledgerRaw = await readFile(resolve(DATA_DIR, "webull-paper-ledger.json"), "utf8");
+    ownerDeskForBrief.webull = webullFillSummary(JSON.parse(ledgerRaw), { nowMs: Date.now() });
+  } catch { /* no ledger yet */ }
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
   // continuity; the unusual snapshot is rewritten after the wipe so the page
@@ -42444,7 +42454,7 @@ async function main() {
     publicScan.missing.push(...ownerBriefCoreSources.filter(([,present])=>!present).map(([label])=>label));
     publicScan.total = publicScan.checked.length + publicScan.coreChecked.length + publicScan.missing.length;
     const publicCore = briefRenderFields(gatherBriefSignals(kind, { chains, fearGreed: scoringFearGreed, macro: macroBackdrop, correlations: correlationsInfo?.payload?.stale ? null : correlationsInfo?.payload, unusual: scoringUnusual, calendar: ownerBriefCalendar(calendarInfo.payload,ownerBriefNow.toISOString(),macroReleaseReads), rfr: riskFreeRate?.rate, headlines: trends.macroHeadlines || [], ivTrending: ivTrendingForBrief, siteTools: publicScan, now: ownerBriefNow }));
-    const ownerBrief = await publishOwnerMarketBrief({ dataDir: DATA_DIR, builtAtIso: ownerBriefNow.toISOString(), publicScan, publicCore, previous: priorOwnerMarketBrief });
+    const ownerBrief = await publishOwnerMarketBrief({ dataDir: DATA_DIR, builtAtIso: ownerBriefNow.toISOString(), publicScan, publicCore, previous: priorOwnerMarketBrief, desk: ownerDeskForBrief });
     console.log(`wrote data/owner-market-brief.json — ${ownerBrief.ideas.length} research priorities; no extra model calls`);
   } catch (err) {
     console.warn(`[owner-brief] unavailable — ${String(err?.message || err).split("\n")[0]}`);
