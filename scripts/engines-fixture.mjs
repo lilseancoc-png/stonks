@@ -157,9 +157,13 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
 
   // The paper account as /api/auth/webull-mirror?scope=engines answers it
   // (rows in the shape of ledgerToTestTrades; hand-made, not broker data).
-  const leg = (t) => `BUY ${new Date(t.contract.expiry * 1000).toISOString().slice(0, 10)} ${t.contract.strike} ${String(t.contract.optionType).toUpperCase()}`;
+  const leg = (t) => isSharesTrade(t) ? `${t.contract.shares} shares` : `BUY ${new Date(t.contract.expiry * 1000).toISOString().slice(0, 10)} ${t.contract.strike} ${String(t.contract.optionType).toUpperCase()}`;
   const mirrorRow = (t, i, closed) => {
     const shared = !!t.noMirror, missed = !shared && i % 9 === 4;
+    // Size asked and filled (2026-11-19): the record's qty (1 to 10) or share
+    // count; every 7th filled multi-unit trade is only partly filled.
+    const stock = isSharesTrade(t), req = stock ? Math.max(1, t.contract.shares || 1) : Math.min(10, Math.max(1, t.contract.qty || 1));
+    const got = shared || missed ? 0 : req > 1 && i % 7 === 2 ? Math.max(1, Math.floor(req / 2)) : req;
     const fill = shared || missed ? null : +(t.contract.mid * (1 + ((i % 5) - 1) * 0.008)).toFixed(2);
     const exit = closed && fill != null ? +((t.exitMid ?? t.contract.mid) * (1 - (i % 3) * 0.01)).toFixed(2) : null;
     return {
@@ -170,19 +174,23 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
       closeFillPrice: exit, closeFillIso: exit != null ? t.exitDate : null, exitDiffPct: exit != null && t.exitMid > 0 ? +(((exit - t.exitMid) / t.exitMid) * 100).toFixed(1) : null,
       paperPnlPct: exit != null && fill > 0 ? +(((exit - fill) / fill) * 100).toFixed(1) : null, fees: 0.55, needsReview: false,
       labels: shared ? ["Held by Top Picks: not bought twice"] : [], note: shared ? `Same contract is held by Top Picks${t.shared?.heldById ? ` (${t.shared.heldById})` : ""}: recorded on its own track record, not bought twice.` : missed ? "Entry did not fill inside the allowed range." : null,
-      madeBy: engineName(t.engine),
+      madeBy: engineName(t.engine), instrument: stock ? "stock" : "option", requestedQty: shared ? 1 : req, filledQty: got, closedQty: exit != null ? got : 0, openQty: exit != null ? 0 : got,
+      qtyBasis: stock ? "shares" : (t.contract.qty || 1) > 10 ? "record-capped" : t.contract.qty ? "record" : "one",
+      fillOutcome: shared ? "shared" : missed ? "missed" : got < req ? "partial" : "filled",
       attempts: shared ? [] : [{ phase: "entry", n: 1, orderPrefix: orderIdPrefix(clientOrderId(t.tradeId, "entry", 1, t.engine)) }], decisions: [],
     };
   };
   const rec = out.record;
-  // Share trades never reach the paper account.
-  const opt = (list) => list.filter((t) => !isSharesTrade(t));
+  // Share trades and core holdings reach the paper account as stock since
+  // 2026-11-19 (Owner Settings WEBULL_SHARES on, the default).
+  const opt = (list) => list;
   const trades = [...opt(rec.open).map((t, i) => mirrorRow(t, i, false)), ...opt(rec.closed).slice(0, 60).map((t, i) => mirrorRow(t, i + 3, true))];
   const lastRunIso = new Date(Date.parse(out.view.runIso) + 9 * 60000).toISOString();
   const mirror = {
     scope: "engines", enabled: true, enginesMirror: true, goLiveIso: rec.startedIso, lastRunIso, engineSnapshotIso: out.view.runIso,
     health: { status: "saved-checks-current", issues: [], counts: {}, engines: { open: opt(rec.open).length, mirrored: trades.filter((t) => t.state === "open").length, shared: opt(rec.open).filter((t) => t.noMirror).length, unfilled: trades.filter((t) => t.state === "missed" && opt(rec.open).some((o) => o.tradeId === t.tradeId)).length, pending: 0, untracked: 0 } },
     reconciliation: { checkedAtIso: lastRunIso, status: "matched", alerts: [] }, runs: [], rows: [], trades,
+    sizing: { shares: true, quantities: true, picksSizing: true, riskUsd: 2000, maxQty: 10 },
   };
   return { view: out.view, record: out.record, state: out.state, mirror, flagship, names: NAMES, engines: Object.keys(ENGINES) };
 }

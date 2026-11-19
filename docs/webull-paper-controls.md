@@ -47,10 +47,74 @@ Negative synthetic bids are not converted into executable zero-price quotes.
 
 ## Quantities and order recovery
 
-New mirror trades still request **one contract** (one per leg for a vertical).
-Conviction does not increase size. The ledger now supports a positive integer
-`requestedQty`; future approved sizing can supply that field without replacing
-the execution lifecycle. Ratio spreads and nonstandard deliverables are refused.
+**Size of a new trade (2026-11-19).** `mirrorQty` in `lib/webull-mirror.mjs`
+sets `requestedQty` once, when a trade first enters the ledger; a later switch
+change never resizes a trade already there.
+
+| Trade | Webull asks for | Ledger `qtyBasis` |
+|---|---|---|
+| Strategy-engine option trade | the record's `contract.qty` (1 to 10; a missing value is 1, as on every trade before 2026-11-17; above 10 is capped at 10). `flatQty`, where present, is comparison only and is never read | `record`, `record-capped` or `one` |
+| Top Picks option trade | `picksRiskQty`: the risk budget (`ENGINES_RISK_USD` from Owner Settings or env, else $2,000) divided by one contract's risk, rounded down, 1 to 10. Risk is the whole premium under 30 days to expiry (or an unknown expiry), else premium × the trade's stop (50%) × 1.25 for gaps, never more than the premium; a credit spread risks width minus credit. A Top Pick is never skipped for size: at least one contract | `risk` |
+| Either, with **Webull quantities above one** off | one contract | `one` |
+| Top Picks, with **Webull Top Picks risk sizing** off | one contract | `one` |
+| Engine share trade, Trend follower and Momentum basket holdings | the record's whole-share count (`contract.shares`), as stock | `shares` |
+
+The Top Picks Track Record stays in percent per contract; only the paper order
+changes. Each ledger trade keeps `recordQty` (what the record asked for) and,
+for risk-sized trades, `riskPerContract` / `riskUsd`. Ratio spreads and
+nonstandard deliverables are still refused.
+
+**Stock orders.** A share trade is sent as one Webull v3 stock limit order with
+exactly the fields of the official stock order docs and SDK sample
+(`developer.webull.com/apis/docs/trade-api/stock`, `samples/order/order_stock_client.py`):
+`client_order_id`, `combo_type: NORMAL`, `symbol`, `instrument_type: EQUITY`,
+`market: US`, `order_type: LIMIT`, `limit_price`, `quantity`, `side`,
+`time_in_force: DAY`, `support_trading_session: CORE`, `entrust_type: QTY`.
+Entries are `BUY` and exits `SELL` only: the client refuses any other stock
+side (`SHORT` exists in Webull's enum and is never sent), a quantity that is
+not a positive whole number, and an order with no category, before any network
+call. The place request carries the SDK's category header (`US_EQUITY` for
+stock, `US_OPTION` for options; `orderCategory` in `lib/webull-client.mjs`);
+the preview sends it for options only, as the SDK does. Stock prices use the
+same 2% / 4% / 5% allowances in pennies (no nickel rule), from the stock's
+live bid and ask (`fetchQuote` in `lib/yahoo.mjs`, the call `/api/quote`
+already makes; a zero or crossed quote sends nothing). An end-of-day emergency
+stock exit sells at 5% under the bid, never a market order. Share trades have
+no expiry, so the expiry and settlement controls skip them. Share orders start
+for trades opened from the first mirror run with the switch on
+(`sharesGoLiveIso`, set like `goLiveIso`); older share holdings stay on the
+engine record only.
+
+**Fill outcome.** `fillOutcome(t)` reads each trade as `filled` (every contract
+or share asked for), `partial` (some; the label reads "Partly filled: 1 of 4
+contracts"), `missed` (none, and the entry is over), `pending`, `shared` (the
+contract is held by another engine) or `not-bought`. It is on the JSON trades,
+both CSVs (`requested_qty`, `fill_outcome`, `instrument`), the Real fills tab
+and the Strategy engines page (the Webull paper tab and an "At Webull" column
+beside each engine's own result on its Track record tab).
+
+**Labels and the run log (2026-11-19).** Each engine trade also stores the
+`setup` that opened it (filled in from the engine record for older trades), on
+the JSON trades and both CSVs (`setup`, before `engine` and `made_by`). A share
+trade's exit reference is the stock's own closing price on the record
+(`exitMid`), not the after-cost result. Each run's summary counts errors by a
+fixed kind (`errorKinds`: order status unavailable, positions unavailable,
+positions not readable, cancel unconfirmed, submission not acknowledged) and
+says why a window is still pending (`pendingKinds`). The build-window and
+end-of-day trigger scripts print these labels, never a ticker or an ID. "Entry
+order working inside its price allowance" is the normal state of the ladder:
+the last limit stays live until it fills or the end-of-day window raises it to
+the 5% ceiling; the log says so in plain words. A window left with only that
+state (or an exit order still working), and no error or alert, no longer fails
+the workflow; any other pending kind still does.
+
+**Switches** (Owner Settings → live site switches; each can only turn its part
+off, `0` in Vercel env does the same): `WEBULL_SHARES` (share orders),
+`WEBULL_QTY` (quantities above one; off = one contract for every option
+trade), `WEBULL_PICKS_SIZING` (Top Picks risk sizing). All three are on by
+default. Test: `node scripts/webull-shares-smoke.mjs` (also run by
+`npm run test:webull-mirror`; reruns take `WB_RISK_USD`, `WB_PRICE`,
+`WB_STOCK`, `WB_SPREAD`).
 
 Each attempt stores requested quantity, cumulative filled quantity, execution
 price, and exact order contents. Entry replacements request only the unfilled
@@ -108,7 +172,12 @@ direction, and stock changes on mirrored symbols pause entries. Known pending
 orders can be cancelled to reduce risk. Unsafe replacement or combo closes are
 blocked; unrelated holdings are never automatically liquidated. Stock changes
 are labeled possible exercise, assignment, or manual trading, not asserted to be
-assignment. An Owner reviews those cases in Webull; automatic stock unwind and
+assignment. One exception: a stock difference that the mirror's own
+still-working share orders on that symbol can explain (up to the shares an
+entry has left to buy, or down to the shares an exit has left to sell) is an
+order filling during the run. Only that symbol's share trades wait while the
+mirror refreshes them; nothing else pauses (`sharesFilling` on the
+reconciliation). A difference outside that range is still an account-wide alert. An Owner reviews those cases in Webull; automatic stock unwind and
 assignment cash/P&L reconciliation are not implemented.
 
 The published NYSE calendar covers **2026–2028**, including early closes. Unknown
@@ -198,7 +267,8 @@ credentials/account ID, and complete R2 configuration. Validate a manual run
 and inspect broker holdings/ledger before relying on automatic operation.
 Nothing in local tests activates broker execution. The research build retains
 `continue-on-error` on its dispatch step so the verified research can publish.
-A failed mirror, errors, alerts, or orders still pending after the window fail
+A failed mirror, errors, alerts, or orders still pending after the window (other
+than an order still working inside its price allowance) fail
 the `Webull paper reconciliation` run itself (strict mode), so the build stays
 green for the close-bake watchdog while the Webull failure stays visible; a
 final check that finds the end-of-day window holding the account lease
@@ -371,7 +441,7 @@ live Webull schema compatibility, liquidity, scheduler punctuality, or profits.
 
 ## Strategy engines in the same account
 
-The six signal engines (`docs/engines.md`) trade in this paper account too; the two core engines (Trend follower, Momentum basket) hold shares on their record only and never reach it.
+The six signal engines (`docs/engines.md`) trade in this paper account too, and since 2026-11-19 so do their share trades and the two core engines' holdings (Trend follower, Momentum basket), as stock (see "Stock orders" above).
 At each mirror run the engines' record (`engines-record.json`) joins the Top
 Picks record: Top Picks rows first, then engine rows. Every ledger trade
 carries `engine`, and an engine trade's ID starts with its tag
@@ -382,6 +452,12 @@ reconciliation controls above apply to it unchanged.
   trade already holds is recorded as `skipped` with `sharedContract` (who
   holds it) and is never bought twice; the holder gets `sharedWith`. A trade
   whose contract is being sold by its holder waits for that exit to finish.
+  Stock is not covered by this rule: two engines holding the same stock each
+  buy their own shares, and reconciliation checks the account's shares in each
+  symbol against the starting holdings plus every open share trade's filled
+  shares (`expectedEquities`). Any other stock change in a mirrored symbol
+  (a manual trade, an exercise or assignment) pauses the whole account for
+  review, as it always has for options.
 - **Reports stay apart.** `/api/auth/webull-mirror` and the Real fills tab are
   Top Picks only. `?scope=engines` and `?scope=all` return the rest; both CSV
   downloads take the same parameter and carry an `engine` column.

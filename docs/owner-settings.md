@@ -22,8 +22,9 @@ book limits (most open trades, new trades per group, the single cost cap),
 the market tape itself, the AI final grader, the measurement switches whose
 missed days can't be rebuilt (crowd, run archive, Regime Lab, loop), the
 strategy engines switch (Frozen stops their exits), every
-Engine hook and four live switches (message box, public MCP, MCP,
-Webull mirror). Each row shows a red "Big impact" tag and its warning in bold
+Engine hook and seven live switches (message box, public MCP, MCP,
+Webull mirror, Webull share orders, Webull quantities above one, Webull Top
+Picks risk sizing). Each row shows a red "Big impact" tag and its warning in bold
 red, and a "Big impact only" filter lists them. Changing one opens an "are you
 sure" box that repeats the warning (Cancel has focus; Escape or Back closes
 it); undo and reset ask the same way when they touch one, and reset all always
@@ -92,8 +93,14 @@ Picks per run is capped at today's 6 so the AI grader never reads more names.
   instance. The forced value stays in place between requests and is put back
   only when the saved settings change (or on a save), so two requests running
   at once never see a half-restored env.
+- Webull sizing switches (2026-11-19): `WEBULL_SHARES`, `WEBULL_QTY` and
+  `WEBULL_PICKS_SIZING` are live site switches read by `webull-mirror` (on by
+  default; off = no stock orders, one contract per option trade, one contract
+  per Top Pick). They change only new trades; the mirror's Top Picks risk
+  budget reuses `ENGINES_RISK_USD` when it is saved here. See
+  docs/webull-paper-controls.md "Quantities and order recovery".
 
-No AI call, no new fetch, serverless function, workflow or env variable.
+No AI call, no new fetch, serverless function or workflow. The only env variables added since are the three optional Webull sizing switches above (`0` in Vercel does what the switch does).
 
 Tests: `npm run test:owner-settings` (catalog, rules, route) and `npm run
 test:owner-settings-browser` (tabs, filters, warnings, the are-you-sure box,

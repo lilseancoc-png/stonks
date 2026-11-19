@@ -8400,6 +8400,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
   var ENG_CELL = { 'up-calm': 'Trending up, calm', 'up-stressed': 'Trending up, stressed', 'down-calm': 'Trending down, calm', 'down-stressed': 'Trending down, stressed', 'chop-calm': 'Choppy, calm', 'chop-stressed': 'Choppy, stressed' };
   var ENG_STATE = { trading: ['Trading', 'evb-s-pass'], shadow: ['On shadow', 'evb-s-collect'], muted: ['Muted', 'evb-s-fail'], retired: ['Retired', 'evb-s-collect'] };
   var ENG_MIRROR_STATE = { entering: 'Buying', open: 'Open', exiting: 'Selling', closed: 'Closed', missed: 'Missed', skipped: 'Not bought', settled: 'Settled' };
+  // What Webull actually filled for a trade (fillOutcome in lib/webull-mirror.mjs, 2026-11-19).
+  var ENG_FILL = { filled: ['Filled', 'evb-s-pass'], partial: ['Partly filled', 'evb-s-collect'], missed: ['Missed', 'evb-s-fail'], pending: ['Buying', 'evb-s-unclear'], shared: ['Held by another', 'evb-s-unclear'], 'not-bought': ['Not bought', 'evb-s-unclear'] };
   var ENG_EVENT = { fomc: 'Fed decision day', cpi: 'CPI day', jobs: 'Jobs report day' };
   var ENG_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var engState = { data: null, loading: false, fetchedAt: 0, error: null, sel: 'all', sub: 'now', hist: 'live', mirror: null, mirrorLoading: false, mirrorError: null, mirrorAt: 0, bound: false };
@@ -8563,7 +8565,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return '<ul class="eng-rules">' +
       '<li><b>Universe.</b> ' + who + '.</li>' +
       '<li><b>What it buys.</b> One single call or put, about ' + slpNum(c.delta, 2) + ' delta, ' + c.dteMin + ' to ' + c.dteMax + ' days to expiry (ideal ' + c.dteIdeal + '). Never a spread.' + (e.setups || []).filter(function(s){ return s.contract && !s.retired; }).map(function(s){ return ' ' + escapeHtml(s.label) + ' buys its own: about ' + slpNum(s.contract.delta, 2) + ' delta, ' + s.contract.dteMin + ' to ' + s.contract.dteMax + ' days (ideal ' + s.contract.dteIdeal + ').'; }).join('') + '</li>' +
-      (shr.length && sb ? '<li><b>Shares.</b> ' + escapeHtml(shr.length > 1 ? shr.slice(0, -1).join(', ') + ' and ' + shr[shr.length - 1] : shr[0]) + (shr.length > 1 ? ' buy' : ' buys') + ' stock instead of a call on the up side: $' + Number(sb.usd).toLocaleString('en-US') + ' of shares, out at ' + (e.sharesStopAtr != null && e.sharesOwnStop === false ? e.sharesStopAtr + ' ATR under the entry' : 'the setup’s own stock stop or ' + (e.sharesStopAtr != null ? e.sharesStopAtr : sb.stopAtr) + ' ATR under the entry') + ', its own target or ' + sb.targetAtr + ' ATR over it, or after ' + sb.maxSessions + ' sessions. These setups moved the stock too little for an option to pay in the long history test. A put is always an option: the engines never short stock. Share trades are scored apart from options and are not placed in the Webull paper account.</li>' : '') +
+      (shr.length && sb ? '<li><b>Shares.</b> ' + escapeHtml(shr.length > 1 ? shr.slice(0, -1).join(', ') + ' and ' + shr[shr.length - 1] : shr[0]) + (shr.length > 1 ? ' buy' : ' buys') + ' stock instead of a call on the up side: $' + Number(sb.usd).toLocaleString('en-US') + ' of shares, out at ' + (e.sharesStopAtr != null && e.sharesOwnStop === false ? e.sharesStopAtr + ' ATR under the entry' : 'the setup’s own stock stop or ' + (e.sharesStopAtr != null ? e.sharesStopAtr : sb.stopAtr) + ' ATR under the entry') + ', its own target or ' + sb.targetAtr + ' ATR over it, or after ' + sb.maxSessions + ' sessions. These setups moved the stock too little for an option to pay in the long history test. A put is always an option: the engines never short stock. Share trades are scored apart from options and, since 19 November 2026, are also bought as stock in the Webull paper account (Owner Settings can switch share orders off).</li>' : '') +
       '<li><b>Exits.</b> ' + engExitsText(x) + (x.trailArm != null ? ', and a trailing stop once the trade is up ' + x.trailArm + '%' : '') + '. Some setups carry their own exits (see Setups and learning). Every trade closes two sessions before its contract expires.</li>' +
       '<li><b>Size.</b> Up to ' + e.slots + ' open trades' + (e.sideSlots ? ' (' + e.sideSlots.call + ' calls and ' + e.sideSlots.put + ' puts at most)' : '') + ' and ' + e.perRun + ' new per run, ' + engSizeWords() + '.</li>' +
       (e.standing && e.rank
@@ -8589,6 +8591,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">opened ' + escapeHtml(rglEt(t.entryDate)) + '</div>'; }, sort: function(t){ return Date.parse(t.entryDate) || 0; } },
       { label: 'In / now', num: true, cell: function(t){ return engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.lastMid); }, sort: function(t){ return t.lastMid; } },
       { label: 'Result', num: true, cell: function(t){ return engPnl(t.optionPnlPct) + '<div class="crd-dim">best ' + slpPts(t.hiPct, 0) + '%, worst ' + slpPts(t.loPct, 0) + '%</div>'; }, sort: function(t){ return t.optionPnlPct; } },
+      { label: 'At Webull', title: ENG_AT_WEBULL_TIP, cell: engAtWebullHtml, sort: engAtWebullSort },
       { label: 'Sessions', num: true, cell: function(t){ return String(t.sessions || 0) + (t.exits && t.exits.maxSessions ? '<span class="crd-dim"> of ' + t.exits.maxSessions + '</span>' : ''); }, sort: function(t){ return t.sessions || 0; } },
       { label: 'Exit plan', cell: function(t){ return engExitPlan(t); }, nosort: true },
     ];
@@ -8653,6 +8656,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">score ' + slpNum(t.score, 0) + ' · rules ' + escapeHtml(t.rulesVersion || '—') + '</div>'; }, sort: function(t){ return t.setup; } },
       { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">' + engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.exitMid) + '</div>'; }, sort: function(t){ return t.contract && t.contract.expiry; } },
       { label: 'Result', num: true, cell: function(t){ return (t.outcome === 'void' ? '<span class="crd-dim">not counted</span>' : engPnl(t.optionPnlPct)) + '<div class="crd-dim">' + (t.sessions || 0) + (t.sessions === 1 ? ' session' : ' sessions') + '</div>'; }, sort: function(t){ return t.optionPnlPct; } },
+      { label: 'At Webull', title: ENG_AT_WEBULL_TIP, cell: engAtWebullHtml, sort: engAtWebullSort },
       { label: 'Why it closed', cell: function(t){ return escapeHtml(engCap(t.statusLabel || t.status)); }, sort: function(t){ return t.status; } },
       { label: 'Market type', cell: function(t){ return escapeHtml(t.regime && t.regime.cell ? engCell(t.regime.cell) : '—'); }, sort: function(t){ return t.regime && t.regime.cell; } },
     ];
@@ -8794,7 +8798,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       '<li><b>What it holds.</b> ' + (trend ? 'One fund: SPY or QQQ, whichever rose more over the last 12 months while that rise beat T-bills; otherwise TLT if it beat T-bills; otherwise T-bills (cash). About $' + Number(e.lotUsd || 0).toLocaleString('en-US') + ' of it.' : 'The ten covered stocks with the biggest rise from 12 months ago to 1 month ago (the latest month is left out because it tends to reverse), about $' + Number(e.lotUsd || 0).toLocaleString('en-US') + ' each. While SPY closed the month under its 10-month average, the whole basket’s money goes to TLT if it beat T-bills, else T-bills.') + '</li>' +
       '<li><b>When it changes.</b> Once a month, at the first 11:00 or 15:30 ET run after a month closes, read from month-end closes (nothing from the new month). In between the target is fixed, so a day’s move cannot reshuffle it.</li>' +
       '<li><b>Exits.</b> Only when a monthly check drops a holding (closed as “swapped at the monthly check”). No stop, no take-profit, no time limit: the monthly check is the risk control.</li>' +
-      '<li><b>How.</b> Stock only, long only, never an option and never short. Not placed in the Webull paper account (the mirror trades options only). Days in T-bills earn nothing in this record; the history test does count the T-bill rate.</li>' +
+      '<li><b>How.</b> Stock only, long only, never an option and never short. Since 19 November 2026 each holding is also bought as stock in the Webull paper account at the record’s share count (Owner Settings can switch share orders off). Days in T-bills earn nothing in this record; the history test does count the T-bill rate.</li>' +
       '<li><b>Learning.</b> None: a fixed monthly rule, the one that beat holding the S&P 500 in the 1972-2026 research. The Allocator does not size it.</li>' +
       '</ul>';
   }
@@ -8943,12 +8947,37 @@ function recoveryEvidence(row, data, now = Date.now()) {
     });
   }
   function engOrderPrefix(t){ var a = (t && t.attempts) || []; for (var i = 0; i < a.length; i++) if (a[i] && a[i].orderPrefix) return a[i].orderPrefix; return ''; }
+  function engUnit(t, n){ return t && t.instrument === 'stock' ? (n === 1 ? 'share' : 'shares') : (n === 1 ? 'contract' : 'contracts'); }
+  function engFillHtml(t){
+    var f = ENG_FILL[t.fillOutcome] || null, req = Number(t.requestedQty) || 0, got = Number(t.filledQty) || 0;
+    var size = req ? (got === req || !got ? String(req) + ' ' + engUnit(t, req) + (got ? '' : ' asked') : got + ' of ' + req + ' ' + engUnit(t, req)) : '';
+    return (f ? engPill(f[0], f[1]) : '—') + (size ? '<div class="crd-dim">' + escapeHtml(size) + '</div>' : '');
+  }
+  function engMirrorById(){
+    var m = engState.mirror; if (!m) return null;
+    if (engState.mirrorIdx && engState.mirrorIdx.m === m) return engState.mirrorIdx.by;
+    var by = {}; (m.trades || []).forEach(function(t){ if (t && t.tradeId) by[t.tradeId] = t; });
+    engState.mirrorIdx = { m: m, by: by }; return by;
+  }
+  // The engine record's "At Webull" cell: the fill and the paper result beside the engine's own.
+  function engAtWebullHtml(t){
+    if (!HAS_OWNER_ACCESS) return '—';
+    var by = engMirrorById();
+    if (!by) return '<span class="crd-dim">' + (engState.mirrorLoading ? 'loading…' : '—') + '</span>';
+    var w = by[t.tradeId];
+    if (!w) return '<span class="crd-dim">Not sent</span>';
+    var res = w.paperPnlPct != null ? '<div class="crd-dim">Webull ' + engPnl(w.paperPnlPct) + '</div>' : '';
+    return engFillHtml(w) + res;
+  }
+  function engAtWebullSort(t){ var by = engMirrorById(), w = by && by[t.tradeId]; return w ? (w.paperPnlPct != null ? w.paperPnlPct : -1e9) : -2e9; }
+  var ENG_AT_WEBULL_TIP = 'What the shared Webull paper account filled for this trade (filled, partly filled or missed) and its paper result. Not sent = the trade predates the mirror, was kept off it by a switch, or the mirror has not run since.';
   function engMirrorRows(m, id){ return ((m && m.trades) || []).filter(function(t){ return id === 'all' ? !!t.engine : t.engine === id; }); }
   function engMirrorTable(rows, withEngine){
     var cols = [
-      { label: 'Trade', cell: function(t){ var px = engOrderPrefix(t); return '<b>' + escapeHtml(t.symbol || '') + '</b> ' + engSide(t.side) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + (px ? '<div class="crd-dim" title="The first letters of this trade’s order IDs at Webull. Orders sent before November 16, 2026 start with plain ms.">Webull order IDs start ' + escapeHtml(px) + '</div>' : ''); }, sort: function(t){ return t.tradeId; } },
+      { label: 'Trade', cell: function(t){ var px = engOrderPrefix(t); return '<b>' + escapeHtml(t.symbol || '') + '</b> ' + (t.instrument === 'stock' ? '<span class="eng-side eng-shr">Shares</span>' : engSide(t.side)) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + (px ? '<div class="crd-dim" title="The first letters of this trade’s order IDs at Webull. Orders sent before November 16, 2026 start with plain ms.">Webull order IDs start ' + escapeHtml(px) + '</div>' : ''); }, sort: function(t){ return t.tradeId; } },
       { label: 'State', cell: function(t){ return escapeHtml(ENG_MIRROR_STATE[t.state] || engCap(t.state)) + (t.needsReview ? ' ' + engPill('Needs review', 'evb-s-fail') : ''); }, sort: function(t){ return t.state; } },
-      { label: 'Contract', cell: function(t){ return escapeHtml(String(t.legs || '').replace(/^BUY /, '')); }, nosort: true },
+      { label: 'Webull fill', cell: function(t){ return engFillHtml(t); }, sort: function(t){ return t.fillOutcome; } },
+      { label: 'Position', cell: function(t){ return escapeHtml(String(t.legs || '').replace(/^BUY /, '')); }, nosort: true },
       { label: 'Entry', num: true, cell: function(t){ return (t.fillPrice == null ? '—' : engMoney(t.fillPrice)) + (t.engineEntryPrice != null ? '<div class="crd-dim">engine ' + engMoney(t.engineEntryPrice) + (t.fillPrice != null && t.entryDiffPct != null ? ' (' + slpPts(t.entryDiffPct, 1) + '%)' : '') + '</div>' : ''); }, sort: function(t){ return t.fillPrice; } },
       { label: 'Exit', num: true, cell: function(t){ return (t.closeFillPrice == null ? '—' : engMoney(t.closeFillPrice)) + (t.engineExitPrice != null ? '<div class="crd-dim">engine ' + engMoney(t.engineExitPrice) + (t.closeFillPrice != null && t.exitDiffPct != null ? ' (' + slpPts(t.exitDiffPct, 1) + '%)' : '') + '</div>' : ''); }, sort: function(t){ return t.closeFillPrice; } },
       { label: 'Paper result', num: true, cell: function(t){ return engPnl(t.paperPnlPct) + (t.enginePnlPct != null ? '<div class="crd-dim">engine ' + slpPts(t.enginePnlPct, 1) + '%</div>' : ''); }, sort: function(t){ return t.paperPnlPct; } },
@@ -8959,23 +8988,28 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
   function engMirrorHtml(id){
     var m = engState.mirror;
-    var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks, one contract per trade. The engines’ own records size option trades at about $2,000 of premium since 17 November 2026, so compare the % results here, not the dollars. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has a made_by column. Top Picks orders have no tag (ms followed by letters and digits). So the fills stay on that engine’s record. When two engines want the exact same contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it.</p>';
+    var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks. Option trades are sent at the engine record’s size (1 to 10 contracts) and share trades, including the Trend follower and Momentum basket holdings, are bought as stock (long only, never short). Trades sent before 19 November 2026 were one contract each, so compare the % results here, not the dollars.</p>' +
+      engDetails('How orders are sized, filled and labeled', '<p class="evb-note">An engine option trade asks for the record’s contract count, capped at 10. A partly filled entry keeps what filled and sells only that; an entry that never fills inside the price allowance (2%, then 4%, then 5% in the last minutes of the day) is logged as missed. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has made_by and setup columns. Top Picks orders have no tag (ms followed by letters and digits). When two engines want the exact same option contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it. Stock is not shared that way: each engine buys its own shares.</p>');
     if (!m){
       if (engState.mirrorLoading || (!engState.mirrorError && HAS_OWNER_ACCESS)) return lead + '<p class="hint">Loading the paper account…</p>';
       return lead + '<p class="hint">The paper account could not be read (' + escapeHtml(engState.mirrorError || 'not signed in') + '). It is only available on the live site with the Owner session. <button type="button" class="eng-link" data-eng-mirror-retry>Try again</button></p>';
     }
     var rows = engMirrorRows(m, id), h = (m.health && m.health.engines) || null;
+    var byOut = function(k){ return rows.filter(function(t){ return t.fillOutcome === k; }).length; };
+    var z = m.sizing || null;
+    var sizeLine = z ? '<p class="evb-note">Owner Settings: share orders ' + (z.shares ? 'on' : '<b>off</b> (share trades stay on the engine record only)') + '; quantities above one ' + (z.quantities ? 'on' : '<b>off</b> (every option trade is sent as one contract)') + '.</p>' : '';
     var filled = rows.filter(function(t){ return t.fillPrice != null; }), done = rows.filter(function(t){ return t.paperPnlPct != null; });
     var gaps = filled.map(function(t){ return Number(t.entryDiffPct); }).filter(function(v){ return isFinite(v); });
     var avgGap = gaps.length ? gaps.reduce(function(a, b){ return a + b; }, 0) / gaps.length : null;
     var avgPaper = done.length ? done.reduce(function(a, t){ return a + Number(t.paperPnlPct); }, 0) / done.length : null;
     var state = !m.enabled ? engPill('Mirror off', 'evb-s-fail') : m.enginesMirror === false ? engPill('Engine trades not being added (ENGINES_MIRROR is off)', 'evb-s-collect') : engPill('Mirror on', 'evb-s-pass');
     var issues = ((m.health && m.health.issues) || []).filter(function(i){ return id === 'all' || /ENGINE|MIRROR|RECONCIL|ORDER|LOCK/.test(i.code || ''); });
-    return lead + '<p class="eng-status-line">' + state + ' <span class="crd-dim">Last mirror run ' + escapeHtml(rglEt(m.lastRunIso)) + '.</span></p>' +
+    return lead + '<p class="eng-status-line">' + state + ' <span class="crd-dim">Last mirror run ' + escapeHtml(rglEt(m.lastRunIso)) + '.</span></p>' + sizeLine +
       slpKpis([
         ['Orders tracked', String(rows.length)],
-        ['Filled', String(filled.length)],
-        ['Missed', String(rows.filter(function(t){ return t.state === 'missed'; }).length), 'The entry order did not fill inside the allowed price range'],
+        ['Filled', String(byOut('filled')), 'Every contract or share asked for was bought'],
+        ['Partly filled', String(byOut('partial')), 'Some of the size filled; the rest did not inside the allowed price range. Only what filled is held and sold'],
+        ['Missed', String(byOut('missed')), 'The entry order did not fill inside the allowed price range'],
         ['Not bought (shared)', String(rows.filter(function(t){ return t.state === 'skipped'; }).length), 'The same contract was already held by another engine'],
         ['Avg entry gap', avgGap == null ? '—' : slpPts(avgGap, 1) + '%', 'Paper fill against the engine’s entry price; above zero means the paper account paid more'],
         ['Avg paper result', engPnl(avgPaper), 'Closed paper trades only'],
@@ -9061,7 +9095,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     }
 
     var mode = d.mode === 'off' ? engPill('Engines off', 'evb-s-fail') : d.mode === 'pause' ? engPill('Paused: open trades are still managed, nothing new opens', 'evb-s-collect') : engPill('Running', 'evb-s-pass');
-    return '<p class="evb-lead">' + mode + ' Eight rules-only engines trade on paper beside Top Picks. Six signal engines each have their own idea, data, score and track record and share one Webull paper account; two core engines (Trend follower, Momentum basket) hold stock month to month and stay off Webull. The Allocator decides which signal setups may trade in today’s market. None of them uses AI, and none can change a Top Pick, a grade or the Top Picks Track Record. Paper tracking started ' + escapeHtml(engDay(d.startedIso || d.startDate)) + '.</p>' +
+    return '<p class="evb-lead">' + mode + ' Eight rules-only engines trade on paper beside Top Picks. Six signal engines each have their own idea, data, score and track record and share one Webull paper account; two core engines (Trend follower, Momentum basket) hold stock month to month, bought as stock in the same paper account since 19 November 2026. The Allocator decides which signal setups may trade in today’s market. None of them uses AI, and none can change a Top Pick, a grade or the Top Picks Track Record. Paper tracking started ' + escapeHtml(engDay(d.startedIso || d.startDate)) + '.</p>' +
       slpSection('eng-all-cmp', 'Side by side', cmp + '<p class="evb-note">Engine results are % of the entry premium, marked at each 11:00 and 15:30 ET run; the dollars count each trade at its size (' + engSizeWords() + ' since 17 November 2026). Setups that buy shares instead of a call (since 17 November 2026) are scored on their own line, in % of the share price. With few trades the win-rate range is wide: judge an engine on dozens of closed trades, not a week.</p>') +
       engFixesHtml(d) +
       slpSection('eng-all-curve', 'Running total, every engine', engAllCurveHtml(d) + '<p class="evb-note">Closed trades only, each at its size, by the day each trade closed. Top Picks keeps its own curve on the Top Picks track record.</p>') +
@@ -9080,7 +9114,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var sub = engState.sub;
     var tabs = '<div class="ui-tabs eng-subtabs" role="tablist" aria-label="' + escapeHtml(e.name) + ' views">' + ENG_SUBS.map(function(s){ return '<button type="button" class="ui-tab' + (s[0] === sub ? ' is-on' : '') + '" role="tab" aria-selected="' + (s[0] === sub ? 'true' : 'false') + '" data-eng-sub="' + s[0] + '">' + s[1] + (s[0] === 'now' && (e.open || []).length ? '<span class="ui-tab-count">' + e.open.length + '</span>' : '') + '</button>'; }).join('') + '</div>';
     var body = e.core
-      ? (sub === 'record' ? engCoreRecordHtml(e, d) : sub === 'learn' ? engCoreLearnHtml(e) : sub === 'history' ? engCoreHistHtml(e, d) : sub === 'webull' ? '<p class="evb-lead">' + escapeHtml(e.name) + ' holds stock, and the Webull paper mirror trades options only, so none of its holdings is placed in the paper account. Its record is the paper line on the Track record tab.</p>' : engCoreNowHtml(e, d))
+      ? (sub === 'record' ? engCoreRecordHtml(e, d) : sub === 'learn' ? engCoreLearnHtml(e) : sub === 'history' ? engCoreHistHtml(e, d) : sub === 'webull' ? engMirrorHtml(e.id) : engCoreNowHtml(e, d))
       : (sub === 'record' ? engRecordHtml(e, d) : sub === 'learn' ? engLearnHtml(e, d) : sub === 'history' ? engHistoryHtml(e, d) : sub === 'webull' ? engMirrorHtml(e.id) : engNowHtml(e, d));
     return '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">' + (e.core ? 'Core engine · ' : 'Paper engine · ') + escapeHtml(e.tag) + '</span><h2 class="card-title">' + escapeHtml(e.name) + '</h2></div><span class="eng-head-pills">' + engStatusPills(e, d) + '</span></header>' + tabs + '<div class="ui-tab-panel eng-body">' + body + '</div>';
   }
@@ -9120,7 +9154,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     else if (engState.sel === 'all') html = '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">Paper engines</span><h2 class="card-title">All engines</h2><p class="picks-intro">Six signal engines and two core engines on paper beside Top Picks, each on its own record. Top Picks has its own pages.</p></div></header><div class="eng-body">' + engAllHtml(d) + '</div>';
     else { var e = engFind(d, engState.sel); html = e ? engOneHtml(d, e) : '<p class="hint eng-empty">This engine is not in the latest file.</p>'; }
     pane.innerHTML = html + '<p class="evb-note eng-foot">Paper only. Written by the ' + escapeHtml(rglEt(d.runIso)) + ' run' + (d.builtAtIso && d.builtAtIso !== d.runIso ? ', carried by the ' + escapeHtml(rglEt(d.builtAtIso)) + ' build' : '') + '. Engines version ' + escapeHtml(String(d.version || '')) + '. Research, not advice: an option can lose its whole premium.</p>';
-    if (engState.sel === 'all' || engState.sub === 'webull') engLoadMirror(false);
+    if (engState.sel === 'all' || engState.sub === 'webull' || engState.sub === 'record') engLoadMirror(false);
     if (VIEWS && VIEWS.rescan) VIEWS.rescan();
   }
   function loadEngines(force){
@@ -58398,9 +58432,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return Number.isInteger(q) && q > 0 ? q : null;
   }
   function hasFill(t) { return num(t.fillPrice) > 0 && quantity(t) != null; }
+  // Fees as % of the position: an option contract is 100 shares, a share
+  // trade's quantity is shares (Webull paper share orders, 2026-11-19).
+  function feePct(t, price, q) { return (num(t.fees) || 0) / (price * q * (t.structure === 'shares' ? 1 : 100)) * 100; }
   function net(t) {
     const p = num(t.paperPnlPct), price = num(t.fillPrice), q = quantity(t);
-    return p == null || !(price > 0) || q == null ? null : p - (num(t.fees) || 0) / (price * q);
+    return p == null || !(price > 0) || q == null ? null : p - feePct(t, price, q);
   }
   function isClosed(t) {
     const close = num(t.closeFillPrice);
@@ -58413,14 +58450,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const eb = num(t.entryBid), ea = num(t.entryAsk), xb = num(t.exitBid), xa = num(t.exitAsk), q = quantity(t);
     if (eb == null || ea == null || xb == null || xa == null || eb < 0 || xb < 0 || ea < eb || xa < xb || q == null) return null;
     const credit = /credit/i.test(t.structure || '');
-    function result(open, close) { return open > 0 ? (credit ? open - close : close - open) / open * 100 - (num(t.fees) || 0) / (open * q) : null; }
+    function result(open, close) { return open > 0 ? (credit ? open - close : close - open) / open * 100 - feePct(t, open, q) : null; }
     const mid = result((eb + ea) / 2, (xb + xa) / 2), cross = result(credit ? eb : ea, credit ? xa : xb);
     return mid == null || cross == null ? null : { mid, cross };
   }
   function dollars(t, model) {
     const open = num(model ? t.engineEntryPrice : t.fillPrice), close = num(model ? t.engineExitPrice : t.closeFillPrice);
     if (!(open > 0) || close == null || close < 0 || quantity(t) == null) return null;
-    return (close - open) * (/credit/i.test(t.structure || '') ? -1 : 1) * 100 * quantity(t) - (model ? 0 : num(t.fees) || 0);
+    return (close - open) * (/credit/i.test(t.structure || '') ? -1 : 1) * (t.structure === 'shares' ? 1 : 100) * quantity(t) - (model ? 0 : num(t.fees) || 0);
   }
   function direction(r) {
     const a = num(r && r.entrySpot), b = num(r && r.exitSpot);
@@ -58635,7 +58672,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // in less on entry, sold for less / paid more to buy back on exit.
   function wbEntryCost(t){ if (t.entrySource === 'manual') return null; var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
-  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) : 0; }
+  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) * (t.structure === 'shares' ? 100 : 1) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
   function wbJoined(){
@@ -58805,6 +58842,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual' || t.automaticEntryOutcome === 'missed'; });
     var filled = automaticEntries.filter(function(t){ return t.entrySource !== 'manual' && WB_ANALYTICS.hasFill(t); });
     var missed = automaticEntries.filter(function(t){ return t.state === 'missed' || t.automaticEntryOutcome === 'missed'; });
+    // Partly filled entries (2026-11-19, quantities above one): counted as
+    // filled, with what was asked and what filled shown beside the count.
+    var partly = filled.filter(function(t){ return t.fillOutcome === 'partial'; });
     // A mirrored trade with no matching record still has its own symbol.
     var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: function(rec, trade){
       return accSectorOf({ symbol: (rec && rec.symbol) || (trade && trade.symbol), sector: rec && rec.sector });
@@ -58819,7 +58859,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pWin = paperNet.length ? paperNet.filter(function(v){ return v > 0; }).length / paperNet.length * 100 : null;
     accPaneSummary('acc-sum-webull', [
       { val: String(T.length), lbl: 'trades tracked' },
-      { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + missed.length + ' missed)' },
+      { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + (partly.length ? partly.length + ' partly, ' : '') + missed.length + ' missed)', tip: 'Partly filled = some of the contracts asked for filled; only those are held and sold. Counted as filled here.' },
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
       { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fees)', cls: wbSignCls(wbMean(paperNet)) },
       { val: accPct(wbMean(engine)), lbl: 'engine avg (' + engine.length + ' matched)', cls: wbSignCls(wbMean(engine)) },
@@ -58837,6 +58877,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var bucketRows = buckets.map(function(b){ return { label: b.label, n: entryCosts.filter(b.test).length, of: attempted, cls: b.cls }; });
     bucketRows.push({ label: 'Filled, gap unavailable', n: filled.length - entryCosts.length, of: attempted, cls: 'sig-zero' });
     bucketRows.push({ label: 'Missed (not filled)', n: missed.length, of: attempted, cls: 'sig-neg' });
+    if (partly.length) bucketRows.push({ label: 'Of the filled: partly filled', n: partly.length, of: attempted, cls: 'sig-zero' });
     var first = filled.filter(function(t){ return t.entryHow === 'first'; }).length;
     var repriced = filled.filter(function(t){ return t.entryHow === 'reprice'; }).length;
     var spreadPos = [], hours = [], exitTries = [];
@@ -58957,6 +58998,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var logRows = rows.map(function(x){
       var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = WB_ANALYTICS.isClosed(t) ? wbNetPnl(t) : null;
       var quantities = t.filledQty != null ? '<br><small>' + escapeHtml(t.filledQty) + '/' + escapeHtml(t.requestedQty == null ? t.filledQty : t.requestedQty) + ' filled · ' + escapeHtml(t.closedQty == null ? 'unknown' : t.closedQty) + ' closed · ' + escapeHtml(t.openQty == null ? 'unknown' : t.openQty) + ' open</small>' : '';
+      var fillWord = { filled: 'Filled', partial: 'Partly filled', missed: 'Missed', pending: 'Not filled yet' }[t.fillOutcome];
+      if (fillWord) quantities = '<br><small class="' + (t.fillOutcome === 'filled' ? 'sig-pos' : t.fillOutcome === 'missed' ? 'sig-neg' : '') + '">' + fillWord + '</small>' + quantities;
+      if (t.qtyBasis === 'risk' && t.riskPerContract != null) quantities += '<br><small>Sized by risk: about $' + escapeHtml(Math.round(t.riskPerContract)) + ' at risk a contract</small>';
       var history = WB_REVIEW.executionHistory(t);
       return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && (t.state !== 'closed' || t.needsReview) && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
         '<td>' + escapeHtml(t.state === 'entering' && !t.entryTries ? 'queued' : STATE[t.state] || t.state || '') + (t.needsReview || t.state === 'closed' && !WB_ANALYTICS.isClosed(t) ? '<br><strong class="sig-neg">Needs broker review</strong>' : '') + quantities + '</td>' +
