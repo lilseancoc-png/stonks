@@ -301,6 +301,13 @@ research kit's fear and greed rebuild):
   trades, +5.3% → +9.2% a trade (the crash stand-aside, and the fear test's
   126 calls at +19.4%), Technicals options to none and 1,600 share trades at
   +1.1%. Side effect: capitulation shares now get through on some crash days.
+- Those numbers ran on the 85 names covered before the wide tier (#875). The
+  committed result (`research/engines/results/latest.json`, re-run
+  2026-11-19 on the 80 tracked names, risk sizing, `--fg` from the research
+  kit) reads: Technicals 1,600 share trades at +1.3% a trade, Reversion 1,024
+  option trades at +9.6% and 242 share trades at +0.1%, Macro 551 option
+  trades at +1.4%, the Momentum basket 540 swaps (11.4% a lot), the Trend
+  follower unchanged (33 swaps).
 - Risk sizing changes dollar weights, not percent results: options $82,600
   (flat size $79,526, so the multiplier adds about 4%), shares $337K (lots up
   to $25,000 of stock against the old $5,000). The option total falls because
