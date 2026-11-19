@@ -108,6 +108,26 @@ the 5% ceiling; the log says so in plain words. A window left with only that
 state (or an exit order still working), and no error or alert, no longer fails
 the workflow; any other pending kind still does.
 
+**Cancels and cash (2026-11-19).** Webull answers a cancel request before it
+applies it, so after asking the mirror reads the order again after 1 s and 2 s
+(`CANCEL_SETTLE_MS`, skipped when the run's time budget is close) before it
+marks the cancel unconfirmed; an unconfirmed cancel is read again at the start
+of the next run, and three in a row on one order become an Owner review.
+Before each opening order the mirror checks cash so no buy uses margin: it
+reads `GET /trading/assets/balances/get` once a run (on the first opening
+order) and takes the USD row's `cash_power` from `account_currency_assets`
+(`parseCashPower`; `margin_power` is never read), less what that run's earlier
+opening orders tie up (`openingCash`: shares x price, premium x 100 x
+contracts, a credit spread's width less the credit, plus the previewed fee). A
+buy that does not fit is logged as not bought (`cashHold`, note "Not enough
+cash; no margin is used.", shown like an Owner-control hold) and is never
+bought later; a partly filled entry keeps what filled. Exits never read cash.
+A failed balance read, or a reply with no `cash_power`, sends the order anyway
+and adds a warning to the run summary (`summary.warnings`, printed by both
+trigger scripts, never a failure). The field comes from Webull's API reference
+and has not yet been seen in a live reply: the ledger keeps the reply's key
+names (never values) as `balanceShape` to confirm it.
+
 **Switches** (Owner Settings → live site switches; each can only turn its part
 off, `0` in Vercel env does the same): `WEBULL_SHARES` (share orders),
 `WEBULL_QTY` (quantities above one; off = one contract for every option

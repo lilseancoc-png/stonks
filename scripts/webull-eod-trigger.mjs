@@ -32,8 +32,8 @@ if (!current.monitor && !lateDispatch) {
       const body = await res.json().catch(() => null);
       // The public repository receives counts only, never account/order data.
       const kinds = describeReviewKinds(body?.summary);
-      const errs = describeKindCounts(body?.summary?.errorKinds);
-      console.log(`Webull end-of-day: HTTP ${res.status}${body?.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors${errs ? ` (${errs})` : ""}` : ""}${body?.summary?.alerts ? `, review required${kinds ? ` (${kinds})` : ""}` : ""}`);
+      const errs = describeKindCounts(body?.summary?.errorKinds), warn = describeKindCounts(body?.summary?.warnings);
+      console.log(`Webull end-of-day: HTTP ${res.status}${body?.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors${errs ? ` (${errs})` : ""}` : ""}${warn ? `, warning (${warn})` : ""}${body?.summary?.alerts ? `, review required${kinds ? ` (${kinds})` : ""}` : ""}`);
       return { ok: res.ok, body };
     } catch { return { ok: false, body: null }; }
   } });
