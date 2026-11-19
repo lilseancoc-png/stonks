@@ -93,7 +93,10 @@ ok("stats: at-trigger expectancy ((20-50+10)/3)", near(st.atTriggerExpectancyPct
 ok("stats: option win rate counts only > 0", near(st.optionWinRate, 2 / 3, 1e-9));
 
 // --- 6. SPY baseline ------------------------------------------------------------
-const spyExpiry = Date.UTC(2026, 11, 18) / 1000;
+// About 60 days out from the real clock: the contract picker reads Date.now()
+// for its 30-90 DTE window, so a fixed date stops matching once it is under 30
+// days away (it did on 2026-11-19).
+const spyExpiry = (Math.floor(Date.now() / 86400000) + 60) * 86400;
 const spyChain = spot => {
   const chain = { c: [], p: [] };
   for (let k = 560; k <= 640; k += 5) for (const [side, key] of [["call", "c"], ["put", "p"]]) {
