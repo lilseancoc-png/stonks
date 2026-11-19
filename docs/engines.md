@@ -82,6 +82,15 @@ beat holding the S&P 500 in the 1972-2026 and 2006-2026 research
   and close, idle money earning fed funds, 0.1% costs a round trip, against
   SPY bought the same day (`coreMark` in `backtest.mjs`).
 
+### Real option prices for later history tests (2026-11-19)
+
+The Webull daily data runner (`docs/webull-data.md`) now saves a daily snapshot
+of every covered name's option quotes and the daily bars of each contract after
+it expires. `scripts/webull-options-export.mjs` writes them as research-kit
+files in the same row shape as the DoltHub history pull. Nothing in
+`lib/engines/backtest.mjs` reads them yet; using them in place of the
+model price is a later step.
+
 ### Shares for the slow setups (rules 2, 2026-11-17)
 
 The 1971-2026 history test split every trade into idea, timing and contract.
