@@ -22,6 +22,15 @@ try {
     await page.locator('#acc-tab-webull').click();
     const root = page.locator('#an-webull');
     await root.locator('.wb-review-nav').waitFor();
+    const dataBox = root.locator('[data-wb-data]');
+    await dataBox.waitFor();
+    const dataText = await dataBox.innerText();
+    assert.match(dataText, /Webull daily data/);
+    assert.match(dataText, /92 names, 11,800 option prices, 640 expired contracts saved, 3 already deleted by Webull/);
+    assert.match(dataText, /option-snapshots: network ×2/);
+    assert.ok(!/\$|AAPL|SPY/.test(dataText), 'the Webull data status shows counts only');
+    const box = await dataBox.boundingBox();
+    assert.ok(box && box.width <= width, 'the Webull data status fits the screen');
     await root.locator('label[for="acc-wb-lens-3"]').click();
     assert.equal(await root.locator('.wb-execution-history').count(), 4);
     const text = await root.innerText();

@@ -94,6 +94,22 @@ page's live quote, else the last bake's spot from the stock's own file) and
 when lifted, or a live quote while it is still avoided. It says "early" until
 30 days of controls.
 
+## Where the Owner sees them
+
+Besides the Strategy engines panel and the banners: Home's "Your desk" has an
+Owner controls tile (live from the controls route) and a "Filled at Webull"
+tile (last seven days, from the Owner brief's `desk.webull`, counted by
+`fillOutcome`; a trade the controls held counts as held); the stock page has a
+"Your controls" section (`#stp-oc`: Watch closely / Stop watching, Avoid,
+Lift avoid; Avoid from there never closes trades); active catalysts show on the
+Calendar as "Your flag" rows (`calWithOwnerCatalysts`, browser only). The
+Owner brief (`lib/owner-desk-state.mjs`, read before the wipe) adds findings for
+a stop, controls in force, an engine account limit reached today and missed
+Webull fills; the private picks feed adds a `Status:` line; the MCP's
+`get_top_picks` returns `owner_controls` and a `NEW_TRADES_STOPPED` warning. A
+public visitor never requests the controls. Tests: `node
+scripts/owner-desk-smoke.mjs`, `node scripts/owner-desk-browser.mjs`.
+
 ## Storage and access
 
 `owner-controls.json`: Owner-only (`lib/premium-keys.mjs`),
@@ -111,7 +127,10 @@ No AI call, no new serverless function, no new workflow, no new outside
 download. Added store reads: one `owner-controls.json` and one
 `owner-settings.json` read per Webull mirror run, one per page load and save,
 one stock file read on an Avoid or Lift click, and two record reads when the
-scorecard is opened. The bake reads its already-hydrated copy.
+scorecard is opened. The bake reads its already-hydrated copy (and the
+Webull ledger once, before the wipe, for the Owner brief). The picks feed and
+the MCP's `get_top_picks` each add two small reads (`owner-controls.json`,
+`owner-settings.json`) per call.
 
 ## Kill switch
 

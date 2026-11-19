@@ -17,6 +17,16 @@ no grade, no trades. Code: `lib/wide-tier.mjs`.
   names. Wide mode never polls `/api/quotes`; the live toggle is off and says
   "Wide list · refreshed hourly in market hours". The choice is remembered per
   device (`heatmap.source` in `stonks-views-v1`).
+- **Stock page for a wide-only name** (wave-1 integration, 2026-11-19). A
+  stock with no per-ticker file (an S&P 500 / Nasdaq-100 member, or a name
+  that left coverage, such as DIS) opens as a short card from its public
+  `wide-tier.json` row, read only on that miss: last close and day move, sector
+  and industry, market value, 52-week range and place in it, vs the 50- and
+  200-day averages, next report (marked estimated), 1d to 1y returns, and a
+  link that opens the Heatmap on its Wide view. It says there is no grade,
+  option chain or AI read. A fund row or a name on neither list keeps "could
+  not load". Code `wideCard` in `scripts/render/stock-page-js.mjs`; test
+  `node scripts/stock-wide-browser.mjs`.
 - **Sector table** under the Wide map: the 11 Select Sector SPDR funds with
   their own 1d / 5d / 1m / 3m returns, plus member breadth (% above the 50-day,
   new 52-week highs minus lows), then an "Our groups" table for the eight broad
@@ -139,7 +149,8 @@ Track Record rows still group. What that does at the next runs:
 - SMCI leaves ROTATION_OFFENSE (the tape's offense basket, 12 names);
 - the RAM prices page's buyer lens links DELL and ANET only;
 - LEAPS paper does not run on this branch (`leapsPicksForBake` is empty);
-- their stock pages, grades, AI reads, option chains and flow scans stop.
+- their grades, AI reads, option chains and flow scans stop; their stock
+  page (an old Track Record link, or the search box) shows the wide card below.
 
 Every broad group keeps five or more stocks (`sector-groups-smoke.mjs`).
 
