@@ -20,6 +20,9 @@
 //   top-picks-mode   -> the Owner's Top Picks market mode: Auto / No new puts /
 //                       No new calls / Pause new trades (GET / same-origin POST;
 //                       lib/top-picks-mode.mjs)
+//   owner-controls   -> the Owner controls: Stop new trades, Avoid, Watch
+//                       closely, catalysts, the risk dial, undo (GET /
+//                       same-origin POST; lib/owner-controls.mjs)
 //   picks-loop       -> the Owner's self-tuning clicks on the Owner Lab Loop
 //                       tab: approve / decline / undo / restore (GET /
 //                       same-origin POST; lib/self-loop/tune.mjs)
@@ -181,6 +184,8 @@ export default async function handler(req, res) {
       return ownerWatchlist(req, res);
     case "top-picks-mode":
       return topPicksMode(req, res);
+    case "owner-controls":
+      return ownerControlsRoute(req, res);
     case "ai-disruption-review":
       return aiDisruptionReview(req, res);
     case "picks-loop":
@@ -758,6 +763,92 @@ async function topPicksMode(req, res) {
   }
 }
 
+// --- Owner controls --------------------------------------------------------------
+// GET  /api/auth/owner-controls             -> the controls, what is in force, the
+//                                              account limits, the change log
+// GET  /api/auth/owner-controls?scorecard=1 -> plus the scorecard (reads both records)
+// POST /api/auth/owner-controls  { act, ... } (same-origin only; lib/owner-controls.mjs)
+// One record in owner-controls.json, Owner-only and request-time-owned: no
+// workflow pushes or deletes it. The 11:00 / 15:30 ET runs read it before the
+// wipe; the Webull mirror reads it on every run.
+async function ownerControlsRoute(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+  const oc = await import("../../lib/owner-controls.mjs");
+  // Validate the request before anything is read or stored.
+  if (req.method === "POST") {
+    const bad = oc.validateControlsRequest(req.body);
+    if (bad.error) return res.status(400).json(bad);
+  }
+  try {
+    const [{ store }, os] = await Promise.all([import("../../lib/datastore.mjs"), import("../../lib/owner-settings.mjs")]);
+    // The account limits and the OWNER_CONTROLS kill switch, from the saved
+    // Owner Settings (a Vercel value wins). Unreadable = limits unknown, on.
+    const settingsNow = async () => {
+      try {
+        const values = os.readOwnerSettingsDoc(await store.get(os.OWNER_SETTINGS_KEY)).values;
+        return { limits: oc.accountLimitsFromSettings(values), enabled: oc.controlsEnabledFromSettings(values) };
+      } catch { return { limits: null, enabled: oc.controlsEnabled() }; }
+    };
+    if (req.method === "GET") {
+      const [doc, set] = await Promise.all([store.get(oc.OWNER_CONTROLS_KEY), settingsNow()]);
+      const view = oc.controlsView(doc, Date.now(), set.limits, { enabled: set.enabled });
+      if (req.query?.scorecard) {
+        const read = async (k) => { try { const b = await store.get(k); return b == null ? null : JSON.parse(b.toString("utf8")); } catch { return null; } };
+        const [eng, acc] = await Promise.all([read("engines-record.json"), read("picks-accuracy.json")]);
+        view.scorecard = oc.controlsScorecard(doc, { engines: eng?.closed || [], picks: acc?.closed || [] });
+      }
+      return res.status(200).json(view);
+    }
+    // Read, change and save under the store's lease so two quick clicks (or
+    // both owners at once) can't drop each other's change.
+    // Avoid and Lift record the stock's price for the scorecard. The page sends
+    // its live quote when it has one; otherwise the last bake's spot from the
+    // stock's own public file (one read, only on those two clicks).
+    let body = req.body;
+    if ((body.act === "avoid" || body.act === "lift") && !(Number(body.px) > 0)) {
+      try {
+        const b = await store.get(`${oc.cleanSymbol(body.sym)}.json`);
+        const spot = b == null ? null : Number(JSON.parse(b.toString("utf8"))?.spot);
+        if (spot > 0) body = { ...body, px: spot };
+      } catch { /* no price: the scorecard shows a dash */ }
+    }
+    const save = async (guard) => {
+      const current = await store.get(oc.OWNER_CONTROLS_KEY);
+      const at = new Date().toISOString();
+      const out = oc.applyOwnerControlsRequest(current, body, { at, by: session.name || null });
+      if (out.error) return out;
+      if (out.changed) {
+        if (guard) guard();
+        await store.put(oc.OWNER_CONTROLS_KEY, JSON.stringify(out.doc));
+      }
+      const set = await settingsNow();
+      return { view: oc.controlsView(out.doc, Date.parse(at), set.limits, { enabled: set.enabled }), text: out.text || null, unchanged: !!out.unchanged };
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("owner-controls", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
+    if (out.error) return res.status(400).json({ error: out.error });
+    return res.status(200).json({ ...out.view, changed: !out.unchanged, text: out.text });
+  } catch (err) {
+    console.error("owner controls failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "controls unavailable" });
+  }
+}
+
 // --- AI disruption review ------------------------------------------------------
 // GET  /api/auth/ai-disruption-review -> { decisions, history, updatedAt }
 // POST /api/auth/ai-disruption-review { act: confirm|edit|reject|undo, id, fields? }
@@ -1210,10 +1301,23 @@ async function webullMirror(req, res) {
       if (enginesRecord == null) enginesUnavailable = true;
       const sizing = await webullSizing(store);
       acc = mirror.mergeEngineTrades(acc, enginesRecord, ledger, { mirrorNew: enginesMirrorOn(), shares: sizing.shares });
+      // The Owner controls and account limits (lib/owner-controls.mjs), read
+      // fresh every run. An unreadable file holds nothing back.
+      let openGate = null;
+      try {
+        const [oc, os] = await Promise.all([import("../../lib/owner-controls.mjs"), import("../../lib/owner-settings.mjs")]);
+        const [ctlBuf, setBuf] = await Promise.all([store.get(oc.OWNER_CONTROLS_KEY), store.get(os.OWNER_SETTINGS_KEY)]);
+        const nowMs = Date.now();
+        const values = os.readOwnerSettingsDoc(setBuf).values;
+        // Kill switch off (OWNER_CONTROLS): no control holds an open; the
+        // account limits still apply.
+        const active = oc.activeControls(oc.controlsEnabledFromSettings(values) ? oc.readOwnerControlsDoc(ctlBuf) : null, nowMs);
+        openGate = oc.mirrorOpenGate(active, oc.accountLimitsFromSettings(values), { nowMs });
+      } catch (err) { console.error("owner controls read failed", { message: String(err?.message || err) }); openGate = null; }
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
       const quoteFn = mirror.makeQuoteFn(fetchContract, fetchQuote);
       const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
-      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable,
+      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard, endOfDayOnly: req.query?.mode === "eod", enginesUnavailable, openGate,
         sizing: { ...sizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD } });
       return { ran: !summary.skipped, summary };
     });
