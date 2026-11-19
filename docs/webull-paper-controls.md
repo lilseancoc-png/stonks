@@ -115,18 +115,22 @@ marks the cancel unconfirmed; an unconfirmed cancel is read again at the start
 of the next run, and three in a row on one order become an Owner review.
 Before each opening order the mirror checks cash so no buy uses margin: it
 reads `GET /trading/assets/balances/get` once a run (on the first opening
-order) and takes the USD row's `cash_power` from `account_currency_assets`
-(`parseCashPower`; `margin_power` is never read), less what that run's earlier
+order) and takes the USD row of `account_currency_assets`: its `settled_cash`,
+else its `cash_balance`, else the top-level `total_cash_balance`
+(`parseCashPower`, field names from Webull's US API reference,
+developer.webull.com/apis/docs/reference/account-balance; `buying_power`,
+`option_buying_power` and every margin field include margin and are never
+read; a negative cash figure counts as none), less what that run's earlier
 opening orders tie up (`openingCash`: shares x price, premium x 100 x
 contracts, a credit spread's width less the credit, plus the previewed fee). A
 buy that does not fit is logged as not bought (`cashHold`, note "Not enough
 cash; no margin is used.", shown like an Owner-control hold) and is never
 bought later; a partly filled entry keeps what filled. Exits never read cash.
-A failed balance read, or a reply with no `cash_power`, sends the order anyway
-and adds a warning to the run summary (`summary.warnings`, printed by both
-trigger scripts, never a failure). The field comes from Webull's API reference
-and has not yet been seen in a live reply: the ledger keeps the reply's key
-names (never values) as `balanceShape` to confirm it.
+A failed balance read, or a reply with none of those cash fields, sends the
+order anyway and adds a warning to the run summary (`summary.warnings`,
+printed by both trigger scripts, never a failure). The fields have not yet
+been seen in a live sandbox reply: the ledger keeps the reply's key names
+(never values) as `balanceShape` to confirm them.
 
 **Switches** (Owner Settings → live site switches; each can only turn its part
 off, `0` in Vercel env does the same): `WEBULL_SHARES` (share orders),

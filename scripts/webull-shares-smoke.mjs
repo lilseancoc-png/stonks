@@ -481,19 +481,23 @@ await ok("race: the working range is per symbol and per direction (entry up, exi
 });
 
 // --- Cash check: no opening buy may lean on margin (2026-11-19) -------------------
-// The balance reply in the shape Webull's API reference gives (UNVERIFIED until
-// the first live run; the ledger keeps the live reply's key names).
-const balanceOf = (cash, margin = cash * 4) => async () => ({ account_id: "PAPER1", total_asset: String(cash),
-  account_currency_assets: [{ currency: "USD", cash_balance: String(cash), cash_power: String(cash), margin_power: String(margin) }] });
+// The balance reply in the shape Webull's US API reference gives
+// (developer.webull.com/apis/docs/reference/account-balance; no captured
+// sandbox reply yet, so the ledger keeps the live reply's key names).
+const balanceOf = (cash, margin = cash * 4) => async () => ({ total_asset_currency: "USD", total_cash_balance: String(cash), total_net_liquidation_value: String(cash),
+  account_currency_assets: [{ currency: "USD", cash_balance: String(cash), settled_cash: String(cash), unsettled_cash: "0", buying_power: String(margin), option_buying_power: String(margin), day_buying_power: String(margin) }] });
 const cashWb = (balance) => Object.assign(fakeWebull(), { balance });
 // 40 shares cost between STOCK x 40 and the 2% cap above it (plus a $0.50 fee).
 const LOT_LO = STOCK * 40, LOT_HI = STOCK * 1.02 * 40 + 0.5;
 const runCash = (wb, open, ledger = null, nowMs = T0) => run({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf(), engOf(open), ledger, { shares: true }), ledger, nowMs });
-await ok("cash: the parser reads USD cash buying power only, never margin power", () => {
-  assert.equal(parseCashPower({ account_currency_assets: [{ currency: "HKD", cash_power: "9" }, { currency: "USD", cash_power: "1234.5", margin_power: "99999" }] }), 1234.5);
-  assert.equal(parseCashPower({ data: { account_currency_assets: [{ currency: "usd", cash_power: 10 }] } }), 10);
-  assert.equal(parseCashPower({ total_asset: "100", account_currency_assets: [{ currency: "USD", margin_power: "100" }] }), null, "no cash field = unknown, never margin");
-  assert.equal(parseCashPower(null), null); assert.equal(parseCashPower({ account_currency_assets: [{ currency: "USD", cash_power: "-5" }] }), null);
+await ok("cash: the parser reads USD cash only (settled, then cash balance, then the total), never buying power", () => {
+  assert.equal(parseCashPower({ account_currency_assets: [{ currency: "HKD", settled_cash: "9" }, { currency: "USD", settled_cash: "1234.5", cash_balance: "2000", buying_power: "99999" }] }), 1234.5, "settled cash first");
+  assert.equal(parseCashPower({ data: { account_currency_assets: [{ currency: "usd", cash_balance: 10 }] } }), 10, "cash balance when settled cash is missing");
+  assert.equal(parseCashPower({ account_currency_assets: [{ currency: "USD", settled_cash: "", cash_balance: "77" }] }), 77, "an empty settled cash falls through");
+  assert.equal(parseCashPower({ total_asset_currency: "USD", total_cash_balance: "500", account_currency_assets: [{ currency: "USD", buying_power: "100000" }] }), 500, "the top-level total when the row has no cash");
+  assert.equal(parseCashPower({ total_net_liquidation_value: "100", account_currency_assets: [{ currency: "USD", buying_power: "100", option_buying_power: "100", margin_excess: "100" }] }), null, "no cash field = unknown, never buying power");
+  assert.equal(parseCashPower(null), null);
+  assert.equal(parseCashPower({ account_currency_assets: [{ currency: "USD", settled_cash: "-5" }] }), 0, "money owed counts as no cash");
   assert.equal(openingCash({ structure: "shares", contract: { structure: "shares" } }, 150.05, 40, 0.5), 6002.5);
   assert.equal(openingCash({ structure: "long", legs: [{ strike: 100 }] }, 4.08, 3, 0.5), 1224.5);
   assert.equal(openingCash({ structure: "credit_vertical", legs: [{ strike: 240 }, { strike: 235 }] }, 1.2, 2), 760, "a credit spread holds its width less the credit");
@@ -502,7 +506,7 @@ await ok("cash: a stock buy that fits is sent, and the ledger keeps the reply's 
   const wb = cashWb(balanceOf(10_000_000));
   const { ledger, summary } = await runCash(wb, [shr("technicals", "CFT", 40)]);
   assert.equal(summary.placed, 1); assert.equal(summary.warnings, undefined);
-  assert.ok(ledger.balanceShape.currencyRow.includes("cash_power"));
+  assert.ok(ledger.balanceShape.currencyRow.includes("settled_cash"));
   assert.ok(!JSON.stringify(ledger.balanceShape).includes("10000000"), "key names only");
 });
 await ok("cash: a stock buy that does not fit is logged as not bought and never bought later", async () => {
@@ -539,6 +543,14 @@ await ok("cash: an option buy counts premium x 100 x contracts plus the fee", as
   const room = cashWb(balanceOf(r2(need * 1.05))), o2 = opt("COB");
   r = await runCash(room, [o2]);
   assert.equal(room.placed.length, 1); assert.equal(room.placed[0].legs[0].quantity, "3");
+});
+await ok("cash: a negative cash balance (money owed) holds every opening buy", async () => {
+  const wb = cashWb(async () => ({ total_asset_currency: "USD", total_cash_balance: "-250", account_currency_assets: [{ currency: "USD", cash_balance: "-250", settled_cash: "-250", buying_power: "500000" }] }));
+  const s = shr("technicals", "CNG", 40);
+  const { ledger, summary } = await runCash(wb, [s]);
+  assert.equal(wb.placed.length, 0, "buying power never covers a buy");
+  assert.equal(ledger.trades[s.tradeId].note, CASH_NOTE);
+  assert.deepEqual(summary.warnings, { "opening order held - not enough cash": 1 });
 });
 await ok("cash: a failed or unreadable balance still sends, with a warning in the run summary", async () => {
   const failed = cashWb(async () => { throw new Error("balance down"); });
