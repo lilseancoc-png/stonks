@@ -5,7 +5,8 @@
 // only the HTTP status, counts and fixed review labels (describeReviewKinds):
 // no tickers, balances, orders or tokens reach the log. The bearer token is
 // derived from R2_SECRET_ACCESS_KEY (lib/webull-mirror.mjs). Strict runs fail
-// the workflow on errors and pending work.
+// the workflow on errors, alerts and pending work other than an order still
+// working inside its price allowance.
 import { mirrorTriggerToken, describeReviewKinds, describeKindCounts as describeKinds } from "../lib/webull-mirror.mjs";
 import { runMirrorWindow } from "../lib/webull-mirror-window.mjs";
 
@@ -38,19 +39,22 @@ async function trigger() {
 try {
   const { response, pending } = await runMirrorWindow({ trigger, followUps });
   const res = response, body = response.body;
+  let onlyNormal = false;
   if (pending) {
     // Fixed labels only. "Working inside its price allowance" is the normal
     // 2% / 4% ladder state: the order stays live and the end-of-day window
     // gives it the 5% ceiling; anything else is worth a look.
     const pk = body?.summary?.pendingKinds || null, normal = "entry order working inside its price allowance";
-    const onlyNormal = !!pk && Object.keys(pk).every((k) => k === normal || k === "exit order working") && !body?.summary?.errors && !body?.summary?.alerts;
+    onlyNormal = !!pk && Object.keys(pk).every((k) => k === normal || k === "exit order working") && !body?.summary?.errors && !body?.summary?.alerts;
     console.log(`Webull mirror: still pending after this build window${describeKinds(pk) ? ` (${describeKinds(pk)})` : ""}. ` +
       (onlyNormal ? "This is the normal state of the price ladder: a limit order is still working inside its cap and stays live until it fills or the end-of-day window raises it to the 5% ceiling." : "Check the Owner Webull test view or run the manual reconciliation."));
   }
   const benignSkip = body?.reason === "mirror already running" || body?.summary?.skipped === "ran less than a minute ago";
   // A last check that found another window (the end-of-day workflow) holding
   // the account lease is not a failure: that window is doing the work.
-  if (strict && (pending && !benignSkip || !res.ok || body?.summary?.errors || body?.summary?.alerts || body?.ran !== true && !benignSkip)) process.exitCode = 1;
+  // Only the normal ladder state still pending (no errors, no alerts) is not a
+  // failure: the order is working as designed and the log line says so.
+  if (strict && (pending && !benignSkip && !onlyNormal || !res.ok || body?.summary?.errors || body?.summary?.alerts || body?.ran !== true && !benignSkip)) process.exitCode = 1;
 } catch (err) {
   console.log(`Webull mirror: request failed (${err?.name || "error"})`);
   if (strict) process.exitCode = 1;

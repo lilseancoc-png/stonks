@@ -104,8 +104,9 @@ says why a window is still pending (`pendingKinds`). The build-window and
 end-of-day trigger scripts print these labels, never a ticker or an ID. "Entry
 order working inside its price allowance" is the normal state of the ladder:
 the last limit stays live until it fills or the end-of-day window raises it to
-the 5% ceiling; the log says so in plain words. The workflow still fails on a
-pending window, as before.
+the 5% ceiling; the log says so in plain words. A window left with only that
+state (or an exit order still working), and no error or alert, no longer fails
+the workflow; any other pending kind still does.
 
 **Switches** (Owner Settings → live site switches; each can only turn its part
 off, `0` in Vercel env does the same): `WEBULL_SHARES` (share orders),
@@ -171,7 +172,12 @@ direction, and stock changes on mirrored symbols pause entries. Known pending
 orders can be cancelled to reduce risk. Unsafe replacement or combo closes are
 blocked; unrelated holdings are never automatically liquidated. Stock changes
 are labeled possible exercise, assignment, or manual trading, not asserted to be
-assignment. An Owner reviews those cases in Webull; automatic stock unwind and
+assignment. One exception: a stock difference that the mirror's own
+still-working share orders on that symbol can explain (up to the shares an
+entry has left to buy, or down to the shares an exit has left to sell) is an
+order filling during the run. Only that symbol's share trades wait while the
+mirror refreshes them; nothing else pauses (`sharesFilling` on the
+reconciliation). A difference outside that range is still an account-wide alert. An Owner reviews those cases in Webull; automatic stock unwind and
 assignment cash/P&L reconciliation are not implemented.
 
 The published NYSE calendar covers **2026–2028**, including early closes. Unknown
@@ -261,7 +267,8 @@ credentials/account ID, and complete R2 configuration. Validate a manual run
 and inspect broker holdings/ledger before relying on automatic operation.
 Nothing in local tests activates broker execution. The research build retains
 `continue-on-error` on its dispatch step so the verified research can publish.
-A failed mirror, errors, alerts, or orders still pending after the window fail
+A failed mirror, errors, alerts, or orders still pending after the window (other
+than an order still working inside its price allowance) fail
 the `Webull paper reconciliation` run itself (strict mode), so the build stays
 green for the close-bake watchdog while the Webull failure stays visible; a
 final check that finds the end-of-day window holding the account lease

@@ -123,5 +123,14 @@ try {
   assert.equal(trigger("16:00:00", "workflow_dispatch", true, 200, { ran: true, summary: { alerts: 1 } }).status, 1, "reconciliation alerts fail the mirror step visibly");
   assert.equal(trigger("16:00:00", "workflow_dispatch", true, 502, { error: "failed" }).status, 1);
   assert.equal(trigger("20:00:00", "workflow_dispatch", false, 502, { error: "failed" }).status, 0, "non-strict callers stay nonfatal");
+  // A window left with only the normal ladder state (an order working inside
+  // its allowance) passes; any other pending kind, an error or an alert fails.
+  const working = (pendingKinds, extra = {}) => trigger("16:00:00", "workflow_dispatch", true, 200, { ran: true, summary: { followUpNeeded: true, pendingKinds, ...extra } });
+  const normal = working({ "entry order working inside its price allowance": 1, "exit order working": 1 });
+  assert.equal(normal.status, 0, "the normal working-order state must not fail the workflow"); assert.match(normal.stdout, /normal state of the price ladder/);
+  assert.equal(working({ "order not yet confirmed": 1 }).status, 1, "an unconfirmed order still fails visibly");
+  assert.equal(working({ "entry order working inside its price allowance": 1 }, { errors: 1, errorKinds: { "cancel unconfirmed": 1 } }).status, 1, "errors still fail");
+  assert.equal(working({ "entry order working inside its price allowance": 1 }, { alerts: 1 }).status, 1, "alerts still fail");
+  assert.equal(working(null).status, 1, "pending with no stated kind still fails");
   console.log("Webull endpoint recovery: authenticated refresh, signed client, R2 checkpoint, and concurrent exclusion passed (offline).");
 } finally { globalThis.fetch = originalFetch; }

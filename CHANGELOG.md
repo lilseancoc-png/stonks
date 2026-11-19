@@ -51,6 +51,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 - Sell an engine share trade at Webull against the stock's own closing price rather than the record's after-cost result, which sat about 0.1% low.
+- Stop a Webull share order that fills mid-run from pausing the whole paper account: a stock difference that the mirror's own working share orders on that symbol can explain now holds only that symbol's share trades while they refresh, so other trades' orders (Top Picks included) are no longer cancelled; any larger difference still pauses everything.
+- Stop the Webull build-window workflow failing every day when the only thing left is a limit order still working inside its price allowance; other pending orders, errors and alerts still fail it.
 - Keep the Track Record fills test working as the calendar moves: its SPY test contract now expires about 60 days from today instead of on a fixed date that fell inside 30 days on 18 November 2026.
 
 ## 2026-11-18

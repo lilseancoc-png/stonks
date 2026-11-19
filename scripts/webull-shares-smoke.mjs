@@ -435,4 +435,49 @@ await ok("run log: errors and a still-pending window are named in fixed words, n
   assert.ok(!/LOGX|TEC:|mstec/.test(text), text);
 });
 
+// Audit pass 1 (2026-11-19): a share order that fills between the order
+// refresh and the positions read is an order filling, not an outside change.
+const raceRun = async (extra = 0) => {
+  const wb = fakeWebull();
+  const f = flag("AAA");
+  const s = shr("technicals", "SSS", 30);
+  const ledger0 = { version: 2, goLiveIso: "2026-11-01T14:00:00.000Z", accountId: "PAPER1", trades: {}, runs: [] };
+  let r = await run({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf([f]), engOf([s]), ledger0, { shares: true }), ledger: ledger0, nowMs: T0 });
+  const sId = [...wb.orders.entries()].find(([, o]) => o.body.instrument_type === "EQUITY")[0];
+  const aId = [...wb.orders.entries()].find(([, o]) => o.body.instrument_type !== "EQUITY")[0];
+  const orig = wb.positions; let n = 0;
+  wb.positions = async function () { if (n++ === 0) { wb.fill(sId, STOCK); if (extra) wb.extraStock.SSS = extra; } return orig.call(this); };
+  r = await run({ client: wb, accountId: "PAPER1", acc: mergeEngineTrades(accOf([f]), engOf([s]), r.ledger, { shares: true }), ledger: r.ledger, nowMs: T0 + 3 * MIN });
+  return { wb, r, s, aId };
+};
+await ok("race: a share fill between order refresh and positions never cancels another trade's order", async () => {
+  const { wb, r, s, aId } = await raceRun();
+  assert.ok(!wb.cancelled.includes(aId), "the Top Picks entry order was cancelled by an in-flight share fill");
+  assert.equal(r.ledger.trades[s.tradeId].openQty, 30);
+  assert.equal(r.ledger.reconciliation.status, "matched");
+  assert.ok(!r.ledger.reconciliation.alerts.length);
+});
+await ok("race: more stock than the working share orders can explain still pauses the whole account", async () => {
+  const { wb, r, aId } = await raceRun(5);
+  assert.equal(r.ledger.reconciliation.status, "attention");
+  assert.ok(r.ledger.reconciliation.alerts.some((a) => /stock holdings changed/.test(a)));
+  assert.ok(wb.cancelled.includes(aId), "an unexplained stock change must stop other trades' working orders");
+});
+await ok("race: the working range is per symbol and per direction (entry up, exit down)", () => {
+  const t = (id, symbol, openQty) => [id, { tradeId: id, symbol, structure: "shares", state: "open", openQty }];
+  const ledger = { trades: Object.fromEntries([t("A", "SSS", 30), t("B", "TTT", 10)]), positionBaseline: { capturedAtIso: "x", options: {}, equities: {} } };
+  const snap = (sss, ttt) => parsePositions([{ instrument_type: "EQUITY", symbol: "SSS", quantity: String(sss) }, { instrument_type: "EQUITY", symbol: "TTT", quantity: String(ttt) }]);
+  const w = { SSS: { up: 0, down: 30 }, TTT: { up: 5, down: 0 } };
+  // SSS selling 30: 0 to 30 held is explained; TTT buying 5 more: 10 to 15.
+  let rc = reconcilePositions(structuredClone(ledger), snap(12, 13), "x", { workingShares: w });
+  assert.equal(rc.status, "matched"); assert.deepEqual(rc.blockedTradeIds.sort(), ["A", "B"]); assert.equal(rc.sharesFilling, 2);
+  rc = reconcilePositions(structuredClone(ledger), snap(30, 10), "x", { workingShares: w });
+  assert.equal(rc.status, "matched"); assert.deepEqual(rc.blockedTradeIds, []); assert.equal(rc.sharesFilling, undefined);
+  // A buy fill on the selling symbol, a sale on the buying one, or no working orders: alert.
+  for (const [a, b, ws] of [[31, 10, w], [30, 9, w], [12, 10, null]]) {
+    rc = reconcilePositions(structuredClone(ledger), snap(a, b), "x", { workingShares: ws });
+    assert.equal(rc.status, "attention", `${a}/${b}`); assert.deepEqual(rc.blockedTradeIds.sort(), ["A", "B"]);
+  }
+});
+
 console.log(`Webull quantities and shares: ${passed} checks passed${failed ? `, ${failed} FAILED` : ""} (risk $${RISK}, option $${PX}, stock $${STOCK}, half-spread $${HALF}).`);
