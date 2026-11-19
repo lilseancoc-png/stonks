@@ -30,7 +30,14 @@ try {
     assert.match(text, /Paper bought at the engine's price/);
     assert.match(text, /Emergency end-of-day exit attempted; fill not confirmed/);
     assert.match(text, /Emergency end-of-day exit: broker-confirmed fill/);
-    assert.match(await page.locator('#acc-sum-webull').innerText(), /25%\s*filled \(3 missed\)/);
+    assert.match(text, /Not tradable at Webull: contract not listed; no order sent\./);
+    await root.locator('label[for="acc-wb-lens-2"]').click();
+    const engineText = await root.evaluate(n => n.textContent.replace(/\s+/g, ' '));
+    assert.match(engineText, /\$0\.60 vs \$3\.25 ?real fees vs preview estimate \(4 trades\)/);
+    assert.match(engineText, /1 of 5 ?not tradable at Webull/);
+    await root.locator('label[for="acc-wb-lens-3"]').click();
+    await root.locator('.wb-execution-history').first().waitFor();
+    assert.match(await page.locator('#acc-sum-webull').innerText(), /20%\s*filled \(4 missed\)/);
     const first = root.locator('.wb-execution-history').first();
     await first.locator(':scope > summary').focus(); await page.keyboard.press('Enter');
     assert.equal(await first.getAttribute('open'), '');

@@ -13,11 +13,12 @@ function executionFixture() {
     const attempt = (n, extra) => ({ phase: 'entry', n, quantity: 1, filledQty: 0, status: 'CANCELLED', sentIso: '2026-10-28T19:35:00Z',
       limit: model, filledPrice: null, referencePrice: model, quoteSource: 'Synthetic quote', ...extra });
     t.entryAttempts = [attempt(1, { cancelRequestedIso: '2026-10-28T19:37:00Z' }), attempt(2, manual ? {} : {
-      policyStage: 'entry-4', allowancePct: 4, status: 'FILLED', filledQty: 1, filledPrice: actual, filledIso: '2026-10-28T19:39:34Z', feeActual: 0.12 })];
+      policyStage: 'entry-4', allowancePct: 4, status: 'FILLED', filledQty: 1, filledPrice: actual, filledIso: '2026-10-28T19:39:34Z', feeActual: 0.12, feeEst: 0.65, feeSource: 'order-history' })];
+    t.contractCheck = { version: 'fixture', checkedIso: '2026-10-28T19:34:00Z', ok: true, reason: null, ppind: true, legs: [] };
     if (manual) {
       t.entrySource = 'manual'; t.automaticEntryOutcome = 'missed'; t.automaticEntryAttemptCount = 2;
       t.entryAttempts.push(attempt(3, { source: 'manual', status: 'FILLED', filledQty: 1, filledPrice: actual, limit: actual, referencePrice: null,
-        sentIso: '2026-10-29T13:30:01Z', filledIso: '2026-10-29T13:30:05Z', feeActual: 0.12, quoteSource: 'Unknown' }));
+        sentIso: '2026-10-29T13:30:01Z', filledIso: '2026-10-29T13:30:05Z', feeActual: 0.12, feeEst: 0.65, quoteSource: 'Unknown' }));
     }
     t.state = 'open';
     if (symbol === 'MU' || symbol === 'ORCL') {
@@ -27,7 +28,7 @@ function executionFixture() {
         quantity: 1, filledQty: symbol === 'ORCL' ? 1 : 0, status: symbol === 'ORCL' ? 'FILLED' : 'SUBMITTED',
         sentIso: '2026-10-29T19:50:00Z', limit: 0.01, referencePrice: t.engineExitPrice,
         filledPrice: symbol === 'ORCL' ? 9.35 : null, filledIso: symbol === 'ORCL' ? '2026-10-29T19:50:08Z' : null,
-        bid: 9.3, ask: 9.8, quoteSource: 'Synthetic net quote', quoteObservedIso: '2026-10-29T19:50:00Z', feeActual: symbol === 'ORCL' ? 0.12 : null }];
+        bid: 9.3, ask: 9.8, quoteSource: 'Synthetic net quote', quoteObservedIso: '2026-10-29T19:50:00Z', feeActual: symbol === 'ORCL' ? 0.12 : null, feeEst: 0.65 }];
       t.state = symbol === 'ORCL' ? 'closed' : 'exiting';
       closed.push({ ...pick, exitDate: t.engineExitIso, status: t.engineCloseReason, optionPnlPct: t.enginePnlPct });
     } else open.push(pick);
@@ -35,6 +36,12 @@ function executionFixture() {
     if (t.exitAttempts.length) recordOrderObservation(t.exitAttempts[0], 'broker-detail', '2026-10-29T19:51:00Z');
     updateQuantities(t); ledger.trades[t.tradeId] = t;
   }
+  // A contract Webull does not list as tradable: no order, a labeled miss.
+  const amdPick = { symbol: 'AMD', side: 'call', entryDate, contract: { structure: 'long', netDebit: 6.1, expiry, legs: [{ qty: 1, strike: 300, type: 'call', expiry }] } };
+  const amd = newTrade(amdPick, pickTradeId(amdPick));
+  amd.contractCheck = { version: 'fixture', checkedIso: '2026-10-28T19:34:00Z', ok: false, reason: 'contract not listed', ppind: null, legs: [] };
+  amd.state = 'missed'; amd.note = 'Not tradable at Webull: contract not listed; no order sent.';
+  updateQuantities(amd); ledger.trades[amd.tradeId] = amd; open.push(amdPick);
   return { mirror: { enabled: true, lastRunIso: '2026-10-29T19:51:00Z', engineSnapshotIso: '2026-10-29T19:30:00Z',
     lastEndOfDayDeadlineIso: '2026-10-29T19:51:00Z', reconciliation: { status: 'matched', checkedAtIso: '2026-10-29T19:51:00Z', alerts: [] },
     trades: ledgerToTestTrades(ledger), rows: ledgerToFillRows(ledger) }, csv: fillRowsToCsv(ledgerToFillRows(ledger)), ordersCsv: orderAttemptsToCsv(ledger),
