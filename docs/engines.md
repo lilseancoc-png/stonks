@@ -562,8 +562,14 @@ adjustment changes the held shares or contracts, the holdings check sees the
 difference and pauses orders for review (`lib/webull-reconciliation.mjs`).
 A mirrored trade whose engine trade was rescaled after it was mirrored
 (`splitSinceLedger`: option strikes no longer match, or a stock fill before
-the split) is flagged `SPLIT_REVIEW` once and its orders are held until it is
-checked by hand.
+the split) is flagged `SPLIT_REVIEW` once, before the position check (which
+would otherwise read the old strikes as flat and settle it), and is held with
+no order, exit or settlement until it is checked by hand and the review is
+cleared; an entry with nothing filled or working is abandoned. The engine
+page shows "Followed a 8-for-1 split" on the trade (`splits` on each row),
+and a gap marked as a real move after the hold (`splitUnconfirmed`). Top
+Picks' own split rescale keeps strikes to three decimals too, so a contract
+both hold still matches.
 Test: `node scripts/engines-split-smoke.mjs` (also run by `engines-smoke.mjs`).
 
 ## Same contract on two engines
