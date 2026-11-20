@@ -136,6 +136,7 @@ try {
     const fix6 = view.fixes.filter((f) => f.step === 6);
     check(fix6.length === 3 && (await s.page.locator('#eng-all-down .eng-fixes li').count()) === fix6.length + 2, 'one line per downtrend pack part (three switches, the put cap, Downside puts)');
     check(/1 to 10 contracts/.test(await s.page.locator('#eng-all-down').innerText()) && /Owner Settings/.test(await s.page.locator('#eng-all-down').innerText()), 'the downtrend pack names the put cap and where to switch it');
+    await s.page.locator('#eng-all-down').screenshot({ path: resolve(output, 'downtrend-pack-1440.png') });
     check(/Owner Settings/.test(await s.page.locator('#eng-all-fixes').innerText()) && (await s.page.locator('#eng-all-fixes .evb-s-pass').count()) === fix3.filter((f) => f.on).length, 'each fix shows whether it is on and where to switch it');
     // Honest paper trades (2026-11-19): their own section, one line each, and the sizing comparison.
     check((await s.page.locator('#eng-all-honest .eng-fixes li').count()) === fix4.length && fix4.length === 6, 'one line per honest-paper change');
@@ -321,9 +322,19 @@ try {
     await s.page.screenshot({ path: resolve(output, 'allocator-1440.png'), fullPage: true });
 
     await pick(s, 'fundamentals'); await sub(s, 'now');
+    check(/3 calls and 5 puts at most/.test(await s.page.locator('.eng-rules').first().innerText()) && /\(puts 1 to 10\)/.test(await s.page.locator('.eng-rules').first().innerText()), 'Fundamentals rules read 3 calls and 5 puts, puts capped at 10 contracts');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-now-1440.png'), fullPage: true });
     await sub(s, 'learn');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-learn-1440.png'), fullPage: true });
+    // Downside puts (2026-11-20): every tab loads clean, and its learn tab says why it is judged forward.
+    await pick(s, 'downside');
+    for (const v of ['now', 'record', 'learn', 'history', 'webull']) { await sub(s, v); await settle(s.page, 200); await clean(s, 'downside ' + v); }
+    await sub(s, 'now');
+    {
+      const rules = await s.page.locator('.eng-rules').first().innerText();
+      check(/One single put,/.test(rules) && /1 to 10 contracts/.test(rules) && /50% of the \$[\d,]+ budget/.test(rules) && !/buys shares instead/.test(rules), 'Downside rules read puts only, half the risk budget and the 10-contract put cap');
+    }
+    await s.page.screenshot({ path: resolve(output, 'downside-now-1440.png'), fullPage: true });
     await pick(s, 'technicals'); await sub(s, 'now');
     await s.page.screenshot({ path: resolve(output, 'technicals-now-1440.png'), fullPage: true });
     await sub(s, 'history');
@@ -484,6 +495,9 @@ try {
     await pick(s, 'fundamentals'); await sub(s, 'now'); await settle(s.page, 300);
     await clean(s, 'fundamentals now, phone');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-now-390-dark.png'), fullPage: true });
+    await pick(s, 'downside'); await sub(s, 'now'); await settle(s.page, 300);
+    await clean(s, 'downside now, phone');
+    await s.page.screenshot({ path: resolve(output, 'downside-now-390-dark.png'), fullPage: true });
     await pick(s, 'allocator'); await settle(s.page, 300);
     await clean(s, 'Allocator, phone');
     await s.page.screenshot({ path: resolve(output, 'allocator-390-dark.png'), fullPage: true });

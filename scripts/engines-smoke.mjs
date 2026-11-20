@@ -2313,6 +2313,9 @@ ok("Downside puts: fires only on a risk-off tape, on a fresh loss of the 200-day
     [DCTX(), { sma50Prev: 100 }, "50-day rising"], [DCTX(), { ret63: 0.06 }, "stronger than SPY"],
   ]) assert.equal(evalDownside(V("DDD", lostF(f)), ctx).length, 0, label);
   assert.equal(evalDownside(V("DDD", lostF(), { isEtf: true }), DCTX()).length, 0, "stocks only");
+  // Back over the 200-day today: no put (it would sit at its stop from the first check).
+  const back = withSkips(() => evalDownside(V("DDD", lostF(), { spot: 98.2 }), DCTX()));
+  assert.equal(back.out.length, 0); assert.ok(back.skips.some((k) => /back over its 200-day/.test(k.why || "")));
   // Severe adds, as do the bubble tracker (role-aware), a souring news spike and a notice.
   assert.equal(evalDownside(V("DDD", lostF()), DCTX({ macroState: "severe-risk-off" }))[0].score, base + 4);
   const bub = { ai: "bust", market: "late", roles: { DDD: "borrower" } };
