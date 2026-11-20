@@ -1533,6 +1533,55 @@ Open trades, their exits, the grade, the research pages, the Webull mirror's
 exit handling and the live market review are unchanged. A change saved while a
 run is in progress applies from the next run.
 
+## Market-side lanes, November 20, 2026
+
+The owner asked why so few trades opened. Over November 9 to 19 three rules
+held almost everything back: the market read was severe risk-off on 13 of 15
+runs, so the market-adjusted call scores topped out at 4 to 6.5 under a bar of
+8 (the losing-streak bar); the AI grader was skipped on 13 of 17 runs because
+nothing cleared that bar (`PICKS_AI_SKIP_WHEN_NONE_READY`); and the strong puts
+that did clear were mostly stopped by the macro-conflict block. An offline
+backtest (June 24 to November 19, the daily grade totals for the 79 names still
+covered, a daily-bar option model checked against the record: 27 of 28 trades
+the same sign, about 10 points more pessimistic) found that every bar from 4 to
+8 lands within about 2 points of "every name on that side", so the bar is not
+what makes quality. A bar of 5 with the market and 8 against it gave about 30%
+more trades at the same quality, and the held-back macro-conflict puts won 6 of
+6. Survivorship: names that left coverage have no saved prices, so they are not
+in the test.
+
+`PICKS_MARKET_SIDE` (on; `lib/top-picks-config.mjs`, Owner Settings) applies
+three rules:
+
+| Rule | Before | Now |
+|---|---|---|
+| Open bar | 7 for both sides (8 on a losing streak) | 5 on the market's side with a strong or moderate thesis, 8 against it (`PICKS_MARKET_SIDE_BAR`, `PICKS_MARKET_AGAINST_BAR`) |
+| AI grader | skipped when no name could open | runs whenever a market-side name is in its six slots; market-side names take the slots first inside each group |
+| Macro-conflict block | both sides | only trades against the market |
+
+The market's side: calls in risk-on, puts in risk-off or severe risk-off, none
+when neutral (`marketSideOfState`). Gold, bond and volatility funds have no
+market side and keep the earlier rules. Every other gate still binds: two
+pillars must agree, the AI grade and a confirmed buy-now entry are required
+when the grader is live, the entry timing, option economics, caps, event caps,
+market mode and Owner controls. A market-side lane overrides the losing-streak
+bar on its side only; the other side needs 8 either way. Sizing still scales
+with the score, so a 5 is sized smaller than a 7.
+
+Code: `marketLaneFor`, `marketLaneBar`, `marketLaneCandidateBar` and
+`structuralVeto(r, side, marketState)` in `build.mjs`; the lane reaches
+`openPickPrecheck`, `prioritizeAiSlots`, `aiGraderCandidates`,
+`generateAiTheses` and `classifyPick` (`gates.marketLane`, demotion
+`market-against`, gate label `market-against`). Each pick carries `marketLane`
+and its own `actionableBar`, which the request-time market review
+(`revalidate` in `lib/top-picks-market.mjs`) uses instead of the roster bar.
+`rosterMeta.marketSide` names the side and both bars, and
+`rosterMeta.marketLaneOpened` lists the picks that opened under the lower bar.
+New record trades carry `marketSideVersion` (`2026-11-20-market-side`) and
+`marketLane`, and the Track Record draws a dated divider (`ACC_RULE_DIMS` key
+`marketside`). Off (`PICKS_MARKET_SIDE=0`) restores the earlier rules and stops
+the stamp. Tests: `node scripts/picks-smoke.mjs` ("market-side lanes").
+
 ## Owner controls, November 19, 2026
 
 Beside market mode, the Owner has quick controls that reach Top Picks, the
