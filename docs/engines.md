@@ -43,9 +43,10 @@ not all 85 covered names.
 | Earnings & events | ERN | stocks | Drift after a real earnings surprise; the run-in before a report for stocks that usually climb into it (always closed before the report) | 21-60 days, 0.55 delta | +30% / -40%, 10 sessions | 5 |
 | Macro | MAC | SPY, QQQ, IWM, TLT, GLD, EWY, KWEB | Rates, the dollar, financial conditions, the VIX curve, and the reaction to Fed, CPI and jobs days | 21-70 days, 0.50 delta | +30% / -40%, 12 sessions | 3 |
 | Technicals | TEC | every covered name | Price and volume only: trend pullbacks, range breakouts and breakdowns, squeeze breaks | 30-90 days, 0.70 delta | +30% / -40%, 15 sessions | 5 |
-| Fundamentals | FUN | stocks | One standing rank of every covered stock on earnings power, quality and price; calls on the best, puts on the worst, swapped only when a holding leaves its third | 75-200 days, 0.62 delta | +50% / -40%, 60 sessions, or the stock leaves its third of the rank | 5 (3 calls, 2 puts) |
+| Fundamentals | FUN | stocks | One standing rank of every covered stock on earnings power, quality and price; calls on the best, puts on the worst, swapped only when a holding leaves its third | 75-200 days, 0.62 delta | +50% / -40%, 60 sessions, or the stock leaves its third of the rank | 8 (3 calls, 5 puts; 5 with 2 puts before 2026-11-20) |
 | Flow & positioning | FLO | every covered name | One-sided signed option flow (trades bought vs sold, in delta dollars; since 2026-11-16), gamma set-ups near a call wall, short squeezes | 14-50 days, 0.50 delta | +35% / -40%, 7 sessions | 4 |
 | Reversion | REV | every covered name | Washouts in long-term uptrends, spikes in long-term downtrends, capitulation days | 14-45 days, 0.60 delta | +30% / -35%, 5 sessions | 4 |
+| Downside puts | DWN | stocks | Puts only, only while the Top Picks market tape reads risk-off or severe: stocks that just lost their 200-day (falling 50-day, weaker than SPY over three months), scored up by the bubble tracker, hikes priced and a souring news spike (live test since 2026-11-20) | 30-70 days, 0.50 delta | +50% / -40%, 20 sessions, or a close 0.5 ATR back over the 200-day | 4 |
 | Trend follower | TRD | SPY, QQQ, TLT | Core: at each monthly check, the stronger of SPY and QQQ over 12 months if it beat T-bills, else TLT if it beat T-bills, else cash | $50,000 of shares | Swapped at the monthly check only | 1 |
 | Momentum basket | MOM | every covered stock | Core: the ten strongest by 12-1 momentum, equal weight; TLT with the basket's money while SPY closes a month under its 10-month average | $3,000 of shares each ($30,000 of TLT) | Swapped at the monthly check only | 10 |
 
@@ -485,6 +486,63 @@ Webull: every part is a share trade, bought as stock with its engine's tag
 (`msflo…`, `msern…`, `msrot…`) inside the Owner's stock order range, and
 reported under `made_by` (`engines-mirror-smoke` checks it end to end).
 
+### Downtrend pack (2026-11-20)
+
+Owner, 2026-11-20: "We can increase fundamentals from 2 puts to 5 puts
+allowance", "Our engines should all be news aware too and adjust based on
+sentiment", "for puts we can cap it at 10 contracts max", and an engine that
+"only fires puts but under certain conditions". Rules only (no AI calls).
+Each part has its own Owner Settings switch, on by default, and the whole
+pack is one dated rules step on top of every signal engine (`|down:` and
+`|putcap:N` in the rules key, so a switch flipped later is a logged change).
+
+- **Fundamentals holds up to 5 puts** (`ENGINES_FUN_PUTS5`): 8 slots, 3
+  calls and 5 puts, still one new trade a run. Off goes back to 5 slots and
+  2 puts.
+- **Put cap** (`ENGINES_PUT_MAX_QTY`, 1 to 25, default 10): a risk-sized put
+  buys at most this many contracts, under `ENGINES_MAX_QTY` too; calls keep
+  25. The Riskier dial stops at the same cap for puts (`sideMaxQty` in
+  `config.mjs`). Top Picks is not affected.
+- **News gate** (`ENGINES_NEWS_GATE`, every signal engine and Downside
+  puts): the GDELT read for the name (`view.live.news`) with news volume at
+  least twice its usual and the 24-hour tone a point or more under the six
+  days before holds back a new long (call or shares); a point or more over
+  holds back a new put (`newsBlock`, `NEWS_GATE`). The held-back trade is
+  tracked as a shadow trade so the gate can be scored (Fundamentals, a
+  standing engine, just reads the rank again next run). A name with no read
+  is never blocked. Paper trials are gated too. Core engines are not (a
+  one-day block would leave a monthly slot empty). Every signal trade keeps
+  the read as `news`.
+- **Market-risk sizing** (`ENGINES_TAPE_SIZE`): new longs on signal engines
+  (calls, shares and shares twins) are scaled by the Top Picks market tape's
+  own de-gross multiplier (`macroRegime.grossMult`, passed as `macroGross`):
+  0.8x on a fragile tape, 0.6x to 1x risk-off by stress, 0.4x severe
+  (`tapeRead`; 0.4x floor; insufficient data, risk-on and plain neutral are
+  1x). Puts and paper trials keep their size. Every signal trade keeps
+  `tape: { state, mult }`; the size line says when the tape set it.
+- **Downside puts** (DWN, `ENGINES_DOWNSIDE`, `test: "forward"`, its own
+  rules 1, `ownRules`). One setup, `lost-200`, stocks only: the market tape
+  reads risk-off or severe risk-off; the stock closed under its 200-day
+  within the last 10 sessions after at least 15 of the 20 sessions before
+  closed over it (`below200Days`, `above200Prior20` in `features.mjs`); its
+  50-day is falling; it trails SPY over 63 sessions; not within 6 sessions
+  of a report; options not very rich; the chasing filter. Score from 54:
+  severe +4; up to +6 for weakness against SPY; hikes priced (2-year at
+  least 0.5 over fed funds) +4; the bubble tracker (`history-rhymes.json`,
+  fresh reads only, passed as `bubble`): AI buildout bust +6 or late +3 when
+  the stock has a buildout role, whole market bust, late or strain +3; a
+  souring news spike +5; a Federal Register notice +1; fear and greed 25-45
+  +2. Bar 60. Half the risk budget (`budgetX: 0.5`), half again under fear
+  and greed 25 (the candidate's `budgetX`); puts of about 0.5 delta, 30 to
+  70 days out; +50% / -40%, 20 sessions, or a close 0.5 ATR back over the
+  200-day; 4 slots, one a run. The part history can see was tested
+  2007-2026 on about 70 stocks (1,881 first closes under the 200-day after
+  20+ sessions over it): the stocks rose 1.6% over the next 20 sessions and
+  45-day puts lost money under every market gate tested (best: SPY under
+  its 200-day with hikes priced, -7.5% a trade; survivorship makes puts
+  look worse than they were). The tape, the bubble tracker and the news have
+  no stored history, so it is a live test and its paper record decides.
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -915,6 +973,11 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_TRIAL_OPTION_SURGE` | Owner Settings → Data & desks | Unset / on = Flow's option-call surge paper trial buys shares. `0` = retired for new trades |
 | `ENGINES_RUNIN_BY_IV` | Owner Settings → Data & desks | Unset / on = the earnings run-in buys shares when options are rich or very rich. `0` = calls, and very rich skips |
 | `ENGINES_CONV_NO_SCORE` | Owner Settings → Data & desks | Unset / on = Reversion's and Macro's size leaves the setup score out. `0` = the score part is back |
+| `ENGINES_FUN_PUTS5` | Owner Settings → Data & desks | Unset / on = Fundamentals holds up to 3 calls and 5 puts (8 slots). `0` = 5 slots, 2 puts |
+| `ENGINES_PUT_MAX_QTY` | Owner Settings → Data & desks | The most contracts a risk-sized engine put buys, 1 to 25 (default 10, since 2026-11-20), never over `ENGINES_MAX_QTY` |
+| `ENGINES_NEWS_GATE` | Owner Settings → Data & desks | Unset / on = a news spike with a souring tone holds back new longs on that stock, a brightening one new puts (tracked as shadow trades). `0` = no gate |
+| `ENGINES_TAPE_SIZE` | Owner Settings → Data & desks | Unset / on = new signal-engine longs are sized by the Top Picks tape's multiplier (0.4x severe risk-off); puts keep their size. `0` = full size |
+| `ENGINES_DOWNSIDE` | Owner Settings → Data & desks | Unset / on = Downside puts opens puts on a risk-off tape. `0` = it opens nothing new; open puts run to their exits |
 | `ENGINES_ROTATION` | Owner Settings → Data & desks | Unset / on = the Multi-asset rotation opens holdings. `0` = it opens nothing new; a holding already open still closes when a monthly check drops it, and nothing replaces it |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
 | `ACCOUNT_LIMIT_OPEN_USD`, `_DAY_LOSS_USD`, `_NAME_USD`, `_NEW_PER_DAY` | Owner Settings → Account limits | All 0 = off. Caps on open option premium, a daily loss stop, money per stock across engines and new trades a day; a trade a limit holds back is not opened and not shadowed. A limit never closes a trade |
