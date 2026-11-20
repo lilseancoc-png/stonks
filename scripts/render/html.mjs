@@ -2585,14 +2585,17 @@ ${i18nHeadScript()}
       <div id="heatmap-streaks" class="heatmap-streaks" role="status" aria-live="polite" hidden></div>
       <div id="heatmap-breadth" class="heatmap-breadth" aria-live="polite"></div>
       <div class="heatmap-stage">
-        <div id="heatmap-root" class="heatmap-root">Loading heatmap…</div>
-        <div class="heatmap-control heatmap-zoom" role="group" aria-label="Zoom">
-          <span class="heatmap-control-label">Zoom</span>
-          <button type="button" class="heatmap-zoom-btn" id="heatmap-zoom-out" aria-label="Zoom out" disabled>&minus;</button>
-          <span class="heatmap-zoom-level" id="heatmap-zoom-level" aria-live="polite">100%</span>
-          <button type="button" class="heatmap-zoom-btn" id="heatmap-zoom-in" aria-label="Zoom in">+</button>
-          <button type="button" class="heatmap-zoom-btn heatmap-zoom-reset" id="heatmap-zoom-reset" aria-label="Reset zoom" disabled>Reset</button>
+        <div class="heatmap-zoombar">
+          <span class="heatmap-zoom-hint">Scroll over the map to zoom. Drag to move around once zoomed in.</span>
+          <div class="heatmap-control heatmap-zoom" role="group" aria-label="Zoom">
+            <span class="heatmap-control-label">Zoom</span>
+            <button type="button" class="heatmap-zoom-btn" id="heatmap-zoom-out" aria-label="Zoom out" disabled>&minus;</button>
+            <span class="heatmap-zoom-level" id="heatmap-zoom-level" aria-live="polite">100%</span>
+            <button type="button" class="heatmap-zoom-btn" id="heatmap-zoom-in" aria-label="Zoom in">+</button>
+            <button type="button" class="heatmap-zoom-btn heatmap-zoom-reset" id="heatmap-zoom-reset" aria-label="Reset zoom" disabled>Reset</button>
+          </div>
         </div>
+        <div id="heatmap-root" class="heatmap-root">Loading heatmap…</div>
       </div>
       <div id="heatmap-alt" class="heatmap-alt" hidden></div>
       <div class="heatmap-legend" id="heatmap-legend" aria-hidden="true">
@@ -3106,7 +3109,7 @@ ${i18nHeadScript()}
   <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
   <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a> · <a href="/?tab=glossary">Words used on this site</a> · <a href="/?tab=contact">Send us a message</a> · <button type="button" class="link-btn foot-kb" data-kb-help>Keyboard shortcuts</button></div>
-  <div class="muted">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
+  <div class="muted foot-credit">Price charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts&trade;</a>, Copyright &copy; 2025 TradingView, Inc.</div>
 </footer>
 <!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at
      that section; Search opens the command palette. -->

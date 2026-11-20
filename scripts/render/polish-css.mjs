@@ -245,7 +245,7 @@ export function renderPolishCss() {
 /* ---- When data updates: one-day timeline --------------------------------- */
 .rdt { margin: 4px 0 20px; padding: 14px 16px 10px; border: 1px solid var(--border); border-radius: var(--r-3, 12px); background: var(--surface-2); }
 .rdt-row { display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 26px; }
-.rdt-label { font-size: var(--t-3, 13px); color: var(--text); }
+.rdt-label { position: relative; z-index: 1; font-size: var(--t-3, 13px); color: var(--text); }
 .rdt-track { position: relative; display: block; height: 22px; border-bottom: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); }
 .rdt-axis .rdt-track { border-bottom: 0; height: 20px; }
 .rdt-session { position: absolute; top: 20px; height: calc(26px * 7 + 4px); background: color-mix(in srgb, var(--accent) 8%, transparent); border-left: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-right: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); pointer-events: none; }
@@ -296,7 +296,10 @@ export function renderPolishCss() {
 .news-seen-divider { display: flex; align-items: center; gap: 10px; margin: var(--s-3) 0; color: var(--muted); font-size: 11px; }
 .news-seen-divider::before, .news-seen-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 
-/* Heatmap: one compact toolbar row; zoom sits in the map corner. */
+/* Footer chart credit reads as one sentence (the footer's inline-flex rows split its text into columns). */
+.site-footer > .foot-credit { display: block; }
+
+/* Heatmap: one compact toolbar row; zoom sits in a slim bar above the map, never on it. */
 #heatmap-section .heatmap-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
 #heatmap-section .heatmap-control { flex-direction: row; align-items: center; gap: 6px; height: 36px; padding: 0 0 0 10px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); }
 #heatmap-section .heatmap-control[hidden] { display: none; }
@@ -307,9 +310,13 @@ export function renderPolishCss() {
 #heatmap-section .heatmap-live-toggle { padding: 0 10px; gap: 6px; }
 #heatmap-section .heatmap-live-state { margin-left: auto; }
 .heatmap-stage { position: relative; }
-#heatmap-section .heatmap-stage > .heatmap-zoom { position: absolute; right: 8px; bottom: 8px; z-index: 4; display: flex; align-items: center; gap: 4px; height: auto; padding: 3px; min-height: 0; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--surface) 88%, transparent); box-shadow: 0 4px 14px rgba(0,0,0,.18); }
-#heatmap-section .heatmap-stage > .heatmap-zoom[hidden] { display: none; }
-#heatmap-section .heatmap-stage > .heatmap-zoom .heatmap-control-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#heatmap-section .heatmap-zoombar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; min-height: 34px; }
+#heatmap-section .heatmap-zoombar[hidden] { display: none; }
+#heatmap-section .heatmap-zoom-hint { min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.3; }
+@media (hover: none) { #heatmap-section .heatmap-zoom-hint { display: none; } }
+#heatmap-section .heatmap-zoombar .heatmap-zoom { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; height: auto; min-height: 0; padding: 3px; border-radius: 10px; }
+#heatmap-section .heatmap-zoombar .heatmap-zoom[hidden] { display: none; }
+#heatmap-section .heatmap-zoombar .heatmap-zoom .heatmap-control-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .heatmap-tooltip-hint { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline, var(--border)); color: var(--muted); font-size: 11px; }
 @media (max-width: 640px) {
   #heatmap-section .heatmap-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -318,6 +325,7 @@ export function renderPolishCss() {
   #heatmap-section .heatmap-search-control { grid-column: 1 / -1; max-width: none; }
   #heatmap-section .heatmap-live-toggle { justify-content: flex-start; }
   #heatmap-section .heatmap-live-state { margin-left: 0; grid-column: 1 / -1; justify-self: start; }
+  #heatmap-section .heatmap-zoom-hint { display: none; }
 }
 
 /* Calendar earnings rows: last four earnings-day moves as tiny bars. */

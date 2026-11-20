@@ -114,7 +114,8 @@ body:not([data-active-tab="home"]) .page-sub { display: none; }
   .phone-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .phone-tab.is-on { color: var(--accent); }
   .phone-tab.is-on svg { stroke-width: 2.2; }
-  .site-footer { margin-bottom: calc(62px + env(safe-area-inset-bottom, 0px)); }
+  /* Room under the footer for the tab bar and the back-to-top button. Padding, not margin: a bottom margin collapses away on a short page and left the footer's last lines under the tab bar. */
+  .site-footer { margin-bottom: 0; padding-bottom: calc(var(--s-6) + 112px + env(safe-area-inset-bottom, 0px)); }
   .back-to-top { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
   .cmp-tray { bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important; }
   body.sidenav-open .phone-tabbar { z-index: 1200; }

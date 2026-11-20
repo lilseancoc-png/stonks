@@ -204,7 +204,7 @@ body { padding-bottom: var(--cmp-tray-space, 0px); }
 }
 
 /* ---- Heatmap ranked bars + two-period view ------------------------------- */
-#heatmap-section .heatmap-control[hidden], #heatmap-section .heatmap-zoom[hidden] { display: none !important; }
+#heatmap-section .heatmap-control[hidden], #heatmap-section .heatmap-zoom[hidden], #heatmap-section .heatmap-zoombar[hidden] { display: none !important; }
 .heatmap-alt { margin: 10px 0 12px; min-width: 0; }
 #heatmap-section .heatmap-layout-control, #heatmap-section .heatmap-periodb-control { grid-column: span 2; }
 .heatmap-alt .vt-wrap { max-height: 620px; overflow: auto; }

@@ -68,10 +68,12 @@ export function renderChartKitJs() {
       if (r){ var p = r[1].split(','); return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')'; }
       return c;
     }
+    // No logo on the chart itself: it sat over the oldest bars. The footer on
+    // every page carries the TradingView credit and link the license asks for.
     function baseOptions(c, opts){
       return {
         autoSize: true,
-        layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: c.font, fontSize: 12, attributionLogo: true },
+        layout: { background: { type: 'solid', color: 'transparent' }, textColor: c.text, fontFamily: c.font, fontSize: 12, attributionLogo: false },
         grid: { vertLines: { visible: false }, horzLines: { color: c.grid } },
         rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: (opts.volume || opts.lowerPane) ? 0.3 : 0.08 } },
         leftPriceScale: { visible: !!opts.leftAxis, borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
