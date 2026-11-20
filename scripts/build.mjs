@@ -22993,6 +22993,14 @@ export function marketLaneFor(r, side, state, enabled = PICKS_MARKET_SIDE) {
   if (MARKET_SIDE_SKIP_KINDS.has(macroKindOf(r.sym, r.data))) return null;
   return side === mSide ? "with" : "against";
 }
+// The market state the lanes read. The research copy of Top Picks
+// (sharedResearch: the Volume page's pinned list, the Unified Signal Engine,
+// the MCP) passes opts.marketLanes === false and keeps the earlier rules, so
+// it never forces a second round of AI grader calls on a run where nothing
+// could open under those rules (2026-11-20 cost fix).
+export function laneStateOf(macroBackdrop, opts = {}) {
+  return opts?.marketLanes === false ? null : (macroBackdrop?.macroRegime?.state || null);
+}
 // The score an open pick needs in its lane. With the market: the lower lane
 // bar (never above the base bar in force). Against: at least the against bar.
 // No lane: the base bar unchanged.
@@ -23316,7 +23324,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
-  const marketState = macroBackdrop?.macroRegime?.state || null;
+  const marketState = laneStateOf(macroBackdrop, opts);
   const marketSide = PICKS_MARKET_SIDE ? marketSideOfState(marketState) : null;
   meta.marketSide = marketSide ? { version: PICKS_MARKET_SIDE_VERSION, state: marketState, side: marketSide, withBar: marketLaneBar("with", strongBar), againstBar: marketLaneBar("against", strongBar) } : null;
   meta.marketLaneOpened = [];
@@ -28743,7 +28751,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   // Keep their original review/cache and source snapshot independent of the
   // new policy. Both passes retain the existing six-candidate and skip gates.
   const legacyAi = baseOpts.marketAssessment
-    ? await generateAiTheses(preScored, macroBackdrop, {...baseOpts,rfr}, thesisProsePrior || {})
+    ? await generateAiTheses(preScored, macroBackdrop, {...baseOpts,rfr,marketLanes:false}, thesisProsePrior || {})
     : null;
   const preparedScored = prepareTopPicksScoring(preScored, macroBackdrop, baseOpts.marketAssessment);
   // Self-improving loop, step 4 (lib/self-loop/tune.mjs): the live settings,
@@ -28813,7 +28821,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   let sharedResearch = null;
   if (baseOpts.marketAssessment) {
     const legacyPicks = buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,rfr,
-      {...baseOpts,marketAssessment:null,preScored,aiThesisMap:legacyAi.map,aiGraderSkipped:!!legacyAi.skipped,aiGraderMode:legacyAi.mode||null});
+      {...baseOpts,marketAssessment:null,marketLanes:false,preScored,aiThesisMap:legacyAi.map,aiGraderSkipped:!!legacyAi.skipped,aiGraderMode:legacyAi.mode||null});
     applyPickFirstSeen(legacyPicks,(priorPayload?.sharedResearch||priorPayload)?.picks,builtAtIso);
     sharedResearch=buildTopPicksPayload(legacyPicks,builtAtIso);
   }
@@ -29650,7 +29658,7 @@ export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
   const openSym = new Set((opts.openPositions || []).map((o) => o && o.symbol).filter(Boolean));
   const reentry = opts.reentryCooldown !== false;
-  const marketState = macroBackdrop?.macroRegime?.state || null;
+  const marketState = laneStateOf(macroBackdrop, opts);
   const cands = [];
   for (const r of scored) {
     if (!r || !r.data) continue;
@@ -29757,7 +29765,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     factorHealth: computeFactorTrendHealth(scored),
     marketMode: opts.marketMode?.mode || null,
     ownerControls: opts.ownerControls || null,
-    marketState: macroBackdrop?.macroRegime?.state || null,
+    marketState: laneStateOf(macroBackdrop, opts),
   });
   const gated = ordered.slice(0, PICKS_MAX_AI_THESES);
   // NOTHING CAN OPEN (2026-10-27, owner decision): when no candidate clears the
@@ -29766,7 +29774,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   // Still-valid cached grades are reused for the watch cards.
   // Market-side lanes (2026-11-20): when the market has a side and a name on
   // it is in the slots, the grader always runs, so those names get graded.
-  const marketState = macroBackdrop?.macroRegime?.state || null;
+  const marketState = laneStateOf(macroBackdrop, opts);
   const laneGrade = gated.some((c) => !c.tactical && marketLaneFor(c.r, c.side, marketState) === "with");
   const skipNew = ready === 0 && PICKS_AI_SKIP_WHEN_NONE_READY && !laneGrade;
   // blocks: the non-AI check that stopped each candidate, so "Why no picks

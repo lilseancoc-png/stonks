@@ -2978,6 +2978,35 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
       && structuralVeto(fights, "put") === "macro-conflict");
   ok("gate labels: market-against has a label and a next step",
     !!noPicksFactory().GATE_LABEL["market-against"] && !!noPicksFactory().GATE_NEXT["market-against"]);
+  {
+    // The research copy (sharedResearch) keeps the earlier rules: with
+    // marketLanes false it reads no lane, and its grader still skips a run
+    // where nothing can open, so it never pays for a second round of grades.
+    const { laneStateOf } = await import("./build.mjs");
+    const bd = { macroRegime: { state: "severe-risk-off" } };
+    ok("lanes research copy: laneStateOf drops the lane only when asked",
+      laneStateOf(bd, {}) === "severe-risk-off" && laneStateOf(bd, { marketLanes: false }) === null && laneStateOf(null, {}) === null);
+    const { universe } = globalThis.__laneProbe;
+    const pre = scoreAllTickers(universe, [], null, null, { macroRegime: { state: "risk-on" } }, null, {});
+    const pre55 = { ...pre, scored: pre.scored.map((r) => r.sym === "NVDA" ? { ...r, total: 5.5, preRegimeTotal: 5.5 } : r) };
+    const research = buildTopPicks(universe, [], null, null, { macroRegime: { state: "risk-on" } }, null, 0.045, { preScored: pre55, marketLanes: false });
+    const rp = research.find((p) => p.symbol === "NVDA" && p.side === "call");
+    ok("lanes research copy: the 5.5 call keeps the old bar (no lane, no stamp)",
+      rp?.group !== "actionable" && rp?.marketLane === undefined && research.rosterMeta.marketSide === null);
+    const savedKey = process.env.GEMINI_API_KEY, savedAi = process.env.AI_THESIS;
+    const waitPuts = [0, 1, 2].map((i) => ({ sym: "WAITP" + i, total: -(9 + i), side: "put", drivers: [], timing: { state: "wait", hardWait: "event" }, data: { spot: 100, fundamentals: {} } }));
+    // A fake key: a research pass that tried to grade would reach the network.
+    process.env.GEMINI_API_KEY = "smoke-test-key"; delete process.env.AI_THESIS;
+    const rs = await generateAiTheses({ scored: waitPuts, regimeBand: "neutral" }, bd, { marketLanes: false }, {});
+    process.env.AI_THESIS = "0";
+    const live = await generateAiTheses({ scored: waitPuts, regimeBand: "neutral" }, bd, {}, {});
+    if (savedKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = savedKey;
+    if (savedAi === undefined) delete process.env.AI_THESIS; else process.env.AI_THESIS = savedAi;
+    ok("lanes research copy: its grader skips when nothing can open, no grades written",
+      rs.skipped?.reason === "none-ready" && Object.keys(rs.map).length === 0);
+    ok("lanes decision pass: a market-side name still forces the grader",
+      live.skipped === null);
+  }
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);

@@ -16,7 +16,7 @@ import { researchUniverse } from "../lib/site-catalog/universe.mjs";
 import { createWebullClient, WebullError } from "../lib/webull-client.mjs";
 import { webullDataTriggerToken } from "../lib/webull-data/trigger.mjs";
 import { mirrorTriggerToken } from "../lib/webull-mirror.mjs";
-import { routeRun, LABELS as TRIGGER_LABELS } from "./webull-data-trigger.mjs";
+import { routeRun, waitMinutes, LABELS as TRIGGER_LABELS } from "./webull-data-trigger.mjs";
 import { exportWebullOptions } from "./webull-options-export.mjs";
 import { mkdtempSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -274,6 +274,13 @@ eq(routeRun({ eventName: "schedule", schedule: "40 20 * * 1-5", nowMs: at("2026-
 eq(routeRun({ eventName: "schedule", schedule: "40 20 * * 1-5", nowMs: at("2026-07-15T20:41:00Z") }).run, true, "EDT slot runs in July");
 eq(routeRun({ eventName: "schedule", schedule: "40 21 * * 1-5", nowMs: at("2026-11-26T21:41:00Z") }).run, false, "Thanksgiving skipped");
 eq(routeRun({ eventName: "schedule", schedule: "40 21 * * 1-5", nowMs: at("2026-11-20T03:30:00Z") }).run, true, "a late start after midnight ET keeps its session");
+// The close bake dispatches with wait=1: wait for 40 minutes after the close, bounded.
+eq(waitMinutes(at("2026-11-19T21:18:00Z")), 22, "dispatched at 16:18 ET waits until 16:40 ET");
+eq(waitMinutes(at("2026-11-19T21:40:00Z")), 0, "no wait at 16:40 ET");
+eq(waitMinutes(at("2026-11-19T22:30:00Z")), 0, "no wait after 16:40 ET");
+eq(waitMinutes(at("2026-11-19T20:30:00Z")), 0, "never waits more than 45 minutes");
+eq(waitMinutes(at("2026-11-27T21:18:00Z")), 0, "half day: 13:40 ET has passed by the close bake");
+eq(waitMinutes(at("2026-11-26T21:18:00Z")), 0, "no wait on a holiday");
 
 // --- the trigger log prints every count a job records -------------------------------
 {

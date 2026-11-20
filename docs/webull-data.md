@@ -9,7 +9,7 @@ record. Wave 2 build B ("option price saver") is its first job set; later jobs
 ## How it runs
 
 ```
-GitHub cron (16:40 ET) -> scripts/webull-data-trigger.mjs
+close bake dispatch (waits for 16:40 ET), GitHub cron as backup -> scripts/webull-data-trigger.mjs
    -> POST /api/auth/webull-data (bearer derived from R2_SECRET_ACCESS_KEY)
       -> lib/webull-data/runner.mjs runWebullData() under the R2 lease "webull-data"
          -> each job: plan -> one Webull call per item -> save to R2
@@ -19,7 +19,13 @@ GitHub cron (16:40 ET) -> scripts/webull-data-trigger.mjs
 - **Workflow** `.github/workflows/webull-data.yml`: two UTC crons (`40 20` and
   `40 21`, Mon-Fri); `routeRun` keeps only the one that is 16:40 ET and skips
   NYSE holidays (`lib/us-equity-calendar.mjs`). Manual dispatch inputs:
-  `backfill` (`auto` / `1` / `0`) and `minutes` (the ping window, default 50).
+  `backfill` (`auto` / `1` / `0`), `minutes` (the ping window, default 50) and
+  `wait` (`1` = wait for 40 minutes after the close first, at most 45
+  minutes). GitHub's cron runs hours late or not at all, and a skipped day's
+  option snapshots cannot be fetched later, so since 2026-11-20 the 16:10 ET
+  close bake (`daily.yml`, on time through cron-job.org) dispatches it with
+  `wait=1` (`waitMinutes` in the trigger); the scheduled run stays as a backup
+  and finds the day done.
   The log prints counts and fixed labels only (never a ticker, price or account
   value). Its own concurrency group `stonks-webull-data`, so it never waits on
   or blocks the data workflows. Runs only when the repo variable

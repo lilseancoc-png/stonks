@@ -315,7 +315,7 @@ if (macroBackdrop?.macroRegime) {
   }
 }
 const pickOptions={priorClosed,priorGrades,openPositions:priorOpen,builtAtIso,ivAsOfDate,reentryCooldown:true,...scannerExtras};
-const legacyPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,pickOptions);
+const legacyPicks=buildTopPicks(chains,narratives,streaksMap,unusualPayload,macroBackdrop,volumeFlags,riskFreeRate,{...pickOptions,marketLanes:false});
 let indexCalendar=null;
 try{indexCalendar=JSON.parse(await readFile(resolve(DATA_DIR,'index-calendar.json'),'utf8'));}catch{}
 const marketAssessment=buildTopPicksMarketContext(chains,macroBackdrop,builtAtIso,{volume:volumeFlags,calendar:indexCalendar,

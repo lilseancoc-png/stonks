@@ -59,7 +59,8 @@ on:
 
 permissions:
   # write: the 11:00 / 15:30 ET Top Picks builds dispatch webull-mirror.yml,
-  # and the 15:30 ET build dispatches webull-eod.yml (below).
+  # the 15:30 ET build dispatches webull-eod.yml and the close build
+  # webull-data.yml (below).
   actions: write
   contents: write
   # The "AI health alert" step opens/updates/closes the ai-health incident
@@ -721,6 +722,24 @@ jobs:
             echo "Webull end-of-day: dispatched."
           else
             echo "Webull end-of-day: not the last Top Picks build before the close; nothing to start."
+          fi
+
+      - name: Start the daily Webull data run
+        # GitHub's cron for webull-data.yml (16:40 ET) runs hours late or not
+        # at all, and a skipped day's option snapshots cannot be fetched later.
+        # The close bake (16:10 ET, dispatched on time by cron-job.org) starts
+        # it instead; the workflow waits for 16:40 ET itself (wait=1). The
+        # scheduled run stays as a backup and finds the day already done.
+        if: ${{ always() && vars.PRIVATE_DATA_ENABLED == '1' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if node --input-type=module -e 'import { marketSession } from "./lib/us-equity-calendar.mjs"; const s = marketSession(Date.now()); process.exit(s.open && s.minute >= s.closeMinute ? 0 : 1);'; then
+            gh workflow run webull-data.yml --ref "${GITHUB_REF_NAME:-main}" -f wait=1
+            echo "Webull data: dispatched."
+          else
+            echo "Webull data: not a build after today's close; nothing to start."
           fi
 
       - name: Commit verified private-store build

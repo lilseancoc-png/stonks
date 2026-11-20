@@ -60,6 +60,7 @@ const desks=await checkFeatureCadence([inspectFeature(desk,deskPayload,now)],new
 const sensitive='secret-token-123';const diagnostic=inspectWorkflowLog('AI health: DOWN '+sensitive+'\nReferenceError: '+sensitive+'\n##[error]bad');
 assert.equal(diagnostic.findings.length,3);assert(!JSON.stringify(diagnostic).includes(sensitive),'raw logs and secrets never persisted');
 assert.equal(inspectWorkflowLog('AI health: OK\nno matches (normal empty result)').findings.length,0);
+assert.deepEqual(inspectWorkflowLog('Left out 1 ticker(s) whose input cannot publish; 79 / 80 remain.').findings.map(f=>f.kind),['ticker-left-out'],'a covered stock left out of a build is flagged');
 const entries=fixtureArtifacts();let reads=0,writes=0,saved=report;
 const store={backend:'r2',async rawGet(key){reads++;return key===UPDATE_STATUS_KEY?Buffer.from(JSON.stringify(saved)):null;},async list(){return [...entries.keys()].map(key=>({key}));},async get(key){reads++;return entries.get(key) || null;},async rawPut(key,bytes){assert.equal(key,UPDATE_STATUS_KEY);writes++;saved=JSON.parse(bytes);},async withLease(_name,fn){return {result:await fn(()=>{})};}};
 entries.set('bad-log.json',Buffer.from('{bad'));entries.set('webull-paper-ledger.json',Buffer.from(JSON.stringify({reconciliation:{status:'attention'}})));
