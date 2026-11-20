@@ -9525,7 +9525,7 @@ function engEvidenceNote(t){
   }
   function engMirrorHtml(id){
     var m = engState.mirror;
-    var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks. Option trades are sent at the engine record’s size (1 to ' + ((engState.data && engState.data.sizing && engState.data.sizing.maxQty) || 25) + ' contracts; 1 to 10 before 20 November 2026) and share trades, including the Trend follower and Momentum basket holdings, are bought as stock (long only, never short). Trades sent before 19 November 2026 were one contract each, so compare the % results here, not the dollars.</p>' +
+    var lead = '<p class="evb-lead">Every engine trades in the same Webull paper account as Top Picks. Option trades are sent at the engine record’s size (1 to ' + ((engState.data && engState.data.sizing && engState.data.sizing.maxQty) || 25) + ' contracts; 1 to 10 before 20 November 2026) and share trades, including the Trend follower, Momentum basket and Multi-asset rotation holdings, are bought as stock (long only, never short). Trades sent before 19 November 2026 were one contract each, so compare the % results here, not the dollars.</p>' +
       engDetails('How orders are sized, filled and labeled', '<p class="evb-note">An engine option trade asks for the record’s contract count, which the engine’s own cap (Owner Settings, 25 unless set) already holds; the account never sends more than 25. An engine stock order buys the record’s share count when it costs between the smallest and largest stock order set in Owner Settings (Account limits tab; $2,000 and $25,000 unless changed); a smaller lot is raised to the fewest whole shares that reach the smallest, a bigger one is cut to the most that fit under the largest, and a stock whose single share costs more than the largest is not bought. The engine record keeps its own share count either way. A partly filled entry keeps what filled and sells only that; an entry that never fills inside the price allowance (2%, then 4%, then 5% in the last minutes of the day) is logged as missed. Every order is labeled with the engine that made it: the trade ID starts with the engine’s tag (TEC:, REV:, MAC: and so on), the order ID sent to Webull starts with ms plus the same tag (mstec…, msrev…), and every row of both downloads has made_by and setup columns. Top Picks orders have no tag (ms followed by letters and digits). When two engines want the exact same option contract it is bought once: the first holder owns the paper position and the other records the trade on paper marks, labeled with who holds it. Stock is not shared that way: each engine buys its own shares.</p>');
     if (!m){
       if (engState.mirrorLoading || (!engState.mirrorError && HAS_OWNER_ACCESS)) return lead + '<p class="hint">Loading the paper account…</p>';
@@ -11590,7 +11590,8 @@ function validNewsFeedPayload(data) {
   var NO_PICKS = (function noPicksFactory() {
   var GATE_LABEL = {
     'opened': 'Opened on the Track Record', 'book-full': 'Picked, but the 20-trade book was full',
-    'losing-streak-bar': 'Losing-streak bar (needs 8+)', 'below-strong': 'Score below 7',
+    'losing-streak-bar': 'Losing-streak bar (needs 8+)', 'below-strong': 'Score below the bar',
+    'market-against': 'Against the market (needs 8+)',
     'confluence': 'Fewer than 2 pillars agree', 'no-ai-slot': 'No AI review slot',
     'ai-reject': 'AI rejected', 'ai-not-strong': 'AI grade not strong', 'thesis-not-strong': 'Thesis not strong (no AI grade)',
     'ai-wait': 'AI said wait', 'timing-checks': 'Entry timing checks', 'avoid-timing': 'Avoid timing (knife or chase)',
@@ -11612,7 +11613,8 @@ function validNewsFeedPayload(data) {
   var GATE_NEXT = {
     'book-full': 'A slot opens when one of the 20 record trades closes.',
     'losing-streak-bar': 'While the record is on a losing streak a pick needs a score of 8 or more.',
-    'below-strong': 'A pick needs a score of 7 or more.',
+    'below-strong': 'A pick needs a score of 7 or more (5 on the side the market favors, 8 against it).',
+    'market-against': 'Against the market a pick needs a score of 8 or more; it clears when the market turns.',
     'confluence': 'At least 2 of the 4 pillars have to point its way.',
     'no-ai-slot': 'Only the 6 highest scores get the AI review each run.',
     'ai-reject': 'The AI review read the case as weak this run.',
@@ -13345,7 +13347,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-11-19","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-11-19","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -59006,12 +59008,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // Unusual volume vote rules (measured intraday curve + session-so-far
     // read), stamped on new trades; empty while both volume switches are off.
     { key:'volume', get:function(e){ return (e && typeof e.volumeReadVersion === 'string' && e.volumeReadVersion) || ''; } },
+    // Market-side lanes (bar 5 with the market, 8 against; the grader runs
+    // every run; macro block only against the market), stamped from 2026-11-20.
+    { key:'marketside', get:function(e){ return (e && typeof e.marketSideVersion === 'string' && e.marketSideVersion) || ''; } },
     // Owner risk dial (lib/owner-controls.mjs, from 2026-11-19): Safer is the
     // only setting that changes Top Picks (one new trade a run), so only it
     // splits the record. Riskier is stamped for the scorecard, no divider.
     { key:'dial', get:function(e){ return e && e.ownerControls && e.ownerControls.dial === 'safer' ? 'safer' : ''; } }
   ];
-  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","FLOW_OPEN_WINDOW":"Flow scan: count the opening half hour","FLOW_STOCK_BARS":"Flow scan: a bar per stock","VOLUME_MEASURED_CURVE":"Measured intraday volume curve","VOLUME_SESSION_READ":"Session-so-far volume vote","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","AI_TICKER_EXPLICIT_CACHE":"Explicit prompt cache","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
+  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MARKET_SIDE":"Market-side lanes","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","FLOW_OPEN_WINDOW":"Flow scan: count the opening half hour","FLOW_STOCK_BARS":"Flow scan: a bar per stock","VOLUME_MEASURED_CURVE":"Measured intraday volume curve","VOLUME_SESSION_READ":"Session-so-far volume vote","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","AI_TICKER_EXPLICIT_CACHE":"Explicit prompt cache","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
   function ownerSettingsTagText(tag){
     if (tag === 'default') return 'back on the defaults';
     return String(tag || '').split(',').filter(Boolean).map(function(part){
@@ -59050,6 +59055,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '2026-11-17-curve': { note:'Intraday volume curve measured from recent sessions (session-so-far vote off)' },
       '2026-11-17-read': { note:'Unusual volume vote reads the session so far (fixed intraday curve)' }
     },
+    // No fixed date: the divider dates from the first trade under the rule.
+    marketside: { '2026-11-20-market-side': { note:'Market-side lanes: a score of 5 opens on the side the market favors and 8 against it; the AI grader runs every run; the macro block applies only against the market' } },
     // No fixed dates: each mode's divider dates from its first trade.
     dial: { 'safer': { note:'Risk dial Safer (your controls): one new trade a run until Friday’s close' } },
     grader: { 'off': { note:'AI final grader off (AI_THESIS=0): deterministic grades and entries only' }, 'keyless': { note:'AI final grader had no key: deterministic grades and entries only' }, 'live': { note:'AI final grader back on' } }
@@ -67704,6 +67711,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
     if (rm && rm.edgeBarDemoted && rm.edgeBarDemoted.length) noteBits.push('<b>' + rm.edgeBarDemoted.length + '</b> strong pick' + (rm.edgeBarDemoted.length === 1 ? '' : 's') + ' held to watch — the record is losing, so opening a pick needs a score of ' + (rm.actionableBar || 8) + '+');
+    if (rm && rm.marketSide && rm.marketSide.side) noteBits.push('Market favors ' + (rm.marketSide.side === 'put' ? 'puts' : 'calls') + ': a ' + (rm.marketSide.side === 'put' ? 'put' : 'call') + ' opens from a score of ' + rm.marketSide.withBar + ', a ' + (rm.marketSide.side === 'put' ? 'call' : 'put') + ' needs ' + rm.marketSide.againstBar + (rm.marketLaneOpened && rm.marketLaneOpened.length ? ' (<b>' + rm.marketLaneOpened.length + '</b> opened under the lower bar)' : ''));
     if (rm && rm.entryDemoted && rm.entryDemoted.length) noteBits.push('<b>' + rm.entryDemoted.length + '</b> strong pick' + (rm.entryDemoted.length === 1 ? '' : 's') + ' waiting for entry — in Ideas · Watch with the trigger price (not a buy right now)');
     if (rm && rm.safetyGated && rm.safetyGated.length){
       var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });
