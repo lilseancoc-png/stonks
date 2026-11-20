@@ -1488,6 +1488,12 @@ async function fetchHistoricalBars(symbol) {
           t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
         }));
       if (bars.length < 20) throw new Error(`Yahoo daily chart returned only ${bars.length} valid bars`);
+      // Yahoo's split list from the same call (no extra request), kept on the
+      // array for the engine split guard (lib/engines/split.mjs). It never
+      // reaches a written file: arrays serialize without it.
+      bars.splitEvents = (Array.isArray(result?.events?.splits) ? result.events.splits : [])
+        .map((e) => ({ date: e?.date ? new Date(e.date).toISOString().slice(0, 10) : null, numerator: Number(e?.numerator) || null, denominator: Number(e?.denominator) || null, splitRatio: e?.splitRatio ? String(e.splitRatio) : null }))
+        .filter((e) => e.date);
       return bars;
     },
     {

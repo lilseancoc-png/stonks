@@ -526,22 +526,31 @@ the day it opened, so a split would otherwise read as a loss: Sandisk's
 8-for-1 at the open on 2026-11-20 would have marked the Momentum basket's
 SNDK lot at about -87%, and an option's old strike prices near zero on the
 new tape. Before each open or shadow trade is marked, `lib/engines/split.mjs`
-compares the run's price with the trade's last mark:
+compares the run's price with the trade's last mark. It never acts on the
+day of the last mark (a split takes effect at an open; a same-day move is
+real, and Yahoo's live bar for today already shows it):
 
-- The gap has to be about one standard ratio (1.5, 2, 2.5, 3, 4, 5, 6, 7, 8,
+- Yahoo's split list comes with the daily history call (`events.splits`,
+  kept as `bars.splitEvents`, no extra request). A listed split between the
+  last mark and today confirms its ratio when the gap is within 35% of it.
+- Otherwise the gap has to be about one standard ratio (1.5, 2, 2.5, 3, 4, 5, 6, 7, 8,
   10, 20, or the reverse). Yahoo back-adjusts its daily closes after a split,
   so the close on the last mark's date, divided into the last mark, must give
   the same ratio (within 10%); the stock may also have moved up to 35% since.
 - Before Yahoo adjusts, only an exact gap (within 4%) of a ratio of 3 or more
   counts. With no dated history at all, an exact gap counts for any ratio
   (the Top Picks rule).
-- A 40%+ move the history does not confirm is held unmarked (no exit fires)
-  for up to two runs, then marked as a real move. Without the hold, the
-  first mark would move the last price to the new scale and no later run
-  could see the split.
+- A 40%+ move within 10% of a ratio that nothing confirms yet is held
+  unmarked (no exit fires): four runs (two sessions) for a ratio of 3 or
+  more, one run for 1.5, 2 or 2.5 (a real crash that size is not rare).
+  Then it is marked as a real move and the trade carries `splitUnconfirmed`
+  for a look. Any other gap is never held. Without the hold, the first mark
+  would move the last price to the new scale and no later run could see the
+  split.
 
 A split divides every dollar level by the ratio and multiplies the share or
-contract count by it (the OCC's adjustment), so the trade's dollars and its %
+contract count by it (the OCC's adjustment; strikes keep three decimals,
+775 / 8 = 96.875, and the chain lookup matches to half a cent), so the trade's dollars and its %
 result do not move; `corpActions` on the trade and `splits` on the run log say
 so. A 3:2 or 5:2 split on an option sets `splitReview` (Webull changes the
 deliverable instead). The history test passes no history to the guard (its
@@ -551,6 +560,10 @@ follow stock splits" (`ENGINES_SPLIT_GUARD`) turns it off.
 The Webull paper mirror does not follow a split by itself: Webull's own
 adjustment changes the held shares or contracts, the holdings check sees the
 difference and pauses orders for review (`lib/webull-reconciliation.mjs`).
+A mirrored trade whose engine trade was rescaled after it was mirrored
+(`splitSinceLedger`: option strikes no longer match, or a stock fill before
+the split) is flagged `SPLIT_REVIEW` once and its orders are held until it is
+checked by hand.
 Test: `node scripts/engines-split-smoke.mjs` (also run by `engines-smoke.mjs`).
 
 ## Same contract on two engines
