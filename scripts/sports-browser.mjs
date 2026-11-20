@@ -640,6 +640,39 @@ try {
       if (width > 760) await page.screenshot({ path: resolve(output, `sports-pick-builder-same-game-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       assert(overflow <= 1, 'a filled Pick Builder has no sideways scroll at ' + width);
+      // Promos (2026-11-20): a profit boost and a Guarantee line from a link,
+      // priced with and without the promo, and the parlay check per pick.
+      const promoLink = encodePrefill({ operator: 'prizepicks', format: 'power', stake: 10, payouts: { 2: 3 }, promo: { type: 'profit_boost', boost_pct: 50 }, legs: [
+        { sport: 'nba', player_id: '3975', game_id: '401900003', stat: 'points', side: 'over', threshold: 0.5, offer_type: 'guarantee', normal_line: 24.5 },
+        { sport: 'nba', player_id: '1966', game_id: '401900004', stat: 'points', side: 'over', threshold: 25.5 },
+      ] });
+      await page.goto(base + '/?tab=sports-pick-builder&entry=' + promoLink);
+      await page.locator(R + '[data-sp-leg="1"]').filter({ hasText: 'LeBron' }).waitFor();
+      const pg0 = page.locator(R + '[data-sp-leg="0"]');
+      assert.equal(await pg0.locator('[data-sp-leg-offer]').inputValue(), 'guarantee', 'the Guarantee line arrives from the link');
+      assert.equal(await pg0.locator('[data-sp-leg-normal]').inputValue(), '24.5', 'with its normal line');
+      assert(await pg0.locator('[data-sp-leg-side] option[value="under"]').isDisabled(), 'a Guarantee pick is More only');
+      assert.equal(await page.locator(R + '[data-sp-promo-type]').inputValue(), 'profit_boost', 'the promo arrives from the link');
+      assert.equal(await page.locator(R + '[data-sp-promo-field="boost_pct"]').inputValue(), '50');
+      await pg0.locator('[data-sp-hist]').filter({ hasText: /Measured|Promo line/ }).waitFor();
+      if (await pg0.locator('[data-sp-usemeasured]').count()) {
+        await pg0.locator('[data-sp-usemeasured]').click();
+        assert.equal(await pg0.locator('[data-sp-src]').innerText(), 'measured', 'the measured rate keeps its label');
+      } else await pg0.locator('[data-sp-leg-chance]').fill('99');
+      await page.locator(R + '[data-sp-leg="1"] [data-sp-leg-chance]').fill('50');
+      await page.locator(R + '[data-sp-part="eval"] .sp-promo-eval').waitFor();
+      const promoEval = await page.locator(R + '[data-sp-part="eval"]').innerText();
+      assert(/Profit boost 50%[\s\S]*Expected return without the promo \+\d+\.\d%, with it \+\d+\.\d%/.test(promoEval), 'the boost is priced with and without: ' + promoEval);
+      assert(/Plus EV on your own or hit-rate chances/.test(promoEval) && /Needs/.test(promoEval) && /Guarantee from 24\.5/.test(promoEval), 'the parlay check reads every pick: ' + promoEval);
+      assert.equal(await page.locator(R + '.sp-pc-table tbody tr').count(), 2, 'one parlay-check row per pick');
+      await page.locator(R + '[data-sp-part="eval"]').screenshot({ path: resolve(output, `pick-builder-promo-${width}-${theme}.png`), animations: 'disabled' });
+      const promoOver = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert(promoOver <= 1, 'the promo check has no sideways scroll at ' + width);
+      // Back to a normal line: the Guarantee's normal line becomes the line.
+      await pg0.locator('[data-sp-leg-offer]').selectOption('standard');
+      await page.locator(R + '[data-sp-leg="0"] [data-sp-leg-line]').waitFor();
+      assert.equal(await page.locator(R + '[data-sp-leg="0"] [data-sp-leg-line]').inputValue(), '24.5', 'leaving the Guarantee restores the normal line');
+      checks += 12;
       // A long-shot parlay price in a link (121× the stake) comes back as
       // +12000, not as +121.
       const big = encodePrefill({ operator: 'sportsbook', format: 'parlay', stake: 5, payouts: { 2: 121 }, legs: [

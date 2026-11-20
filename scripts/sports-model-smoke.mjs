@@ -8,6 +8,7 @@ import {
   nbCdf, nbPmf, nbQuantile, normCdf, cdfAt, quantileOf, lineChances, fitSpread, fitCorrection, varianceOf, nbSizeOf,
   forecastStat, buildModel, modelSummary, positionGroup, MODEL_SPECS, SPORTS_MODEL_VERSION, MIN_GAMES,
   regularMinutes, absentMinutes, absenceFactor, ABSENCE, gameEnvironment, snapTrend, startShare, startingOf, factorInputs, GAME_FACTORS, curveMiss,
+  gamesMissed, teamFinalDates, regularVolume, teamRecentGames, teamVolume, vacatedShares, RETURN, VACATED, REST, teamRestDays,
 } from '../lib/sports/models.mjs';
 import { SPORTS_STATS } from '../lib/sports/schema.mjs';
 import { teamAbsence, PROP_RANK_VERSION } from '../lib/sports/props.mjs';
@@ -110,7 +111,7 @@ eq(summary.stats.assists.reason, 'not enough past games to check yet', 'a stat t
 eq(model.evaluation.pts_reb.forecasts > 0, true, 'combos are summed from the stored stats and modeled');
 // Every stat the catalog marks as modeled has a spec, in catalog order.
 for (const sp of ['nba', 'nfl']) eq(SPORTS_STATS[sp].filter((x) => x.model).map((x) => x.id), Object.keys(MODEL_SPECS[sp]), sp + ' catalog and model specs agree');
-eq(SPORTS_MODEL_VERSION, 'sports-model-6');
+eq(SPORTS_MODEL_VERSION, 'sports-model-7');
 eq(PROP_RANK_VERSION, 'props-rank-4');
 const empty = buildModel({ sport: 'nfl', rows: [], now: NOW });
 eq([empty.evaluation.passing_yards.status, empty.evaluation.receptions.reason], ['experimental', 'not enough past games to check yet'], 'no data: experimental, never validated');
@@ -243,6 +244,55 @@ eq(starts.mean, base.mean, 'starting as usual: unchanged');
 ok(benched.probability < base.probability && benched.sensitivity.opportunity_up_10 < base.sensitivity.opportunity_up_10, 'the chance and the sensitivity follow the lineup');
 eq(base.lineup, { starting: null, usual_start_share: 1, factor: 1, applied: false }, 'unknown lineup is shown with the usual role and not applied');
 eq(benched.lineup, { starting: false, usual_start_share: 1, factor: 0.73, applied: true }, 'a given lineup is shown and applied');
+// Return from absence and vacated volume (sports-model-7, 2026-11-20).
+ok(GAME_FACTORS.nba.includes('return') && GAME_FACTORS.nfl.includes('return') && GAME_FACTORS.nfl.includes('vacated') && !GAME_FACTORS.nba.includes('vacated'), 'return in both leagues, vacated NFL only');
+{
+  const sched = [['2026-01-01', 'gs', 'bos'], ['2026-01-03', 'lal', 'gs'], ['2026-01-05', 'gs', 'mia'], ['2026-01-07', 'gs', 'den'], ['2026-01-09', 'phx', 'gs', 'scheduled']]
+    .map(([d, h, a, st]) => ({ local_date: d, home_team: h, away_team: a, status: st || 'final' }));
+  const fd = teamFinalDates(sched, 'gs');
+  eq(fd, ['2026-01-01', '2026-01-03', '2026-01-05', '2026-01-07'], 'a team\u2019s finished games, sorted; a scheduled game is not counted');
+  const h = [{ date: '2026-01-05', team: 'gs', played: false }, { date: '2026-01-03', team: 'gs', played: true }];
+  eq(gamesMissed(h, 'gs', '2026-01-09', fd), 2, 'two finished games since his last played game (a DNP row is not a played game)');
+  eq(gamesMissed([{ date: '2026-01-07', team: 'gs', played: true }], 'gs', '2026-01-09', fd), 0, 'played the last game: none missed');
+  eq(gamesMissed([{ date: '2026-01-03', team: 'lal', played: true }], 'gs', '2026-01-09', fd), null, 'a new team: unknown');
+  eq(gamesMissed([{ date: '2025-10-01', team: 'gs', played: true }], 'gs', '2026-01-09', fd), null, 'more than ' + RETURN.windowDays + ' days back: unknown');
+  eq([factorInputs('return', 'nba', { missed: 2 }), factorInputs('return', 'nfl', { missed: 1 }), factorInputs('return', 'nba', { missed: null })], [[1], [0], null], 'first game back after 2+ missed reads 1, else 0, unknown none');
+  const kept = { ...modelP, context: { ...modelP.context, factors: { ...modelP.context.factors, points: { ...modelP.context.factors.points, return: { betas: [-0.08] } } } } };
+  const usual = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: kept, side: 'over', threshold: 20.5, missed: 0 });
+  const back = forecastStat({ sport: 'nba', stat: 'points', history: histP, home: true, opponent: 'bos', group: 'G', model: kept, side: 'over', threshold: 20.5, missed: 3 });
+  near(back.mean, usual.mean * 0.92, 'the first game back drops by the kept beta', 0.02);
+  ok(!usual.return_from_absence && back.return_from_absence.games_missed === 3 && back.return_from_absence.applied, 'shown only on the first game back: ' + JSON.stringify(back.return_from_absence));
+  // NFL vacated: regulars by targets or carries over the team's last 4 games.
+  const g = (i) => 'g' + i, d = (i) => '2026-10-0' + i;
+  const rowsV = [];
+  for (let i = 1; i <= 4; i++) {
+    rowsV.push({ player_id: 'wr1', team: 'kc', game_id: g(i), date: d(i), played: true, stats: { targets: 8, carries: 0 } });
+    rowsV.push({ player_id: 'rb1', team: 'kc', game_id: g(i), date: d(i), played: true, stats: { targets: 2, carries: 15 } });
+    rowsV.push({ player_id: 'wr2', team: 'kc', game_id: g(i), date: d(i), played: true, stats: { targets: 6, carries: 1 } });
+    if (i > 2) rowsV.push({ player_id: 'te1', team: 'kc', game_id: g(i), date: d(i), played: true, stats: { targets: 4, carries: 0 } });
+  }
+  const ids = teamRecentGames(rowsV, 'kc', '2026-10-09');
+  eq(ids, ['g4', 'g3', 'g2', 'g1'], 'the team\u2019s last 4 games, newest first');
+  const vol = teamVolume(rowsV, 'kc', ids);
+  eq(vol, { targets: 18, carries: 16 }, 'targets and carries per game');
+  const own = (pid) => rowsV.filter((r) => r.player_id === pid).sort((a, b) => b.date.localeCompare(a.date));
+  eq(regularVolume(own('wr1'), 'kc', '2026-10-09', ids), { targets: 8, carries: 0 }, 'a regular: his targets and carries');
+  eq(regularVolume(own('te1'), 'kc', '2026-10-09', ids), null, 'two of the last four games: not a regular yet');
+  eq(regularVolume(own('wr1'), 'kc', '2026-11-20', ids), null, 'more than ' + VACATED.windowDays + ' days back: not counted');
+  eq(vacatedShares([{ targets: 8, carries: 0 }], vol), [0.4444, 0], 'the share of the team\u2019s targets out');
+  eq(vacatedShares([{ targets: 8, carries: 0 }, { targets: 6, carries: 1 }], vol)[0], VACATED.cap, 'held to ' + VACATED.cap);
+  const nflPlayers = [{ player_id: 'wr1', name: 'Wide One', team: 'kc' }, { player_id: 'rb1', name: 'Back One', team: 'kc' }, { player_id: 'wr2', name: 'Wide Two', team: 'kc' }];
+  const outRep = [{ name: 'Wide One', team: 'kc', status: 'Out', detail: '' }, { name: 'Back One', team: 'kc', status: 'Questionable', detail: '' }];
+  const nflAbs = teamAbsence({ sport: 'nfl', team: 'kc', date: '2026-10-09', reports: outRep, players: nflPlayers, rows: rowsV });
+  ok(nflAbs.players.length === 1 && nflAbs.players[0].player_id === 'wr1' && nflAbs.vacated[0] === 0.4444 && nflAbs.minutes === 0, 'NFL: an Out regular\u2019s share of targets is vacated; Questionable is not: ' + JSON.stringify(nflAbs));
+  eq(teamAbsence({ sport: 'nfl', team: 'kc', date: '2026-10-09', reports: outRep, players: nflPlayers, rows: rowsV, exclude: 'wr1' }).vacated, [0, 0], 'the player being forecast is never his own vacated volume');
+  eq([factorInputs('vacated', 'nfl', { vacated: [0.2, 0] }), factorInputs('vacated', 'nba', { vacated: [0.2, 0] })], [[0.2, 0], null], 'vacated is an NFL input only');
+  // NFL rest: days since the team's last finished game (sports-model-7).
+  ok(GAME_FACTORS.nfl.includes('rest') && !GAME_FACTORS.nba.includes('rest'), 'rest is served for NFL only (NBA rest stays a research input)');
+  eq([teamRestDays(fd, '2026-01-09'), teamRestDays(fd, '2026-01-07'), teamRestDays(fd, '2026-01-01'), teamRestDays(fd, '2026-03-01')], [2, 2, null, null], 'days since the last finished game before the date; none, or past ' + REST.maxDays + ' days, is unknown');
+  eq([4, 5, 6, 7, 11, 12, 14].map((n) => factorInputs('rest', 'nfl', { restDays: n })), [[1, 0], [1, 0], [0, 0], [0, 0], [0, 0], [0, 1], [0, 1]], 'short week at ' + REST.short + ' days or less, off a bye at ' + REST.bye + '+');
+  eq([factorInputs('rest', 'nfl', { restDays: null }), factorInputs('rest', 'nba', { restDays: 1 }), factorInputs('rest', 'nba', { restDays: 1, extra: { rest: [1, 0] } })], [null, null, [1, 0]], 'no rest days: no input; NBA reads only the research input');
+}
 // Live: teammates listed Out or Doubtful on the injury report, regulars only.
 const lastDay = LA.rows.reduce((a, r) => (r.date > a ? r.date : a), '');
 const nextDay = new Date(Date.parse(lastDay + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
@@ -257,7 +307,7 @@ const ta = teamAbsence({ sport: 'nba', team: 'gs', date: nextDay, reports, playe
 eq(ta.players.map((x) => x.player_id).sort(), [gsReg[1].player_id, gsReg[2].player_id].sort(), 'Out and Doubtful regulars count; Questionable and a bench player do not');
 near(ta.minutes, ta.players.reduce((a, b) => a + b.minutes, 0), 'minutes add up', 0.01);
 eq(teamAbsence({ sport: 'nba', team: 'gs', date: nextDay, reports: [], players: LA.players, rows: LA.rows }), { minutes: 0, players: [] }, 'no report: nobody out');
-eq(teamAbsence({ sport: 'nfl', team: 'gs', date: nextDay, reports, players: LA.players, rows: LA.rows }).minutes, 0, 'NFL: not used');
+eq(teamAbsence({ sport: 'nfl', team: 'gs', date: nextDay, reports, players: LA.players, rows: LA.rows }).minutes, 0, 'NFL: no minutes (it counts targets and carries instead)');
 eq(teamAbsence({ sport: 'nba', team: 'gs', date: nextDay, reports, players: LA.players, rows: LA.rows, exclude: gsReg[1].player_id }).players.map((x) => x.player_id), [gsReg[2].player_id], 'the player being forecast is never their own teammate out');
 
 // --- real PrizePicks lines in the check (fix 4) -----------------------------------------
@@ -375,7 +425,7 @@ const saved = await call('POST', { sports: 'save-entry' }, { legs: [leg({ probab
 eq(saved.statusCode, 200);
 eq([saved.body.entry.legs[0].probability_source, saved.body.entry.legs[0].model.probability], ['model', lm.probability], 'the saved entry keeps the model’s chance as it was');
 const journal = await call('GET', { sports: 'journal' });
-eq(journal.body.calibration, { model: { picks: 0, mean_chance: null, hit_rate: null, brier: null }, used: { picks: 0, mean_chance: null, hit_rate: null, brier: null } }, 'nothing settled: no calibration yet');
+eq(journal.body.calibration, { model: { picks: 0, mean_chance: null, hit_rate: null, brier: null }, used: { picks: 0, mean_chance: null, hit_rate: null, brier: null }, promo_lines: { picks: 0, mean_chance: null, hit_rate: null, brier: null } }, 'nothing settled: no calibration yet');
 
 // --- calibration of settled picks ---------------------------------------------------
 const settledLegs = [
