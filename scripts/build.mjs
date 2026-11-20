@@ -59,7 +59,7 @@ import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains, chainPutCallTotals, impliedBorrowRate } from "../lib/market-structure.mjs";
 import { MACRO_HISTORY_KEEP, VIX_RANK_WINDOW, macroLevelsFromBackdrop, macroLevelsLate, mergeMacroLevels } from "../lib/macro-levels.mjs";
-import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIONS_BACKFILL_VERSION, TREASURY_AUCTIONS_BACKFILL_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
+import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIONS_BACKFILL_VERSION, TREASURY_AUCTIONS_BACKFILL_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, treasuryDirectUrl, parseTreasuryDirectRows, treasuryDirectNeeded, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
 import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
 import { buildMarketMap, MARKET_MAP_FILE, barsOf as marketMapBarsOf } from "../lib/market-map.mjs";
@@ -12899,30 +12899,65 @@ export async function fetchTreasuryAuctionRows(sinceDate, fetchImpl = fetch, opt
   if (!body || !Array.isArray(body.data)) throw new Error("Fiscal Data auctions: unexpected shape (no data array)");
   return parseTreasuryAuctionRows(body);
 }
+export async function fetchTreasuryDirectRows(days, fetchImpl = fetch) {
+  const url = treasuryDirectUrl(days);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  let res;
+  try {
+    res = await fetchImpl(url, { headers: { Accept: "application/json", "User-Agent": "stonks-research/1.0 (+https://mingstreet.app)" }, signal: ctrl.signal });
+  } finally { clearTimeout(timer); }
+  if (!res.ok) throw new Error(`TreasuryDirect auctions HTTP ${res.status}`);
+  const body = await res.json();
+  if (!Array.isArray(body)) throw new Error("TreasuryDirect auctions: unexpected shape (no array)");
+  return parseTreasuryDirectRows(body);
+}
 export async function writeTreasuryAuctionsFile(prior, builtAtIso, { fetchImpl = fetch } = {}) {
   const today = etDateKey(new Date(builtAtIso || Date.now()));
   let state = prior || emptyTreasuryAuctions();
-  let fetched = 0, skipped = "";
+  let fetched = 0, skipped = "", fallbackRows = null;
   const needsBackfill = state.backfillVersion !== TREASURY_AUCTIONS_BACKFILL_VERSION;
   if (treasuryAuctionsFetchedToday(state, today) && !needsBackfill) skipped = "already read today";
   else {
-    if (needsBackfill) {
-      // One read of two years of coupon auctions (about 210 rows, ~35 KB).
-      const since2y = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_BACKFILL_DAYS * 86400000).toISOString().slice(0, 10);
-      const coupons = await fetchTreasuryAuctionRows(since2y, fetchImpl, { couponsOnly: true, pageSize: 1000 });
-      fetched += coupons.length;
-      state = { ...upsertTreasuryAuctions(state, coupons, { now: new Date().toISOString() }), backfillVersion: TREASURY_AUCTIONS_BACKFILL_VERSION };
+    let fiscalError = null, fiscalRows = [];
+    try {
+      if (needsBackfill) {
+        // One read of two years of coupon auctions (about 210 rows, ~35 KB).
+        const since2y = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_BACKFILL_DAYS * 86400000).toISOString().slice(0, 10);
+        const coupons = await fetchTreasuryAuctionRows(since2y, fetchImpl, { couponsOnly: true, pageSize: 1000 });
+        fetched += coupons.length;
+        state = { ...upsertTreasuryAuctions(state, coupons, { now: new Date().toISOString() }), backfillVersion: TREASURY_AUCTIONS_BACKFILL_VERSION };
+      }
+      const since = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
+      const rows = await fetchTreasuryAuctionRows(since, fetchImpl);
+      fetched += rows.length;
+      fiscalRows = rows;
+      state = { ...upsertTreasuryAuctions(state, rows, { fetchedDate: today, now: new Date().toISOString() }), backfillVersion: state.backfillVersion };
+    } catch (err) {
+      fiscalError = err;
     }
-    const since = new Date(Date.parse(`${today}T12:00:00Z`) - TREASURY_AUCTIONS_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
-    const rows = await fetchTreasuryAuctionRows(since, fetchImpl);
-    fetched += rows.length;
-    state = { ...upsertTreasuryAuctions(state, rows, { fetchedDate: today, now: new Date().toISOString() }), backfillVersion: state.backfillVersion };
+    // Fiscal Data behind (or down): fill the same rows from TreasuryDirect.
+    // Judged on Fiscal Data's own read, not the stored rows, so a fallback
+    // fill one day does not hide a feed that is still behind the next day.
+    if (fiscalError || treasuryDirectNeeded({ auctions: fiscalRows }, today)) {
+      try {
+        const td = await fetchTreasuryDirectRows(TREASURY_AUCTIONS_LOOKBACK_DAYS, fetchImpl);
+        fetched += td.length;
+        fallbackRows = td.length;
+        state = { ...upsertTreasuryAuctions(state, td, { fetchedDate: today, now: new Date().toISOString() }), backfillVersion: state.backfillVersion,
+          fallback: { name: "TreasuryDirect", url: "https://www.treasurydirect.gov/auctions/auction-query/", usedOn: today, rows: td.length } };
+      } catch (err) {
+        if (fiscalError) throw fiscalError;
+        console.warn(`[treasury-auctions] TreasuryDirect fallback skipped — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+    if (fiscalError && fallbackRows == null) throw fiscalError;
   }
   const summary = summarizeTreasuryAuctions(state, { today });
   const payload = { ...state, summary };
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, TREASURY_AUCTIONS_KEY), json, "utf8");
-  return { fetched, skipped, total: state.auctions.length, weak: summary.weak, bytes: json.length };
+  return { fetched, skipped, total: state.auctions.length, weak: summary.weak, bytes: json.length, fallbackRows };
 }
 
 export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarkets = null) {
@@ -41019,7 +41054,7 @@ async function main() {
   // day; a miss keeps the prior file. Non-fatal.
   try {
     const ta = await writeTreasuryAuctionsFile(priorTreasuryAuctions, builtAtIso);
-    console.log(`wrote data/${TREASURY_AUCTIONS_KEY} — ${ta.total} auctions (${ta.skipped || `${ta.fetched} rows read`}), ${ta.weak.length ? `soft demand: ${ta.weak.join(", ")}` : "demand normal"}, ${ta.bytes} bytes`);
+    console.log(`wrote data/${TREASURY_AUCTIONS_KEY} — ${ta.total} auctions (${ta.skipped || `${ta.fetched} rows read`}), ${ta.fallbackRows != null ? `, TreasuryDirect filled ${ta.fallbackRows} rows` : ""}, ${ta.weak.length ? `soft demand: ${ta.weak.join(", ")}` : "demand normal"}, ${ta.bytes} bytes`);
   } catch (err) {
     console.log(`  ⚠ Treasury auctions step failed (non-fatal): ${err.message}`);
     if (priorTreasuryAuctions) {

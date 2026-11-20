@@ -70,7 +70,7 @@ export function regimeLabFixture() {
   const contractFor = () => ({ strike: 50, expiry, dte: 60, bid: 2, ask: 2.2, mid: 2.1, iv: 0.3, delta: 0.55, thetaDay: -0.02 });
   P.openShadowBooks(state, { run, label: series.rows[series.rows.length - 1], barsOf: (s) => m.members[s] || null, contractFor, builtAtIso, sectorOf: (s) => (Number(s.slice(1)) % 3 ? "Tech" : "Energy"), bar: 4 });
   const chains = {}; for (const s of Object.keys(m.members)) chains[s] = { spot: m.members[s][n - 1].c * 1.03 };
-  P.markShadowBooks(state, { chains, builtAtIso, markFn: (e, data) => ((Math.round(data.spot) % 10) - 4) * 8 * (e.side === "call" ? 1 : -1), resolveFn: (o) => (o.modeledOptPnlPct >= o.exitPolicy.takeProfitPct ? { status: "hit-tp-prem", outcome: "win" } : o.modeledOptPnlPct <= o.exitPolicy.stopPct ? { status: "hit-stop-prem", outcome: "loss" } : null), outcomeFn: (p) => (p >= 0 ? "win" : "loss") });
+  P.markShadowBooks(state, { chains, builtAtIso, markFn: (e, data) => ((Math.round(data.spot) % 10) - 4) * 8 * (e.side === "call" ? 1 : -1), resolveFn: (o) => (o.modeledOptPnlPct >= o.exitPolicy.takeProfitPct ? { status: "hit-tp-prem", outcome: "win" } : o.modeledOptPnlPct <= -o.exitPolicy.stopPct ? { status: "hit-stop-prem", outcome: "loss" } : null), outcomeFn: (p) => (p >= 0 ? "win" : "loss") });
   // A small live record with label stamps and a cluster day.
   const closed = [];
   for (let i = 0; i < 40; i++) {
@@ -298,6 +298,39 @@ async function main() {
   assert.equal(isBakeOwnedKey(key), true, "the bake owns the file");
   assert.equal(isLocalOnlyKey(key), false);
   assert.equal(isDynamicBakeKey(key), false);
+
+  // ---- shadow book stops (2026-11-20) ----------------------------------------
+  // resolvePickOutcome closes at pnl <= -stopPct with a POSITIVE stop; the
+  // books once passed the playbook's negative stop, so every trade closed at
+  // its first mark. Use the same rule here, not a signed shortcut.
+  {
+    const realStop = (o) => (o.modeledOptPnlPct >= o.exitPolicy.takeProfitPct ? { status: "hit-tp-prem", outcome: "win" } : o.modeledOptPnlPct <= -o.exitPolicy.stopPct ? { status: "hit-stop-prem", outcome: "loss" } : null);
+    assert.equal(P.emptyRegimeLabState().books.version, P.SHADOW_BOOKS_VERSION, "fresh books carry the version");
+    const base = { strategy: "same-rules", playbook: "same", side: "call", contract: { expiry: 4102444800 }, entrySpot: 100, entryDate: "2026-11-18T16:00:00Z" };
+    const pnlOf = { AAA: -10, BBB: -45, CCC: 30 };
+    const seen = [];
+    // markFn returns null, so each trade keeps its stored P&L.
+    const st2 = P.emptyRegimeLabState();
+    st2.books.open = Object.entries(pnlOf).map(([symbol, pnl]) => ({ ...base, symbol, optionPnlPct: pnl, stopPct: symbol === "BBB" ? -40 : -50, tpPct: 25 }));
+    P.markShadowBooks(st2, { chains: { AAA: { spot: 99 }, BBB: { spot: 95 }, CCC: { spot: 104 } }, builtAtIso: "2026-11-20T16:00:00Z", markFn: () => null, resolveFn: (o) => { seen.push(o.exitPolicy.stopPct); return realStop(o); } });
+    assert.ok(seen.length === 3 && seen.every((x) => x > 0), "the stop reaches the resolver as a positive size");
+    assert.deepEqual(st2.books.open.map((e) => e.symbol), ["AAA"], "a -10% trade stays open");
+    assert.deepEqual(st2.books.closed.map((e) => `${e.symbol}:${e.status}`).sort(), ["BBB:hit-stop-prem", "CCC:hit-tp-prem"], "-45% hits the -40 stop, +30% the target");
+    // Live record stops are stored positive (50); the risk table shows them signed.
+    const rk = P.riskForOpenTrades([{ symbol: "AAA", side: "call", contract: { structure: "long", dte: 40 }, exitPolicy: { takeProfitPct: 25, stopPct: 50 } }], { era: "stressed" });
+    assert.equal(rk.rows[0].stopNow, -50, "the live -50% stop reads -50");
+    assert.equal(rk.rows[0].tightens, rk.rows[0].ladderStop > -50, "the ladder flag compares signed stops");
+    // Books written under the old version start over; the current version survives a round trip.
+    const old = P.parseRegimeLabState(JSON.stringify({ history: [], books: { open: [{ ...base, symbol: "AAA" }], closed: [{ ...base, symbol: "BBB" }], runs: 9, since: "2026-11-10T15:00:00Z" } }));
+    assert.equal(old.books.open.length + old.books.closed.length, 0, "old books are reset");
+    assert.deepEqual(old.booksReset, { from: 1, open: 1, closed: 1 });
+    const pay = P.buildRegimeLabPayload({ state: st2, labels: null, today: "2026-11-20" });
+    assert.equal(pay.books.version, P.SHADOW_BOOKS_VERSION, "the written file carries the books version");
+    const again = P.parseRegimeLabState(JSON.stringify(pay));
+    assert.equal(again.booksReset, undefined, "current books are kept");
+    assert.equal(again.books.open.length, 1);
+    assert.equal(again.books.closed.length, 2);
+  }
 
   // ---- render --------------------------------------------------------------------------------
   // ---- positioning and credit labeler (research only) -----------------------
