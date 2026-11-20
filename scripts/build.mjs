@@ -42221,6 +42221,9 @@ async function main() {
           ],
           regime: regimeLabToday, labelRows: regimeLabLabels?.series?.rows || null,
           macroState: macroBackdrop?.macroRegime?.state || null,
+          // Its de-gross multiplier (0.8 fragile, 0.6-1 risk-off, 0.4
+          // severe): market-risk sizing of engine longs (2026-11-20).
+          macroGross: macroBackdrop?.macroRegime?.grossMult ?? null,
           // CNN fear and greed as fetched this bake (stale = last-good); the
           // extreme-fear bounce test reads it (2026-11-19). When CNN failed
           // and Webull's index is proven to be CNN's (webullFearGreed above),
