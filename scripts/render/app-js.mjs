@@ -41750,7 +41750,7 @@ ${renderExportBindings()}
       return (i > 0 ? accRuleDivider(openSegs[i - 1], seg) : '') + (asTable ? openPicksTableHtml(items) : accOpenRowsHtml(items, !!sortKey));
     }).join('');
     return '<div class="accuracy-group">' +
-      '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
+      '<div class="accuracy-group-head">Top Picks trades <span class="accuracy-group-n">' + open.length + '</span></div>' +
       openRows +
     '</div>';
   }
@@ -42007,7 +42007,7 @@ ${renderExportBindings()}
     return '<details class="tl-block">' +
       '<summary class="tl-head">Trade lines for copy and paste <span class="accuracy-group-n">' + n + '</span>' +
         '<button type="button" class="tl-copy" data-tl-copy="1">Copy all</button></summary>' +
-      '<p class="hint tl-hint">Every open trade, plus every close from the last 7 days. Each ID is the ticker, C (call) or P (put), then the open date and time in ET (MM/DD/YY-HH:MM), and a CLOSE keeps the same ID as its OPEN. Copy all copies the same text as your private feed link. Prices are per share (1 contract = 100 shares).</p>' +
+      '<p class="hint tl-hint">Every open Top Picks trade, plus every Top Picks close from the last 7 days (engine trades are in the table above). Each ID is the ticker, C (call) or P (put), then the open date and time in ET (MM/DD/YY-HH:MM), and a CLOSE keeps the same ID as its OPEN. Copy all copies the same text as your private feed link. Prices are per share (1 contract = 100 shares).</p>' +
       (opens.length ? '<div class="tl-sub">Open trades</div><ul class="tl-list">' + opens.map(tlBlockHtml).join('') + '</ul>' : '') +
       (closes.length ? '<div class="tl-sub">Closed in the last 7 days</div><ul class="tl-list">' + closes.map(tlBlockHtml).join('') + '</ul>' : '') +
       '<textarea class="tl-src" hidden readonly>' + escapeHtml(tlFeedText(builtAtIso, opens, closes)) + '</textarea>' +
@@ -42093,6 +42093,16 @@ ${renderExportBindings()}
   }
   function openPicksTableHtml(items){
     function money(v){ v = Number(v); return isFinite(v) && v > 0 ? '$' + v.toFixed(2) : ''; }
+    // The record stores the marked P&L, not the mark itself, so the mark is
+    // rebuilt from the same basis markOptionToMarket uses: a long or debit
+    // spread is worth basis x (1 + P&L); a credit spread costs
+    // credit x (1 - P&L) to buy back.
+    function openPickMark(o){
+      var c = o && o.contract; var b = Number(accBasisPerShare(c)), p = Number(o && o.optionPnlPct);
+      if (!(b > 0) || o.optionPnlPct == null || o.optionPnlPct === '' || !isFinite(p)) return null;
+      var m = c.structure === 'credit_vertical' ? b * (1 - p / 100) : b * (1 + p / 100);
+      return m >= 0 ? Math.round(m * 100) / 100 : null;
+    }
     var cols = [
       { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml('Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
       { label: 'Side', cell: function(o){ var sd = o.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(o){ return o.side || null; } },
@@ -42103,9 +42113,10 @@ ${renderExportBindings()}
       { label: 'Opened (ET)', cell: function(o){ return o.entryDate ? escapeHtml(accOpenedEt(o.entryDate)) : ''; }, sort: function(o){ var t = Date.parse(o.entryDate); return isFinite(t) ? t : null; } },
       { label: 'Stop → target', title: 'Where the stock sits between the stock stop and the take-profit level', cell: function(o){ return accRangeBarHtml(o, true); }, sort: accRangeProgress },
       { label: 'Days held', num: true, cell: function(o){ var d = openPickDays(o.entryDate); return d == null ? '' : d.toFixed(d < 10 ? 1 : 0); }, sort: function(o){ return openPickDays(o.entryDate); } },
-      { label: 'Entry', num: true, title: 'Entry premium per share', cell: function(o){ var c = o.contract || {}; return money(c.netDebit != null ? c.netDebit : c.mid); }, sort: function(o){ var c = o.contract || {}; var v = Number(c.netDebit != null ? c.netDebit : c.mid); return isFinite(v) ? v : null; } },
-      { label: 'Mark', num: true, title: 'Latest model price per share', cell: function(o){ return money(o.optionPremiumLast); }, sort: function(o){ var v = Number(o.optionPremiumLast); return isFinite(v) ? v : null; } },
+      { label: 'Entry', num: true, title: 'Entry premium per share (the credit received for a credit spread)', cell: function(o){ return money(accBasisPerShare(o.contract)); }, sort: function(o){ var v = Number(accBasisPerShare(o.contract)); return isFinite(v) ? v : null; } },
+      { label: 'Mark', num: true, title: 'Latest model price per share, from the entry price and the marked P&L (for a credit spread, the cost to buy it back)', cell: function(o){ return money(openPickMark(o)); }, sort: openPickMark },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
+      { label: 'Webull', title: typeof OP_WB_TIP === 'string' ? OP_WB_TIP : 'What the Webull paper account did with this trade', cell: function(o){ return typeof opWebullHtml === 'function' ? opWebullHtml(tlTradeId(o)) : ''; }, sort: function(o){ return typeof opWebullSort === 'function' ? opWebullSort(tlTradeId(o)) : null; } },
       { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },
       { label: 'Conviction', cell: function(o){ return escapeHtml(o.conviction || o.label || ''); }, sort: function(o){ var v = Number(o.score); return isFinite(v) ? Math.abs(v) : null; } }
@@ -42144,30 +42155,39 @@ ${renderExportBindings()}
       return;
     }
     if (eyebrow) eyebrow.textContent = d.builtAtIso ? 'marked ' + accDateTime(d.builtAtIso) : '';
-    if (!open.length){
-      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
-      openPicksRunHealth(root, d);
-      accPaneSummary('open-picks-sum', [{ val: '0', lbl: 'open positions' }]);
-      return;
+    // Every open trade in the Webull paper account (owner, 2026-11-19): Top
+    // Picks first, then every strategy engine, trial and test trade, and any
+    // trade still working at Webull after its record closed.
+    var withEngines = HAS_OWNER_ACCESS && typeof engOpenPicksHtml === 'function';
+    if (withEngines){
+      if (!engState.data && !engState.error && !engState.loading) loadEngines(false);
+      opLoadWebull(false);
     }
-    var marks = [], greens = 0, calls = 0;
+    var engOpen = withEngines ? engOpenTrades() : [];
+    var wbOnly = withEngines ? opWebullOnly(open, engOpen) : [];
+    var engHtml = withEngines ? engOpenPicksHtml(engOpen, wbOnly) : '';
+    var total = open.length + engOpen.length + wbOnly.length;
+    var marks = [], greens = 0;
     open.forEach(function(o){
-      if (o.side !== 'put') calls++;
       var p = Number(o.optionPnlPct);
-      if (!isFinite(p)) return;
+      if (o.optionPnlPct == null || !isFinite(p)) return;
       marks.push(p); if (p > 0) greens++;
     });
     accPaneSummary('open-picks-sum', [
-      { val: String(open.length), lbl: 'open positions' },
-      { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
-      marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
+      { val: String(total), lbl: 'open trades', tip: 'Every open trade in the Webull paper account: Top Picks, the strategy engines (with their paper trials and tests) and anything still working at Webull.' },
+      withEngines ? { val: open.length + ' · ' + engOpen.length, lbl: 'Top Picks · engines' } : null,
+      marks.length ? { val: accPct(accMean(marks)), lbl: 'avg Top Picks mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open Top Picks trades (unrealized).' } : null,
     ]);
+    if (!open.length){
+      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+      openPicksRunHealth(root, d);
+      return;
+    }
     loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
-    if (HAS_OWNER_ACCESS && typeof loadEngines === 'function' && !engState.data && !engState.error && !engState.loading) loadEngines(false);
-    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
     // Strategy engines: a note when a Top Picks trade and an engine trade are on the exact same contract.
-    var engNote = (typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '') + (typeof engOpenLinkHtml === 'function' ? engOpenLinkHtml() : '');
+    var engNote = typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '';
     if (engNote){ var engAfter = root.querySelector('.book-risk'); if (engAfter) engAfter.insertAdjacentHTML('afterend', engNote); else root.insertAdjacentHTML('afterbegin', engNote); }
     openPicksRunHealth(root, d);
   }
@@ -42262,7 +42282,7 @@ ${renderExportBindings()}
       }).join(' ') + '</td><td class="num">' + usd(th) + '/day</td><td>' + (macro == null ? '<small class="muted">Loading…</small>' : macro.length ? macro.map(function(m){ return '<span class="book-ev">' + escapeHtml(m) + '</span>'; }).join(' · ') : '<small class="muted">None</small>') + '</td></tr>';
     }).join('');
     var top = rows.slice().sort(function(a, b){ return Math.abs(b.g.deltaUsd) - Math.abs(a.g.deltaUsd); })[0];
-    return '<details class="accuracy-advanced book-risk"' + (VIEWS.get('open-picks.book', true) ? ' open' : '') + ' data-book-risk><summary class="accuracy-advanced-summary">Book risk <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body">' +
+    return '<details class="accuracy-advanced book-risk"' + (VIEWS.get('open-picks.book', true) ? ' open' : '') + ' data-book-risk><summary class="accuracy-advanced-summary">Book risk: Top Picks <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body">' +
       '<div class="mm-kpis">' +
         '<div class="mm-kpi"><span>Net stock exposure (delta $)</span><b class="' + (netDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + usd(netDelta) + '</b></div>' +
         '<div class="mm-kpi"><span>Gross exposure</span><b>' + usd(grossDelta) + '</b></div>' +

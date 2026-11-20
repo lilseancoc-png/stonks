@@ -261,7 +261,7 @@
   }
 
 
-  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0,""],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0,"daily-brief"],["whats-changed","What changed","Since yesterday diff changes new walls crosses streaks insiders","What is new since the previous trading day: option walls and trades, average crosses, streaks, filings and insider trades.",0,"daily-brief"],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0,"daily-brief"],["past-day","Past days","Time machine history date picker archive replay","Pick an earlier trading day and see the heatmap and index moves as they were.",0,"daily-brief"],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0,""],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0,""],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0,""]]],["stocks","Stocks","Stocks","Look up, screen, compare and follow companies",0,[["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0,""],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1,""],["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0,"screener"],["market-map","Market map","Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts","Every tracked stock on one screen: options fear, any two numbers, every chart, what moves together, breadth and short interest.",0,"screener"],["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0,"price-signals"],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0,"price-signals"],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0,"price-signals"],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0,""],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0,"ownership"],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0,"ownership"]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings-week","Earnings week ahead","Earnings board implied move expected move straddle this week","Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.",0,"earnings-hub"],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0,"earnings-hub"],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0,"earnings-hub"],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0,"earnings-hub"]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0,""],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0,""],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0,""]]],["market","Markets & economy","Market","The big picture: rates, commodities, mood, money and history",0,[["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0,""],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0,"commodities-hub"],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0,"commodities-hub"],["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0,"sentiment"],["crowd","Crowd & positioning","Positioning put call ratio COT commitments of traders margin debt short volume borrow fee Reddit mentions Wikipedia Stocktwits Kalshi odds perps Hyperliquid leveraged ETF flows","How traders are positioned and where the crowd is looking: put/call ratios, futures, margin debt, short selling, attention, odds.",0,"sentiment"],["prediction-markets","Prediction markets","Kalshi Polymarket odds betting markets election odds Fed cut odds tariffs ceasefire war recession odds event contracts what traders are betting on","What traders on Kalshi and Polymarket bet on: the Fed, policy, elections, wars, crypto and companies, and the stocks each bet could move.",0,"sentiment"],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0,"sentiment"],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0,""],["history-rhymes","Booms & busts","History rhymes historical case studies railroad railway mania panic of 1873 telecom fiber dot-com bubble 2008 financial crisis housing subprime AI data center buildout GPU debt depreciation credit default swaps CDS credit spreads default risk Merton","Railroads, telecom fiber and the 2008 housing crash beside today’s AI data center buildout, and how many of their warning signs show now.",0,"history-hub"],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0,"history-hub"],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0,"history-hub"]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0,"ai-hub"],["ai-disruption","AI disruption","AI launches labs OpenAI Anthropic Google Gemini Microsoft Copilot Meta xAI Grok release notes software disruption SaaS capture score","What the AI labs ship, how ready each launch is to take customers from traditional software, and which companies it targets.",0,"ai-hub"],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0,"chip-prices"],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0,"chip-prices"]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0,"guides"],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0,"guides"],["glossary","Glossary","Words terms definitions meaning C/P OI IV percentile gamma","Plain-English meanings for the options and market words used on this site.",0,"guides"],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0,"guides"],["contact","Send us a message","Contact us feedback message email support help question bug report","Send the site owners a question, idea or bug report, with an email or social link if you want a reply.",0,""],["privacy","Privacy Policy","","What this site collects and how it is used.",1,""],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1,""]]],["owner","Owner · Desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0,"owner-brief"],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0,"owner-brief"],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0,"market-risk"],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0,"market-risk"],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0,"market-risk"],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0,""]]],["owner-ideas","Owner · Trades","Trades","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0,""],["open-picks","Open picks","Check a position you hold Personal tools","Every open trade, with lines ready to copy to a broker, and a checker for a contract you already hold.",0,""],["track","Top Picks track record","","How every closed pick worked out.",0,""],["engines","Strategy engines","Paper engines earnings macro technicals fundamentals flow reversion trend momentum allocator ERN MAC TEC FUN FLO REV TRD MOM","Eight rules-only paper engines beside Top Picks, each with its own trades and record, and the Allocator’s read of every setup.",0,""],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0,""],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0,"idea-desks"],["stocks","Stock picks","Daily DCA dial VOO QQQ","Quality companies on a dip, as shares rather than options, and your daily VOO and QQQ amount.",0,"idea-desks"],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine, with sizing for your account.",0,"idea-desks"],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up, with sizing for your account.",0,"idea-desks"]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["quant-labs","Quant labs","Market odds drawdown chance calibration factors volatility forecast annual report risk factors registry","Chance of a market fall, how honest the site's stated chances have been, factor and volatility reads, annual report changes.",0,"research-labs"],["quant","Owner Lab","","Research screens, stored records, tests and gates, Regime Lab and the loop.",0,"research-labs"],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0,"company-models"],["valuation-lab","Valuation lab","Valuation DCF discounted cash flow fair value intrinsic value price discovery multiples peers PEG book value residual income rate sensitivity reverse DCF what is priced in scenarios tariffs taxes election analysts","Value a stock eight ways in 28 environments, then see what the price assumes and what analysts may be missing.",0,"company-models"],["historical-data","Historical Data","","The stored history behind the private research.",0,"owner-history"],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0,"owner-history"],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0,""]]],["owner-admin","Owner · Admin","Admin","Settings and build health",1,[["owner-settings","Settings","Owner settings switches kill switch toggles config controls","Change Top Picks, research and live site switches on the site, with history and undo.",0,"admin"],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0,"admin"]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, two-player PrizePicks combinations across the slate, supporting analysis and the prop track record.",0,""],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0,""],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0,""]]]];
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0,""],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0,"daily-brief"],["whats-changed","What changed","Since yesterday diff changes new walls crosses streaks insiders","What is new since the previous trading day: option walls and trades, average crosses, streaks, filings and insider trades.",0,"daily-brief"],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0,"daily-brief"],["past-day","Past days","Time machine history date picker archive replay","Pick an earlier trading day and see the heatmap and index moves as they were.",0,"daily-brief"],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0,""],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0,""],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0,""]]],["stocks","Stocks","Stocks","Look up, screen, compare and follow companies",0,[["stock","Look up a stock","Stock page quote ticker company chart","One company: its price chart, key numbers, news, earnings, options and who owns it.",0,""],["grade","Grade a stock","Grade a ticker stock report Look up","One stock in depth: its grade, setup signals, fundamentals and the option contract to trade.",1,""],["tickers","All stocks","Tickers","Every stock the site follows, with its price, returns and sector.",0,"screener"],["market-map","Market map","Fear map scatter chart wall sparklines correlation crowding breadth short interest crowded shorts","Every tracked stock on one screen: options fear, any two numbers, every chart, what moves together, breadth and short interest.",0,"screener"],["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0,"price-signals"],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0,"price-signals"],["volume","Trading volume","Volume shares","Days when a stock traded many more or fewer shares than usual.",0,"price-signals"],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0,""],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0,"ownership"],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0,"ownership"]]],["earnings","Earnings","Earnings","Results, what management said, and how peers react",0,[["earnings-week","Earnings week ahead","Earnings board implied move expected move straddle this week","Every covered report in the next 10 days: the move options expect next to the stock’s own past moves.",0,"earnings-hub"],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0,"earnings-hub"],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0,"earnings-hub"],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0,"earnings-hub"]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0,""],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0,""],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0,""]]],["market","Markets & economy","Market","The big picture: rates, commodities, mood, money and history",0,[["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0,""],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0,"commodities-hub"],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0,"commodities-hub"],["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0,"sentiment"],["crowd","Crowd & positioning","Positioning put call ratio COT commitments of traders margin debt short volume borrow fee Reddit mentions Wikipedia Stocktwits Kalshi odds perps Hyperliquid leveraged ETF flows","How traders are positioned and where the crowd is looking: put/call ratios, futures, margin debt, short selling, attention, odds.",0,"sentiment"],["prediction-markets","Prediction markets","Kalshi Polymarket odds betting markets election odds Fed cut odds tariffs ceasefire war recession odds event contracts what traders are betting on","What traders on Kalshi and Polymarket bet on: the Fed, policy, elections, wars, crypto and companies, and the stocks each bet could move.",0,"sentiment"],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0,"sentiment"],["capital-raises","Capital markets","Capital raises share sales buybacks IPOs credit issuance debt","Companies selling stock or debt or buying shares back, upcoming IPOs, and how easily companies and households can borrow.",0,""],["history-rhymes","Booms & busts","History rhymes historical case studies railroad railway mania panic of 1873 telecom fiber dot-com bubble 2008 financial crisis housing subprime AI data center buildout GPU debt depreciation credit default swaps CDS credit spreads default risk Merton","Railroads, telecom fiber and the 2008 housing crash beside today’s AI data center buildout, and how many of their warning signs show now.",0,"history-hub"],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0,"history-hub"],["index-cal","Daily index moves","Index calendar","A month grid of the major index funds’ daily moves, showing which days the whole market joined in.",0,"history-hub"]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0,"ai-hub"],["ai-disruption","AI disruption","AI launches labs OpenAI Anthropic Google Gemini Microsoft Copilot Meta xAI Grok release notes software disruption SaaS capture score","What the AI labs ship, how ready each launch is to take customers from traditional software, and which companies it targets.",0,"ai-hub"],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0,"chip-prices"],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0,"chip-prices"]]],["learn","Learn & help","Learn","Guides and when the data updates",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0,"guides"],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0,"guides"],["glossary","Glossary","Words terms definitions meaning C/P OI IV percentile gamma","Plain-English meanings for the options and market words used on this site.",0,"guides"],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0,"guides"],["contact","Send us a message","Contact us feedback message email support help question bug report","Send the site owners a question, idea or bug report, with an email or social link if you want a reply.",0,""],["privacy","Privacy Policy","","What this site collects and how it is used.",1,""],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",1,""]]],["owner","Owner · Desk","Owner","The private daily read",1,[["owner-market-brief","Owner Market Brief","Private digest outlook predictions scenarios research","The full site read, with private research, conditional paths, counterevidence and a curated review shortlist.",0,"owner-brief"],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0,"owner-brief"],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0,"market-risk"],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0,"market-risk"],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0,"market-risk"],["unified-signal-engine","Unified Signal Engine","","Existing decisions with separate investment and trading perspectives.",0,""]]],["owner-ideas","Owner · Trades","Trades","Trade ideas and how they worked out",1,[["picks","Top picks","","The model’s highest-conviction option contracts for today.",0,""],["open-picks","Open picks","Check a position you hold Personal tools","Every open Webull paper trade, Top Picks and the strategy engines, with copy-ready trade lines and a checker for a contract you hold.",0,""],["track","Top Picks track record","","How every closed pick worked out.",0,""],["engines","Strategy engines","Paper engines earnings macro technicals fundamentals flow reversion trend momentum allocator ERN MAC TEC FUN FLO REV TRD MOM","Eight rules-only paper engines beside Top Picks, each with its own trades and record, and the Allocator’s read of every setup.",0,""],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0,""],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0,"idea-desks"],["stocks","Stock picks","Daily DCA dial VOO QQQ","Quality companies on a dip, as shares rather than options, and your daily VOO and QQQ amount.",0,"idea-desks"],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine, with sizing for your account.",0,"idea-desks"],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up, with sizing for your account.",0,"idea-desks"]]],["owner-research","Owner · Research","Research","Private studies and data",1,[["quant-labs","Quant labs","Market odds drawdown chance calibration factors volatility forecast annual report risk factors registry","Chance of a market fall, how honest the site's stated chances have been, factor and volatility reads, annual report changes.",0,"research-labs"],["quant","Owner Lab","","Research screens, stored records, tests and gates, Regime Lab and the loop.",0,"research-labs"],["earnings-forecast","Earnings Forecast","Quarterly full-year valuation company history revenue EPS industry model","Quarterly forecasts for the top 20 covered companies, company history, full-year valuation and linked industry evidence.",0,"company-models"],["valuation-lab","Valuation lab","Valuation DCF discounted cash flow fair value intrinsic value price discovery multiples peers PEG book value residual income rate sensitivity reverse DCF what is priced in scenarios tariffs taxes election analysts","Value a stock eight ways in 28 environments, then see what the price assumes and what analysts may be missing.",0,"company-models"],["historical-data","Historical Data","","The stored history behind the private research.",0,"owner-history"],["party-tracker","Party tracker","Party-Tracker Democrats Republicans president house senate","How the market and each sector did when Democrats or Republicans held the presidency, the House, or the Senate.",0,"owner-history"],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0,""]]],["owner-admin","Owner · Admin","Admin","Settings and build health",1,[["owner-settings","Settings","Owner settings switches kill switch toggles config controls","Change Top Picks, research and live site switches on the site, with history and undo.",0,"admin"],["update-checker","Update Checker","Build status failures feature health stale missing updates","Build failures and checks of published feature outputs.",0,"admin"]]],["sports","Sports","Sports","Private NBA and NFL research",1,[["sports-nba","NBA","Basketball players props points rebounds games win bust track record PrizePicks","NBA games, two-player PrizePicks combinations across the slate, supporting analysis and the prop track record.",0,""],["sports-nfl","NFL","Football players props passing yards receptions games win bust track record PrizePicks","NFL games, the best two PrizePicks props per game, supporting analysis and the prop track record.",0,""],["sports-pick-builder","Pick Builder","Sports picks entry payout paper journal PrizePicks Betr","Build a 1 to 6 pick entry with its real payout, see the odds and save it as a paper pick.",0,""]]]];
   // Merged pages: hub id -> [label, blurb]. A page's hub is item[5].
   var SITE_HUBS = {"daily-brief":["Daily brief","The day in one place: the digest, what changed since the last session, the overnight markets and earlier days."],"screener":["Screener","Every tracked stock in one list or on one map, sorted and filtered on any number."],"price-signals":["Price signals","Moving averages, up/down streaks and unusual trading volume across every tracked stock."],"ownership":["Ownership & deals","What big funds and insiders bought and sold, and the takeovers still pending."],"earnings-hub":["Earnings","This season in one place: the week ahead, results, what management said and how peers react."],"commodities-hub":["Commodities","Raw material prices and the stocks they move, plus central-bank gold buying."],"sentiment":["Sentiment & odds","How investors feel, how traders are positioned, what prediction markets price and what people search for."],"history-hub":["History","Booms and busts, seasonal patterns and the daily index moves of past months."],"ai-hub":["AI tracker","What big tech spends on AI and what the AI labs ship."],"chip-prices":["Chip & AI prices","Memory chip prices and GPU rental prices, two weekly reads on the chip cycle."],"guides":["Guides","Plain-English guides to options, chart patterns, market words and when the data updates."],"owner-brief":["Owner brief","The private daily read and the market themes behind it."],"market-risk":["Market risk","Every market risk read in one place, with one line on where they agree and why they can differ."],"idea-desks":["Idea desks","LEAPS, stock picks, leveraged ETFs and sector rotation, each with its own sizing."],"research-labs":["Research labs","Quant labs and the Owner Lab research screens, records, tests, Regime Lab and loop."],"company-models":["Company models","Earnings forecasts and the valuation lab for single companies."],"owner-history":["Owner history","The stored history behind the private research, and how markets did under each party."],"admin":["Admin","Site switches with history and undo, and build health."]};
   var RECENT_KEY = 'stonks-recent-v1';
@@ -8782,11 +8782,113 @@ function recoveryEvidence(row, data, now = Date.now()) {
     return rows.length ? '<div class="eng-shared-note"><b>Same contract on more than one engine</b><ul>' + rows.join('') + '</ul></div>' : '';
   }
 
-  // One line on Open picks: engine trades live on the Strategy engines page.
-  function engOpenLinkHtml(){
-    var d = engState.data; if (!d) return '';
-    var n = (d.total && d.total.open) || 0;
-    return '<p class="eng-open-link">This page lists Top Picks trades only. <button type="button" class="eng-link" data-wf-go="engines">Strategy engines: ' + n + ' open paper trade' + (n === 1 ? '' : 's') + '</button></p>';
+  // Open picks (owner, 2026-11-19): the page lists every open trade the
+  // Webull paper account carries, Top Picks and every engine, trial and test
+  // trade, each labeled with who made it and what Webull filled. The Top
+  // Picks track record still counts Top Picks only.
+  function engOpenTrades(){
+    var d = engState.data; if (!d || !Array.isArray(d.engines)) return [];
+    var out = [];
+    d.engines.forEach(function(e){ (e.open || []).forEach(function(t){ if (t && t.tradeId) out.push(t); }); });
+    return out;
+  }
+  // The whole paper account (scope=all), read from the Owner API like the
+  // engines page's own read; never a data file and never the MCP.
+  var opWb = { data: null, by: null, loading: false, at: 0, error: null };
+  var OP_WB_LIVE = { entering: 1, open: 1, exiting: 1 };
+  function opRerender(){ var op = $('page-pane-open-picks'); if (op && !op.hidden && typeof renderOpenPicks === 'function') renderOpenPicks(); }
+  function opLoadWebull(force){
+    if (!HAS_OWNER_ACCESS || opWb.loading) return;
+    if (!force && opWb.at && Date.now() - opWb.at < (opWb.error ? 60 * 1000 : 5 * 60 * 1000)) return;
+    opWb.loading = true; opWb.error = null;
+    fetch('/api/auth/webull-mirror?scope=all', { cache: 'no-store', credentials: 'same-origin' }).then(function(r){
+      if (!r.ok){ var e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+      return r.json();
+    }).then(function(j){
+      var by = {};
+      ((j && j.trades) || []).forEach(function(t){ if (t && t.tradeId) by[t.tradeId] = t; });
+      opWb.data = j && typeof j === 'object' ? j : null; opWb.by = by; opWb.at = Date.now(); opWb.loading = false;
+      opRerender();
+    }).catch(function(err){
+      opWb.loading = false; opWb.at = Date.now();
+      opWb.error = err && err.status === 404 ? 'off' : String((err && err.message) || err || 'failed');
+      opRerender();
+    });
+  }
+  // Trades still working at Webull whose record has already closed (an exit
+  // still selling) or that no loaded record lists.
+  function opWebullOnly(flagOpen, engOpen){
+    if (!opWb.by) return [];
+    var seen = {};
+    (flagOpen || []).forEach(function(o){ seen[tlTradeId(o)] = 1; });
+    (engOpen || []).forEach(function(t){ seen[t.tradeId] = 1; });
+    return ((opWb.data && opWb.data.trades) || []).filter(function(w){ return w && w.tradeId && OP_WB_LIVE[w.state] && !seen[w.tradeId]; });
+  }
+  var OP_WB_TIP = 'What the Webull paper account did with this trade: filled, partly filled, missed, held by another trade on the same contract, or not bought (with the reason on the Webull tab), and its paper result. Not sent = the trade predates the mirror, a switch kept it off, or the mirror has not run since it opened.';
+  function opWebullHtml(id){
+    if (!opWb.by){
+      if (opWb.error === 'off') return '<span class="crd-dim">Mirror off</span>';
+      return '<span class="crd-dim">' + (opWb.error ? 'Could not read' : 'loading…') + '</span>';
+    }
+    var w = opWb.by[id];
+    if (!w) return '<span class="crd-dim">Not sent</span>';
+    var st = ENG_MIRROR_STATE[w.state] || engCap(w.state);
+    return engFillHtml(w) + '<div class="crd-dim">' + escapeHtml(st) + (w.paperPnlPct != null && isFinite(w.paperPnlPct) ? ' · ' + (w.paperPnlPct > 0 ? '+' : '') + Number(w.paperPnlPct).toFixed(1) + '%' : '') + '</div>';
+  }
+  var OP_WB_RANK = { filled: 0, partial: 1, pending: 2, shared: 3, missed: 4, 'not-bought': 5 };
+  function opWebullSort(id){
+    if (!opWb.by) return null;
+    var w = opWb.by[id];
+    return w ? (OP_WB_RANK[w.fillOutcome] != null ? OP_WB_RANK[w.fillOutcome] : 6) : 7;
+  }
+  function opSourceHtml(t){
+    var e = t && t.engine;
+    // Trial and test badges ride the Ticker cell (engSideT).
+    return '<a href="?tab=engines&amp;engine=' + encodeURIComponent(e || 'all') + '">' + escapeHtml(t.madeBy || engName(e)) + '</a>';
+  }
+  function opDays(iso){ var t = Date.parse(iso); return isFinite(t) ? Math.max(0, (Date.now() - t) / 86400000) : null; }
+  function opEntry(t){ var c = (t && t.contract) || {}; var f = t && t.fill; var v = f && f.entry != null ? Number(f.entry) : Number(c.mid); return isFinite(v) && v > 0 ? v : null; }
+  function opMark(t){ var v = Number(t && t.lastMid); return t && t.lastMid != null && isFinite(v) && v >= 0 ? v : null; }
+  function opPositionHtml(t){
+    var c = (t && t.contract) || {};
+    if (c.structure === 'shares') return (c.shares || '?') + ' shares';
+    return (c.qty > 1 ? c.qty + ' × ' : '') + engStrike(c.strike) + ' ' + escapeHtml(String(c.optionType || t.side || '')) + ' · ' + engExp(c.expiry);
+  }
+  // The engine group under the Top Picks one. Every row links to its engine.
+  function engOpenPicksHtml(engOpen, extra){
+    var d = engState.data;
+    var rows = (engOpen || []).slice().sort(function(a, b){ return (Date.parse(b.entryDate) || 0) - (Date.parse(a.entryDate) || 0); });
+    var cols = [
+      { label: 'Ticker', cell: function(t){ return '<a href="?s=' + encodeURIComponent(t.symbol || '') + '">' + escapeHtml(t.symbol || '') + '</a> ' + engSideT(t); }, sort: function(t){ return t.symbol || null; } },
+      { label: 'Made by', title: 'The strategy engine that opened this trade', cell: opSourceHtml, sort: function(t){ return engName(t.engine); } },
+      { label: 'Position', cell: opPositionHtml, nosort: true },
+      { label: 'P&L', num: true, title: 'The engine record’s open result: % of the premium for an option, % of the share price for shares', cell: function(t){ return t.optionPnlPct == null ? '' : engPnl(t.optionPnlPct); }, sort: function(t){ var v = Number(t.optionPnlPct); return t.optionPnlPct != null && isFinite(v) ? v : null; } },
+      { label: 'Webull', title: OP_WB_TIP, cell: function(t){ return opWebullHtml(t.tradeId); }, sort: function(t){ return opWebullSort(t.tradeId); } },
+      { label: 'Entry', num: true, title: 'Entry price per share (an option at the ask when the record books ask and bid)', cell: function(t){ var v = opEntry(t); return v == null ? '' : engMoney(v); }, sort: opEntry },
+      { label: 'Mark', num: true, title: 'Latest mid price per share on the engine record', cell: function(t){ var v = opMark(t); return v == null ? '' : engMoney(v); }, sort: opMark },
+      { label: 'Opened (ET)', cell: function(t){ return t.entryDate && typeof accOpenedEt === 'function' ? escapeHtml(accOpenedEt(t.entryDate)) : ''; }, sort: function(t){ var x = Date.parse(t.entryDate); return isFinite(x) ? x : null; } },
+      { label: 'Days held', num: true, cell: function(t){ var x = opDays(t.entryDate); return x == null ? '' : x.toFixed(x < 10 ? 1 : 0); }, sort: function(t){ return opDays(t.entryDate); } },
+      { label: 'Setup', cell: function(t){ return escapeHtml(t.setup || ''); }, sort: function(t){ return t.setup || null; } },
+      { label: 'Trade ID', cell: function(t){ return '<span class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</span>'; }, sort: function(t){ return t.tradeId || null; } }
+    ];
+    var head = '<div class="accuracy-group-head">Strategy engine trades <span class="accuracy-group-n">' + rows.length + '</span></div>';
+    var note = '<p class="eng-open-link">Paper trades from the strategy engines, including the paper trials and tests, in the same Webull paper account as Top Picks. They count on each engine’s own record, never on the Top Picks track record. <button type="button" class="eng-link" data-wf-go="engines">Open the Strategy engines page</button></p>';
+    var body;
+    if (!d) body = '<p class="hint">' + (engState.error ? 'The engine trades could not be read (' + escapeHtml(String(engState.error)) + ').' : 'Loading the engine trades…') + '</p>';
+    else body = VIEWS.tableHtml(cols, rows, { key: 'open-picks-engines', empty: 'No engine trades are open right now.' });
+    var tail = '';
+    if (extra && extra.length){
+      var xcols = [
+        { label: 'Trade', cell: function(w){ return '<b>' + escapeHtml(w.symbol || '') + '</b> ' + (w.instrument === 'stock' ? '<span class="eng-side eng-shr">Shares</span>' : engSide(w.side)) + '<div class="crd-dim eng-id">' + escapeHtml(w.tradeId || '') + '</div>'; }, sort: function(w){ return w.symbol || null; } },
+        { label: 'Made by', cell: function(w){ return escapeHtml(w.madeBy || (w.engine ? engName(w.engine) : 'Top Picks')); }, sort: function(w){ return w.madeBy || null; } },
+        { label: 'Position', cell: function(w){ return escapeHtml(String(w.legs || '').replace(/^BUY /, '')); }, nosort: true },
+        { label: 'Webull', title: OP_WB_TIP, cell: function(w){ return opWebullHtml(w.tradeId); }, sort: function(w){ return opWebullSort(w.tradeId); } }
+      ];
+      tail = '<div class="accuracy-group-head">Still working at Webull <span class="accuracy-group-n">' + extra.length + '</span></div>' +
+        '<p class="eng-open-link">The record has closed these, or no open list carries them, but the paper account still holds or is still selling them.</p>' +
+        VIEWS.tableHtml(xcols, extra, { key: 'open-picks-webull-only', empty: '' });
+    }
+    return '<div class="accuracy-group op-engines" id="open-picks-engines">' + head + note + body + tail + '</div>';
   }
 
   // shares: a split of share trades (% of the share price; true, or 'core' for
@@ -9296,14 +9398,14 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
   // The Owner's stock order range at Webull (Owner Settings, 2026-11-19): why
   // a stock order's share count differs from the engine record's.
-  function engUsd(v){ return '$' + Math.round(Number(v) || 0).toLocaleString('en-US'); }
+  function engRangeUsd(v){ return '$' + Math.round(Number(v) || 0).toLocaleString('en-US'); }
   function engStockRangeHtml(t){
     var r = t && t.stockRange;
     if (!r || t.instrument !== 'stock') return '';
     var rec = t.recordQty != null ? ' (record ' + t.recordQty + ')' : '';
-    var txt = t.qtyBasis === 'shares-min' ? 'Raised to the ' + engUsd(r.minUsd) + ' minimum' + rec
-      : t.qtyBasis === 'shares-max' ? 'Cut to the ' + engUsd(r.maxUsd) + ' maximum' + rec
-      : t.qtyBasis === 'shares-over-max' ? 'One share costs more than the ' + engUsd(r.maxUsd) + ' maximum' : '';
+    var txt = t.qtyBasis === 'shares-min' ? 'Raised to the ' + engRangeUsd(r.minUsd) + ' minimum' + rec
+      : t.qtyBasis === 'shares-max' ? 'Cut to the ' + engRangeUsd(r.maxUsd) + ' maximum' + rec
+      : t.qtyBasis === 'shares-over-max' ? 'One share costs more than the ' + engRangeUsd(r.maxUsd) + ' maximum' : '';
     return txt ? '<div class="crd-dim" title="Owner Settings, Account limits: the smallest and largest engine stock order at Webull. The engine record keeps its own share count.">' + escapeHtml(txt) + '</div>' : '';
   }
   function engMirrorById(){
@@ -9350,7 +9452,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
     var rows = engMirrorRows(m, id), h = (m.health && m.health.engines) || null;
     var byOut = function(k){ return rows.filter(function(t){ return t.fillOutcome === k; }).length; };
     var z = m.sizing || null;
-    var rangeTxt = z && z.shares && Number(z.stockMaxUsd) > 0 ? '; each stock order ' + (Number(z.stockMinUsd) > 0 ? engUsd(z.stockMinUsd) + ' to ' : 'up to ') + engUsd(z.stockMaxUsd) + ' of stock (Account limits tab)' : '';
+    var rangeTxt = z && z.shares && Number(z.stockMaxUsd) > 0 ? '; each stock order ' + (Number(z.stockMinUsd) > 0 ? engRangeUsd(z.stockMinUsd) + ' to ' : 'up to ') + engRangeUsd(z.stockMaxUsd) + ' of stock (Account limits tab)' : '';
     var sizeLine = z ? '<p class="evb-note">Owner Settings: share orders ' + (z.shares ? 'on' : '<b>off</b> (share trades stay on the engine record only)') + rangeTxt + '; quantities above one ' + (z.quantities ? 'on' : '<b>off</b> (every option trade is sent as one contract)') + '.</p>' : '';
     var filled = rows.filter(function(t){ return t.fillPrice != null; }), done = rows.filter(function(t){ return t.paperPnlPct != null; });
     var gaps = filled.map(function(t){ return Number(t.entryDiffPct); }).filter(function(v){ return isFinite(v); });
@@ -9532,6 +9634,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
       engState.loading = false; engState.fetchedAt = Date.now();
       engState.error = err && err.status === 404 ? 'not written yet' : String((err && err.message) || err || 'failed');
       renderEngines();
+      var op = $('page-pane-open-picks'); if (op && !op.hidden && typeof renderOpenPicks === 'function') renderOpenPicks();
     });
   }
   function engUrl(){
@@ -62958,7 +63061,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return (i > 0 ? accRuleDivider(openSegs[i - 1], seg) : '') + (asTable ? openPicksTableHtml(items) : accOpenRowsHtml(items, !!sortKey));
     }).join('');
     return '<div class="accuracy-group">' +
-      '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
+      '<div class="accuracy-group-head">Top Picks trades <span class="accuracy-group-n">' + open.length + '</span></div>' +
       openRows +
     '</div>';
   }
@@ -63215,7 +63318,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<details class="tl-block">' +
       '<summary class="tl-head">Trade lines for copy and paste <span class="accuracy-group-n">' + n + '</span>' +
         '<button type="button" class="tl-copy" data-tl-copy="1">Copy all</button></summary>' +
-      '<p class="hint tl-hint">Every open trade, plus every close from the last 7 days. Each ID is the ticker, C (call) or P (put), then the open date and time in ET (MM/DD/YY-HH:MM), and a CLOSE keeps the same ID as its OPEN. Copy all copies the same text as your private feed link. Prices are per share (1 contract = 100 shares).</p>' +
+      '<p class="hint tl-hint">Every open Top Picks trade, plus every Top Picks close from the last 7 days (engine trades are in the table above). Each ID is the ticker, C (call) or P (put), then the open date and time in ET (MM/DD/YY-HH:MM), and a CLOSE keeps the same ID as its OPEN. Copy all copies the same text as your private feed link. Prices are per share (1 contract = 100 shares).</p>' +
       (opens.length ? '<div class="tl-sub">Open trades</div><ul class="tl-list">' + opens.map(tlBlockHtml).join('') + '</ul>' : '') +
       (closes.length ? '<div class="tl-sub">Closed in the last 7 days</div><ul class="tl-list">' + closes.map(tlBlockHtml).join('') + '</ul>' : '') +
       '<textarea class="tl-src" hidden readonly>' + escapeHtml(tlFeedText(builtAtIso, opens, closes)) + '</textarea>' +
@@ -63301,6 +63404,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function openPicksTableHtml(items){
     function money(v){ v = Number(v); return isFinite(v) && v > 0 ? '$' + v.toFixed(2) : ''; }
+    // The record stores the marked P&L, not the mark itself, so the mark is
+    // rebuilt from the same basis markOptionToMarket uses: a long or debit
+    // spread is worth basis x (1 + P&L); a credit spread costs
+    // credit x (1 - P&L) to buy back.
+    function openPickMark(o){
+      var c = o && o.contract; var b = Number(accBasisPerShare(c)), p = Number(o && o.optionPnlPct);
+      if (!(b > 0) || o.optionPnlPct == null || o.optionPnlPct === '' || !isFinite(p)) return null;
+      var m = c.structure === 'credit_vertical' ? b * (1 - p / 100) : b * (1 + p / 100);
+      return m >= 0 ? Math.round(m * 100) / 100 : null;
+    }
     var cols = [
       { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml('Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
       { label: 'Side', cell: function(o){ var sd = o.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(o){ return o.side || null; } },
@@ -63311,9 +63424,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Opened (ET)', cell: function(o){ return o.entryDate ? escapeHtml(accOpenedEt(o.entryDate)) : ''; }, sort: function(o){ var t = Date.parse(o.entryDate); return isFinite(t) ? t : null; } },
       { label: 'Stop → target', title: 'Where the stock sits between the stock stop and the take-profit level', cell: function(o){ return accRangeBarHtml(o, true); }, sort: accRangeProgress },
       { label: 'Days held', num: true, cell: function(o){ var d = openPickDays(o.entryDate); return d == null ? '' : d.toFixed(d < 10 ? 1 : 0); }, sort: function(o){ return openPickDays(o.entryDate); } },
-      { label: 'Entry', num: true, title: 'Entry premium per share', cell: function(o){ var c = o.contract || {}; return money(c.netDebit != null ? c.netDebit : c.mid); }, sort: function(o){ var c = o.contract || {}; var v = Number(c.netDebit != null ? c.netDebit : c.mid); return isFinite(v) ? v : null; } },
-      { label: 'Mark', num: true, title: 'Latest model price per share', cell: function(o){ return money(o.optionPremiumLast); }, sort: function(o){ var v = Number(o.optionPremiumLast); return isFinite(v) ? v : null; } },
+      { label: 'Entry', num: true, title: 'Entry premium per share (the credit received for a credit spread)', cell: function(o){ return money(accBasisPerShare(o.contract)); }, sort: function(o){ var v = Number(accBasisPerShare(o.contract)); return isFinite(v) ? v : null; } },
+      { label: 'Mark', num: true, title: 'Latest model price per share, from the entry price and the marked P&L (for a credit spread, the cost to buy it back)', cell: function(o){ return money(openPickMark(o)); }, sort: openPickMark },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
+      { label: 'Webull', title: typeof OP_WB_TIP === 'string' ? OP_WB_TIP : 'What the Webull paper account did with this trade', cell: function(o){ return typeof opWebullHtml === 'function' ? opWebullHtml(tlTradeId(o)) : ''; }, sort: function(o){ return typeof opWebullSort === 'function' ? opWebullSort(tlTradeId(o)) : null; } },
       { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },
       { label: 'Conviction', cell: function(o){ return escapeHtml(o.conviction || o.label || ''); }, sort: function(o){ var v = Number(o.score); return isFinite(v) ? Math.abs(v) : null; } }
@@ -63352,30 +63466,39 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     if (eyebrow) eyebrow.textContent = d.builtAtIso ? 'marked ' + accDateTime(d.builtAtIso) : '';
-    if (!open.length){
-      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
-      openPicksRunHealth(root, d);
-      accPaneSummary('open-picks-sum', [{ val: '0', lbl: 'open positions' }]);
-      return;
+    // Every open trade in the Webull paper account (owner, 2026-11-19): Top
+    // Picks first, then every strategy engine, trial and test trade, and any
+    // trade still working at Webull after its record closed.
+    var withEngines = HAS_OWNER_ACCESS && typeof engOpenPicksHtml === 'function';
+    if (withEngines){
+      if (!engState.data && !engState.error && !engState.loading) loadEngines(false);
+      opLoadWebull(false);
     }
-    var marks = [], greens = 0, calls = 0;
+    var engOpen = withEngines ? engOpenTrades() : [];
+    var wbOnly = withEngines ? opWebullOnly(open, engOpen) : [];
+    var engHtml = withEngines ? engOpenPicksHtml(engOpen, wbOnly) : '';
+    var total = open.length + engOpen.length + wbOnly.length;
+    var marks = [], greens = 0;
     open.forEach(function(o){
-      if (o.side !== 'put') calls++;
       var p = Number(o.optionPnlPct);
-      if (!isFinite(p)) return;
+      if (o.optionPnlPct == null || !isFinite(p)) return;
       marks.push(p); if (p > 0) greens++;
     });
     accPaneSummary('open-picks-sum', [
-      { val: String(open.length), lbl: 'open positions' },
-      { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
-      marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
+      { val: String(total), lbl: 'open trades', tip: 'Every open trade in the Webull paper account: Top Picks, the strategy engines (with their paper trials and tests) and anything still working at Webull.' },
+      withEngines ? { val: open.length + ' · ' + engOpen.length, lbl: 'Top Picks · engines' } : null,
+      marks.length ? { val: accPct(accMean(marks)), lbl: 'avg Top Picks mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open Top Picks trades (unrealized).' } : null,
     ]);
+    if (!open.length){
+      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+      openPicksRunHealth(root, d);
+      return;
+    }
     loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
-    if (HAS_OWNER_ACCESS && typeof loadEngines === 'function' && !engState.data && !engState.error && !engState.loading) loadEngines(false);
-    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
     // Strategy engines: a note when a Top Picks trade and an engine trade are on the exact same contract.
-    var engNote = (typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '') + (typeof engOpenLinkHtml === 'function' ? engOpenLinkHtml() : '');
+    var engNote = typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '';
     if (engNote){ var engAfter = root.querySelector('.book-risk'); if (engAfter) engAfter.insertAdjacentHTML('afterend', engNote); else root.insertAdjacentHTML('afterbegin', engNote); }
     openPicksRunHealth(root, d);
   }
@@ -63470,7 +63593,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }).join(' ') + '</td><td class="num">' + usd(th) + '/day</td><td>' + (macro == null ? '<small class="muted">Loading…</small>' : macro.length ? macro.map(function(m){ return '<span class="book-ev">' + escapeHtml(m) + '</span>'; }).join(' · ') : '<small class="muted">None</small>') + '</td></tr>';
     }).join('');
     var top = rows.slice().sort(function(a, b){ return Math.abs(b.g.deltaUsd) - Math.abs(a.g.deltaUsd); })[0];
-    return '<details class="accuracy-advanced book-risk"' + (VIEWS.get('open-picks.book', true) ? ' open' : '') + ' data-book-risk><summary class="accuracy-advanced-summary">Book risk <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body">' +
+    return '<details class="accuracy-advanced book-risk"' + (VIEWS.get('open-picks.book', true) ? ' open' : '') + ' data-book-risk><summary class="accuracy-advanced-summary">Book risk: Top Picks <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body">' +
       '<div class="mm-kpis">' +
         '<div class="mm-kpi"><span>Net stock exposure (delta $)</span><b class="' + (netDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + usd(netDelta) + '</b></div>' +
         '<div class="mm-kpi"><span>Gross exposure</span><b>' + usd(grossDelta) + '</b></div>' +

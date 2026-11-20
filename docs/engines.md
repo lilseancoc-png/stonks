@@ -16,9 +16,13 @@ stays the flagship; the engines are the test bed.
 
 Code: `lib/engines/`. Page: **Strategy engines** (`?tab=engines`, Owner ·
 Ideas; `scripts/render/engines-client.mjs`). The engines have their own page
-since 2026-11-16, so Top picks, Open picks and the Top Picks track record show
-Top Picks only; Open picks carries one link with the engines' open-trade
-count. `?tab=engines&engine=<id>&ev=<view>` opens one engine and view, and an
+since 2026-11-16, so Top picks and the Top Picks track record show Top Picks
+only. Since 2026-11-19 (owner) Open picks lists every open trade in the Webull
+paper account: the Top Picks trades, then a "Strategy engine trades" table
+(engine, trial and test trades, each with the engine that made it and a Webull
+column from `/api/auth/webull-mirror?scope=all`), then any trade still working
+at Webull after its record closed (`engOpenPicksHtml`, `opLoadWebull`,
+`opWebullOnly` in `engines-client.mjs`). Nothing there changes a record. `?tab=engines&engine=<id>&ev=<view>` opens one engine and view, and an
 old `?tab=picks&engine=...` link lands on the new page. The All engines tab
 holds the side-by-side scorecards, one running-total chart with a line per
 engine that has closed trades (each engine flat at 0 until its first close),
