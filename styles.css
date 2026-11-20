@@ -1037,11 +1037,28 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .sp-odds-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sp-odds-edge { margin: 6px 0 0; font-size: var(--t-13); }
 .sp-sg-notes { margin: 10px 0 0; padding-left: 18px; font-size: var(--t-13); color: var(--muted-strong); }
+.sp-promo-box { margin-top: 10px; }
+.sp-promo-eval { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border); }
+.sp-pc { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.sp-pc-v { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-strong); border-left-width: 4px; background: var(--surface); }
+.sp-pc-v > b { display: block; font-size: var(--t-14); }
+.sp-pc-v p { margin: 4px 0 0; }
+.sp-pc-good { border-color: var(--pos); }
+.sp-pc-good > b { color: var(--pos); }
+.sp-pc-warn { border-color: var(--warn, var(--border-strong)); }
+.sp-pc-warn > b { color: var(--warn, var(--muted-strong)); }
+.sp-pc-table { width: 100%; }
+.sp-pc-table th[scope="col"] { font-weight: 600; font-size: var(--t-12); color: var(--muted-strong); }
+.sp-pc-table th[scope="col"]:not(:first-child) { text-align: right; }
+.sp-pc-table td:last-child { text-align: left; white-space: nowrap; }
+.sp-pc-table th[scope="row"] { white-space: normal; min-width: 8em; }
 .sp-sg-notes li + li { margin-top: 4px; }
 @media (max-width: 560px) {
   .sp-odds-table { width: 100%; }
   .sp-odds-table th small { display: none; }
   .sp-odds-table th { padding-right: 8px; }
+  .sp-pc-table td:nth-child(5), .sp-pc-table th:nth-child(5), .sp-pc-table td:nth-child(6), .sp-pc-table th:nth-child(6) { display: none; }
+  .sp-pc-table th small { display: block; }
   .sp-price-field { margin-left: 0; }
 }
 

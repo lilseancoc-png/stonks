@@ -42,6 +42,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-20
+
+### Added
+- Add promos to the Sports Pick Builder and the MCP's `sports_evaluate_entry`: an entry promo (profit boost, or a protected play whose loss comes back as bonus credit at a conversion you set) priced on the entry's own outcome table with and without it and the size that breaks even, and promo lines on a pick (a Taco / Flash Sale discount below the normal line, or the 0.5 Guarantee) priced from measured rates instead of the model's curve. Journal entries keep the promo and its kind, and the totals read promo entries apart from normal ones.
+- Add the parlay check to every Sports evaluation (page and MCP): the chance every pick hits against what the payout needs, the expected return with and without the promo, the same entry at the sportsbooks' and at the model's chances, and per pick the chance it needs, the gap and how far its chance can be trusted. It says plus EV only when the chances are sportsbook prices or measured promo rates. A read, never a block.
+- Add the measured promo tables to the Sports model refit (`promo_tables` in `model.json`): how often real lines were cleared at each step below the line, and how often players with a given forecast who played recorded none.
+- Seed the real-line check with the public PrizePicks mirror (39,084 NBA and 8,096 NFL standard lines since December 2025, matched to stored games and players once by `scripts/sports-mirror-seed.mjs` and committed). Archived and issued lines still win. At real lines most stats score no better than a coin flip, so they now read experimental.
+- Add three game inputs to the Sports stat models (`sports-model-7`), each kept per stat only where it still beats leaving it out at the refit: the first game back after missing 2+ team games (both leagues; forecasts drop a little), the NFL share of the team's targets and carries held by regulars listed out (live from the injury report), and the NFL short week or bye (passing volume). NBA rest, time zones crossed, rest against the opponent and same-position absences were tested on two holdouts and left out. The player page and each Pick Builder pick say when one moved the forecast. Offline research script `scripts/sports-factor-research.mjs`.
+
+### Fixed
+- Keep NFL two-way players (a cornerback who also plays receiver) in the Sports stats: they were stored as all-zero snap rows, so a 101-yard game read 0 (nflverse adapter 3, which re-downloads each NFL season once).
+- Show NFL teammates out with their targets and carries on the player page, not as minutes.
+
 ## 2026-11-19
 
 ### Added

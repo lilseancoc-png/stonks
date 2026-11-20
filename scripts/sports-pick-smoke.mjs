@@ -441,4 +441,26 @@ eq((await evaluateEntry({ load: load(), body: { legs: [gsWin({ price: '+120' })]
   ok(!JSON.parse(settleSt2.objects.get(SPORTS_PREFIX + 'markets/observations.json') || '{"observations":[]}').observations.some((o) => o.entry_id === W.entry_id), 'game bets are not written as player line observations');
 }
 
+{ // The page says when the return-from-absence and vacated inputs are in a forecast.
+  const page = sportsFactory({}, { addEventListener() {}, getElementById() { return null; } }, {});
+  const m = { status: 'ok', return_from_absence: { games_missed: 3, factor: 0.92, applied: true }, vacated: { targets_share: 0.25, carries_share: 0, factor: 1.06, applied: true, players: ['A. Receiver'] } };
+  const leg = page.legAvailHtml({ model: m });
+  ok(leg.includes('First game back after missing 3') && leg.includes('×0.92'), 'Pick Builder: the first game back and its factor');
+  ok(leg.includes('A. Receiver') && leg.includes('25% of the team’s targets') && leg.includes('×1.06'), 'Pick Builder: regulars out and their share of targets');
+  ok(page.legAvailHtml({ model: { status: 'ok', return_from_absence: { games_missed: 2, factor: 1, applied: false } } }).includes('Shown only'), 'Pick Builder: a return that did not pass the check is shown only');
+  const P = { stats: ['receiving_yards', 'receptions'], forecast: { forecasts: { receiving_yards: { status: 'ok', ...m }, receptions: { status: 'ok', return_from_absence: { games_missed: 3, factor: 1, applied: false } } } } };
+  const inputs = page.fcInputsHtml(P);
+  ok(inputs.includes('First game back after missing 3') && /Forecast lowered for receiving_yards \(/.test(inputs) && !/lowered for [^(]*receptions/.test(inputs), 'player page: the return input names only the stats it changes, and which way');
+  ok(inputs.includes('25% of the team’s targets') && inputs.includes('Used for receiving_yards'), 'player page: the vacated input and the stats it is used for');
+  const av = page.availHtml({ availability: { state: 'ok', status: 'not listed' }, forecast: { teammates_out: [{ name: 'B. Back', targets: 2.5, carries: 14 }] } });
+  ok(av.includes('B. Back (2.5 targets, 14.0 carries)') && !av.includes('min)'), 'NFL teammates out show targets and carries, not minutes');
+  ok(page.availHtml({ availability: { state: 'ok', status: 'not listed' }, forecast: { teammates_out: [{ name: 'C. Guard', minutes: 31 }] } }).includes('C. Guard (31 min)'), 'NBA teammates out keep their minutes');
+  ok(page.legAvailHtml({ model: { status: 'ok', rest: { days: 4, short_week: true, bye: false, factor: 1.07, applied: true } } }).includes('Short week (4 days since the last game): the forecast is moved ×1.07'), 'Pick Builder: an NFL short week');
+  ok(page.fcInputsHtml({ stats: ['completions'], forecast: { forecasts: { completions: { status: 'ok', rest: { days: 13, short_week: false, bye: true, factor: 0.99, applied: true } } } } }).includes('Rested (13 days since the last game). Used for completions'), 'player page: an NFL bye week');
+}
+
 console.log(`Sports Pick Builder smoke passed (${checks} checks).`);
+
+// Promos, promo lines, the parlay check and the mirror seed run with the
+// Pick Builder checks (test:sports), in their own file.
+await import('./sports-promo-smoke.mjs');

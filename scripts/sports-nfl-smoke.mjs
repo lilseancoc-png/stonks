@@ -4,7 +4,7 @@
 //   node scripts/sports-nfl-smoke.mjs
 import assert from 'node:assert/strict';
 import { parseCsv } from '../lib/sports/csv.mjs';
-import { normalizeNflGames, normalizeNflPlayerGames, normalizeNflPlayers, normalizeNflSnaps, normalizeNflInjuries, pfrIndex, NFLVERSE_URLS, NFL_SOURCE, nflGameId } from '../lib/sports/nflverse.mjs';
+import { normalizeNflGames, normalizeNflPlayerGames, normalizeNflPlayers, normalizeNflSnaps, normalizeNflInjuries, pfrIndex, NFLVERSE_URLS, NFL_SOURCE, nflGameId, twoWayPlayers } from '../lib/sports/nflverse.mjs';
 import { availabilityFor, officialNflReport, nflRosterStatus } from '../lib/sports/book-price.mjs';
 import { gameEnvironment, gameLinesView } from '../lib/sports/models.mjs';
 import { ingestLeague } from '../lib/sports/ingest.mjs';
@@ -76,9 +76,29 @@ ok(kelce.snaps === 50 && kelce.snap_pct === 0.8 && kelce.stats.receptions === 7,
 const rookie = withSnaps.rows.find((r) => r.player_id === '00-0007');
 ok(rookie && rookie.played === true && rookie.source === 'snaps' && rookie.snaps === 12 && rookie.stats.receiving_yards === 0 && rookie.stats.receptions === 0 && rookie.team === 'kc' && rookie.opponent === 'den',
   'a player with offensive snaps and no stat line gets a played all-zero row');
-eq(withSnaps.zero, { added: 1, unmapped: 1 }, 'the zero rows and unmatched snap rows are counted');
+eq(withSnaps.zero, { added: 1, unmapped: 1, skipped: 0, two_way_players: 0, two_way_rows: 0 }, 'the zero rows and unmatched snap rows are counted');
 ok(!withSnaps.rows.some((r) => r.player_id === '00-0002' && r.week === 7 && r.source === 'snaps'), 'special-teams-only snaps add no row');
 eq(withSnaps.rows.length, pg.rows.length + 1, 'only the one zero row is added');
+// Two-way players (adapter 3, 2026-11-20): a cornerback with a target in 3+
+// games is kept as a receiver (his defense-only game left out), a punter's
+// one fake-punt carry is not.
+{
+  const g = [...byId.values()].filter((x) => x.status === 'final');
+  const base = (id, group, pos, game, extra) => ({ player_id: id, position_group: group, position: pos, season: '2026', week: String(game.week), game_id: game.game_id.toUpperCase(),
+    team: game.home_team.toUpperCase(), opponent_team: game.away_team.toUpperCase(), ...extra });
+  const two = [0, 1, 2].map((i) => base('00-0090', 'DB', 'CB', g[i % g.length], { targets: '4', receptions: '3', receiving_yards: '40', carries: '0' }));
+  const defOnly = base('00-0090', 'DB', 'CB', g[0], { targets: '0', receptions: '0', receiving_yards: '0', carries: '0' });
+  const punt = base('00-0091', 'SPEC', 'P', g[0], { carries: '1', rushing_yards: '12' });
+  const raw = [...two, punt];
+  const tw = twoWayPlayers(raw);
+  ok(tw.get('00-0090') === 'WR' && !tw.has('00-0091'), 'a cornerback with targets in 3 games is a two-way receiver; a one-off punter carry is not');
+  const kept = normalizeNflPlayerGames(raw, byId);
+  ok(kept.rows.filter((r) => r.player_id === '00-0090').every((r) => r.position === 'WR' && r.stats.receiving_yards === 40) && !kept.rows.some((r) => r.player_id === '00-0091'),
+    'two-way rows are stored as receiver games; the punter row is skipped');
+  ok(kept.zero.skipped === 1 && kept.zero.two_way_players === 1 && kept.zero.two_way_rows === 3, 'skipped and two-way rows are counted: ' + JSON.stringify(kept.zero));
+  const noTouch = normalizeNflPlayerGames([...two, { ...defOnly, week: '99', game_id: g[g.length - 1].game_id.toUpperCase() }], byId, null, tw);
+  ok(noTouch.rows.filter((r) => r.player_id === '00-0090').length === 3, 'a two-way player\u2019s defense-only game (no snap, no touch) is not an offensive game');
+}
 // The official injury report: the newest week in the file, one entry per player.
 const report = normalizeNflInjuries(parseCsv(INJURIES_2026), { season: 2026 });
 eq(report.week, 9, 'the newest week');
@@ -143,7 +163,7 @@ ok(storedReport.week === 9 && storedReport.reports.length === 2 && storedReport.
 ok(run1.status.integrity?.seasons?.[2026]?.zero_stat_games_added === 1 && run1.status.integrity.seasons[2026].snap_rows_unmatched === 1, 'integrity counts in the status');
 eq(run1.status.integrity.injury_report, { week: 9, players: 2 }, 'and the injury report week');
 ok(run1.status.integrity.seasons[2025].snap_counts === false && /snap counts unavailable/.test(run1.status.message), 'a season with no snap file says so');
-eq(run1.status.adapter_version, 2);
+eq(run1.status.adapter_version, 3);
 fetched.length = 0;
 const st2 = st; // second run on the same store
 await ingestLeague({ adapter: NFL_SOURCE,  store: st2, fetchText, now: NOW + 86400000 });

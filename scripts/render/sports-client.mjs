@@ -989,9 +989,11 @@ export function sportsFactory(host, doc, options) {
     const nfl = officialHtml(a);
     if (a.state !== 'ok') return '<p class="sp-avail' + (nfl && (a.out || a.unsure) ? ' sp-model-warn' : ' sp-muted') + '">' + (nfl ? 'ESPN injury report' : 'Injury report') + ': ' + (a.state === 'stale' ? 'the latest copy is out of date' : 'not available right now') + '.' + nfl + '</p>';
     const own = a.status === 'not listed' ? 'Not listed on the latest ESPN injury report' : 'Listed <b>' + escape(a.status) + '</b> on the ESPN injury report' + (a.detail ? ' (' + escape(a.detail) + ')' : '');
+    // NBA entries carry usual minutes; NFL entries targets and carries.
     const withMin = F && F.teammates_out && F.teammates_out.length;
-    const names = withMin ? F.teammates_out.map((p) => escape(p.name) + ' (' + num(p.minutes) + ' min)') : (a.teammates_out || []).map(escape);
-    const tm = names.length ? ' Teammates listed out: ' + names.join(', ') + (withMin ? ', usual minutes a game.' : '.') : '';
+    const nflOut = withMin && F.teammates_out.every((p) => p.minutes == null);
+    const names = withMin ? F.teammates_out.map((p) => escape(p.name) + (nflOut ? ' (' + f1(p.targets) + ' targets, ' + f1(p.carries) + ' carries)' : ' (' + num(p.minutes) + ' min)')) : (a.teammates_out || []).map(escape);
+    const tm = names.length ? ' Teammates listed out: ' + names.join(', ') + (withMin ? (nflOut ? ' a game as regulars.' : ', usual minutes a game.') : '.') : '';
     return '<p class="sp-avail' + (a.out || a.unsure ? ' sp-model-warn' : ' sp-muted') + '">' + own + '.' + nfl + tm + '</p>';
   }
   // The official NFL report line and roster status (empty for NBA).
@@ -1021,6 +1023,26 @@ export function sportsFactory(host, doc, options) {
     if (snap) {
       const used = usedBy('snap_trend');
       parts.push('Snap share: last 2 games ' + Math.round(snap.recent * 100) + '%, last 8 ' + Math.round(snap.longer * 100) + '%. ' + (used.length ? 'Used for ' + escape(used.join(', ')) + '.' : 'Shown only.'));
+    }
+    // First game back after missing 2+ of his team's games (sports-model-7).
+    const back = fcs.map(([, f]) => f.return_from_absence).find(Boolean);
+    if (back) {
+      const used = usedBy('return_from_absence');
+      const moves = fcs.filter(([, f]) => f.return_from_absence && f.return_from_absence.applied).map(([, f]) => f.return_from_absence.factor);
+      const way = moves.every((x) => x < 1) ? 'lowered' : moves.every((x) => x > 1) ? 'raised' : 'adjusted';
+      parts.push('First game back after missing ' + escape(back.games_missed) + ' of the team’s games. ' + (used.length ? 'Forecast ' + way + ' for ' + escape(used.join(', ')) + ' (measured on held-out games).' : 'Shown only; no change passed the model check for these stats.'));
+    }
+    // NFL: targets and carries of regulars listed out (sports-model-7).
+    const vac = fcs.map(([, f]) => f.vacated).find(Boolean);
+    if (vac) {
+      const used = usedBy('vacated');
+      parts.push('Regulars listed out hold ' + Math.round(vac.targets_share * 100) + '% of the team’s targets and ' + Math.round(vac.carries_share * 100) + '% of its carries. ' + (used.length ? 'Used for ' + escape(used.join(', ')) + '.' : 'Shown only; no change passed the model check for these stats.'));
+    }
+    // NFL: a short week or 12+ days off since the last game (sports-model-7).
+    const rest = fcs.map(([, f]) => f.rest).find(Boolean);
+    if (rest) {
+      const used = usedBy('rest');
+      parts.push((rest.short_week ? 'Short week' : 'Rested') + ' (' + escape(rest.days) + ' days since the last game). ' + (used.length ? 'Used for ' + escape(used.join(', ')) + '.' : 'Shown only; no change passed the model check for these stats.'));
     }
     const tc = fcs.map(([, f]) => f.team_context).find(Boolean);
     if (tc) {
@@ -1954,6 +1976,9 @@ export function sportsFactory(host, doc, options) {
     d.legs = decoded.legs.map((l) => Object.assign({}, l, { probability: null, probability_source: null, price: l.price > 1 ? decimalText(l.price) : '' },
       l.kind === 'team' ? { label: teamPickLabel(l) } : {}));
     if (d.format === 'parlay' && !d.legs.every((l) => priceOf(l.price)) && d.payouts[d.legs.length] > 1) d.parlayPrice = decimalText(d.payouts[d.legs.length]);
+    const P = decoded.promo;
+    d.promo = P ? Object.assign({ type: P.type }, P.boost_pct != null ? { boost_pct: P.boost_pct } : {}, P.max_boost != null ? { max_boost: P.max_boost } : {},
+      P.conversion != null ? { conversion: Math.round(P.conversion * 1000) / 10 } : {}, P.max_bonus != null ? { max_bonus: P.max_bonus } : {}) : null;
     state.draft = d;
     saveDraft();
     pb.prefill = 'ok'; pb.evaluation = null; pb.msg = null;
@@ -1976,10 +2001,20 @@ export function sportsFactory(host, doc, options) {
       legs: d.legs.map((l) => isTeamPick(l)
         ? { kind: 'team', sport: l.sport, game_id: l.game_id, market: l.market, team: l.team, side: l.side, line: l.line, probability: l.probability, probability_source: l.probability_source, price: price(l) }
         : Object.assign({ sport: l.sport, player_id: l.player_id, game_id: l.game_id, stat: l.stat, side: l.side, threshold: l.threshold, probability: l.probability, probability_source: l.probability_source, price: price(l) },
-          l.sport === 'nba' && typeof l.starting === 'boolean' ? { starting: l.starting } : {}, l.sport === 'nba' && l.offer_type ? { offer_type: l.offer_type } : {})),
-      operator: d.operator, format: d.format, stake: d.stake, payouts, note: d.note,
+          l.sport === 'nba' && typeof l.starting === 'boolean' ? { starting: l.starting } : {}, l.offer_type && (l.sport === 'nba' || l.offer_type !== 'goblin') ? { offer_type: l.offer_type } : {},
+          (l.offer_type === 'discount' || l.offer_type === 'guarantee') && l.normal_line != null && l.normal_line !== '' ? { normal_line: Number(l.normal_line) } : {})),
+      operator: d.operator, format: d.format, stake: d.stake, payouts, note: d.note, promo: promoBody(d.promo),
     };
   }
+  // The entry promo as the server takes it (the bonus conversion is typed
+  // in cents per $1 of bonus, sent as 0 to 1).
+  function promoBody(P) {
+    if (!P || (P.type !== 'profit_boost' && P.type !== 'protected')) return null;
+    const has = (k) => P[k] !== '' && P[k] != null;
+    if (P.type === 'profit_boost') return Object.assign({ type: 'profit_boost', boost_pct: has('boost_pct') ? P.boost_pct : null }, has('max_boost') ? { max_boost: P.max_boost } : {});
+    return Object.assign({ type: 'protected' }, has('conversion') ? { conversion: P.conversion / 100 } : {}, has('max_bonus') ? { max_bonus: P.max_bonus } : {});
+  }
+  function roiText(r) { return r == null ? '—' : (r > 0 ? '+' : r < 0 ? '−' : '') + (Math.abs(r) * 100).toFixed(1) + '%'; }
   function money(v) { return (v < 0 ? '−$' : '$') + Math.abs(v).toFixed(2); }
   function signedMoney(v) { return (v > 0 ? '+$' : v < 0 ? '−$' : '$') + Math.abs(v).toFixed(2); }
   function pct(p) { return p == null ? '—' : (p * 100).toFixed(p > 0 && p < 0.1 ? 2 : 1) + '%'; }
@@ -2287,7 +2322,7 @@ export function sportsFactory(host, doc, options) {
     if (!e) return pb.evalErr ? '' : '<span class="sp-muted">Checking history…</span>';
     if (e.kind === 'team') return teamHistHtml(i, e);
     const h = e.history;
-    if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>' + modelLineHtml(i, e) + legAvailHtml(e);
+    if (!h.all.games) return '<span class="sp-muted">No stored games before this one.</span>' + promoLineHtml(i, e) + modelLineHtml(i, e) + legAvailHtml(e);
     // The 95% range of the hit rate (decided games only) as a hover note.
     const c = (name, x) => name + ' <b' + (x.range ? ' title="' + escape('Likely true rate ' + pct(x.range.low) + ' to ' + pct(x.range.high) + ' (95% range from ' + (x.games - x.pushes) + ' decided games)') + '"' : '') + '>' + x.hits + '/' + x.games + '</b>';
     const rangeAll = h.all.range && h.all.games >= 5 ? '<span class="sp-muted sp-hist-range">All stored: likely ' + pct(h.all.range.low) + '–' + pct(h.all.range.high) + ' (95% range; few games make it wide).</span>' : '';
@@ -2295,7 +2330,23 @@ export function sportsFactory(host, doc, options) {
     const use = (key, name) => { const r = rateOf(h[key]); return r == null ? '' : '<button type="button" class="sp-chip" data-sp-usehist="' + i + '" data-rate="' + r + '">Use ' + r + '% (' + name + ')</button>'; };
     const uses = use('last10', 'last 10') + use('all', 'all stored');
     return legChartHtml(e) + '<span class="sp-hist-line">Cleared ' + sideWord(e.side) + ' ' + escape(e.threshold) + ' before this game: ' + c('last 5', h.last5) + ' · ' + c('last 10', h.last10) + ' · ' + c('all stored', h.all) + pushes + '</span>' + rangeAll +
-      (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '') + modelLineHtml(i, e) + legAvailHtml(e);
+      (uses ? '<span class="sp-hist-use">' + uses + '</span>' : h.all.games < MIN_RATE_GAMES ? '<span class="sp-muted">Too few games to copy a rate.</span>' : '') + promoLineHtml(i, e) + modelLineHtml(i, e) + legAvailHtml(e);
+  }
+  // A promo line's measured hit rate (lib/sports/promo.mjs): how often real
+  // lines that much lower were cleared, or how often players with this
+  // forecast who played recorded none. The model's curve is beside it.
+  function promoLineHtml(i, e) {
+    const P = e.promo_line;
+    if (!P) return '';
+    if (P.chance == null) return '<span class="sp-model-line sp-muted">Promo line: ' + escape(P.reason || 'no measured rate yet') + '.</span>';
+    const stat = escape(label(e.stat).toLowerCase());
+    const what = e.offer_type === 'guarantee'
+      ? 'players with a forecast like this who played recorded at least one ' + stat + ' <b>' + pct(P.chance) + '</b> of the time' + (P.model_zero_rate != null ? ' (the model’s curve says ' + pct(1 - P.model_zero_rate) + ')' : '') +
+        (P.at_normal_line != null ? '; a normal line this size clears ' + pct(P.at_normal_line) : '')
+      : 'real ' + stat + ' lines like this one cleared ' + escape(P.discount_pct) + '% lower <b>' + pct(P.chance) + '</b> of the time, against ' + pct(P.at_normal_line) + ' at the line itself';
+    const range = P.range ? ' (likely ' + pct(P.range.low) + '–' + pct(P.range.high) + ', ' + Number(P.n).toLocaleString('en-US') + ' games)' : '';
+    return '<span class="sp-model-line">Measured: ' + what + range + '. It describes past lines, not this player’s matchup.</span>' +
+      (P.chance > 0 && P.chance < 1 ? '<span class="sp-hist-use"><button type="button" class="sp-chip" data-sp-usemeasured="' + i + '" data-prob="' + escape(P.chance) + '">Use ' + chanceText(P.chance) + '% (measured)</button></span>' : '');
   }
   // The injury report for one pick (NBA, when the report could be read) and
   // the teammates-out lift in its forecast.
@@ -2309,6 +2360,9 @@ export function sportsFactory(host, doc, options) {
       out.push('<span class="sp-model-line sp-model-warn">Injury report: ' + (why || 'listed.') + ' ' + (a.out ? 'If the player does not play, most apps remove the pick.' : 'Check again before the game.') + '</span>');
     }
     if (m && m.teammates_out && m.teammates_out.applied) out.push('<span class="sp-model-line">Regular teammates listed out (about ' + num(Math.round(m.teammates_out.minutes)) + ' usual minutes): the forecast is raised \u00d7' + escape(m.teammates_out.factor) + '.</span>');
+    if (m && m.return_from_absence) out.push('<span class="sp-model-line">First game back after missing ' + escape(m.return_from_absence.games_missed) + ' of the team’s games' + (m.return_from_absence.applied ? ': the forecast is moved \u00d7' + escape(m.return_from_absence.factor) + '.' : '. Shown only; no change passed the model check for this stat.') + '</span>');
+    if (m && m.rest) out.push('<span class="sp-model-line">' + (m.rest.short_week ? 'Short week' : 'Rested') + ' (' + escape(m.rest.days) + ' days since the last game)' + (m.rest.applied ? ': the forecast is moved \u00d7' + escape(m.rest.factor) + '.' : '. Shown only; no change passed the model check for this stat.') + '</span>');
+    if (m && m.vacated) out.push('<span class="sp-model-line">Regulars listed out' + (m.vacated.players && m.vacated.players.length ? ' (' + m.vacated.players.map(escape).join(', ') + ')' : '') + ' hold ' + Math.round(m.vacated.targets_share * 100) + '% of the team’s targets and ' + Math.round(m.vacated.carries_share * 100) + '% of its carries' + (m.vacated.applied ? ': the forecast is moved \u00d7' + escape(m.vacated.factor) + '.' : '. Shown only; no change passed the model check for this stat.') + '</span>');
     const lu = m && m.lineup;
     if (lu && lu.applied && lu.factor !== 1) out.push('<span class="sp-model-line">' + (lu.starting ? 'Starts tonight' : 'Comes off the bench tonight') + (lu.usual_start_share != null ? ' (started ' + Math.round(lu.usual_start_share * 100) + '% of the last 10 games)' : '') + ': the forecast is moved \u00d7' + escape(lu.factor) + '.</span>');
     else if (lu && lu.starting == null && lu.usual_start_share >= 0.8) out.push('<span class="sp-model-line">Usually starts (' + Math.round(lu.usual_start_share * 100) + '% of the last 10 games). The forecast assumes the usual role; if the lineup shows this player coming off the bench, set Starting to “Off the bench”.</span>');
@@ -2322,11 +2376,14 @@ export function sportsFactory(host, doc, options) {
     }
     return out.join('');
   }
-  const SOURCE_TEXT = { history: 'from history', model: 'from model', book: 'from books', owner: 'typed' };
+  const SOURCE_TEXT = { history: 'from history', model: 'from model', book: 'from books', measured: 'measured', owner: 'typed' };
+  // A chance as the box shows it: whole percents, one decimal near 0 or 100
+  // (a Guarantee line at 99.6%).
+  function chanceText(p) { const v = p * 100; if (v >= 1 && v <= 99) return String(Math.round(v)); const t = Math.round(v * 10) / 10; return String(t % 1 ? t.toFixed(1) : t); }
   // The chance box and, for a parlay, the pick's own odds.
   function legChanceHtml(l, i) {
     const parlay = draft().format === 'parlay';
-    return '<label class="sp-chance"><span>Your chance</span><input data-sp-leg-chance type="number" min="1" max="99" step="1" inputmode="numeric" value="' + (l.probability != null ? Math.round(l.probability * 100) : '') + '" aria-label="Your chance for pick ' + (i + 1) + ', percent"><i>%</i></label>' +
+    return '<label class="sp-chance"><span>Your chance</span><input data-sp-leg-chance type="number" min="0.1" max="99.9" step="0.1" inputmode="decimal" value="' + (l.probability != null ? chanceText(l.probability) : '') + '" aria-label="Your chance for pick ' + (i + 1) + ', percent"><i>%</i></label>' +
       '<span class="sp-src" data-sp-src>' + (SOURCE_TEXT[l.probability_source] || (l.probability != null ? 'typed' : '')) + '</span>' +
       (parlay ? '<label class="sp-field sp-price-field"><span>Odds</span><input data-sp-leg-price type="text" maxlength="12" autocomplete="off" spellcheck="false" value="' + escape(l.price || '') + '" placeholder="−110" aria-label="Odds for pick ' + (i + 1) + ': American, decimal or cents"></label>' +
         '<span class="sp-price-note" data-sp-price-note="' + i + '">' + legPriceNoteHtml(i) + '</span>' : '');
@@ -2349,15 +2406,27 @@ export function sportsFactory(host, doc, options) {
     if (isTeamPick(l)) return teamLegHtml(l, i);
     const nameShown = l.player_name || l.player_id, ms = milestone(l.side, l.threshold);
     return '<li class="sp-leg" data-sp-leg="' + i + '"><div class="sp-leg-head"><span class="sp-leg-name"><i>' + (i + 1) + '</i>' + escape(nameShown) +
-      (l.team ? ' <span>' + team(l.team) + '</span>' : '') + (l.offer_type === 'goblin' ? ' <span>Goblin</span>' : '') + '</span>' +
+      (l.team ? ' <span>' + team(l.team) + '</span>' : '') + (OFFER_TEXT[l.offer_type] ? ' <span>' + OFFER_TEXT[l.offer_type] + '</span>' : '') + '</span>' +
       '<button type="button" class="sp-close" data-sp-remove="' + i + '" aria-label="Remove pick ' + (i + 1) + '">×</button></div>' +
       '<p class="sp-leg-game">' + escape(String(l.sport).toUpperCase()) + ' · ' + (l.matchup ? matchupText(l.matchup) : 'game ' + escape(l.game_id)) + (l.game_start_utc ? ' · ' + escape(fmtWhen(l.game_start_utc, zone())) : '') + '</p>' +
       '<div class="sp-leg-line"><span class="sp-leg-stat">' + escape(label(l.stat)) + '</span>' +
-      '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + (l.offer_type === 'goblin' ? ' disabled' : '') + '>Under</option></select>' +
+      '<select data-sp-leg-side aria-label="Over or under for pick ' + (i + 1) + '"><option value="over"' + (l.side === 'over' ? ' selected' : '') + '>Over</option><option value="under"' + (l.side === 'under' ? ' selected' : '') + (OFFER_TEXT[l.offer_type] ? ' disabled' : '') + '>Under</option></select>' +
       '<input data-sp-leg-line type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="' + escape(l.threshold) + '" aria-label="Line for pick ' + (i + 1) + '">' +
       '<span class="sp-ms" data-sp-ms title="How Kalshi names this line">' + (ms ? escape(ms) : '') + '</span>' +
-      legChanceHtml(l, i) + legStartHtml(l, i) + '</div>' +
+      legChanceHtml(l, i) + legStartHtml(l, i) + legOfferHtml(l, i) + '</div>' +
       '<div class="sp-hist" data-sp-hist="' + i + '">' + histHtml(i) + '</div></li>';
+  }
+  // The pick's line type: normal, a Goblin (NBA), or a promo line (a
+  // discounted Taco / Flash Sale line, or the 0.5 Guarantee) with the
+  // player's normal line, so the measured rate and the comparison can be read.
+  const OFFER_TEXT = { goblin: 'Goblin', discount: 'Discount', guarantee: 'Guarantee' };
+  function legOfferHtml(l, i) {
+    const cur = l.offer_type || 'standard';
+    const opt = (v, t) => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + t + '</option>';
+    const promoLine = cur === 'discount' || cur === 'guarantee';
+    return '<label class="sp-field sp-start-field"><span>Line</span><select data-sp-leg-offer aria-label="Line type for pick ' + (i + 1) + '">' +
+      opt('standard', 'Normal') + (l.sport === 'nba' || cur === 'goblin' ? opt('goblin', 'Goblin') : '') + opt('discount', 'Discount (Taco, Flash Sale)') + opt('guarantee', 'Guarantee (0.5)') + '</select></label>' +
+      (promoLine ? '<label class="sp-field sp-start-field"><span>Normal line</span><input data-sp-leg-normal type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="' + escape(l.normal_line == null ? '' : l.normal_line) + '" aria-label="Normal line for pick ' + (i + 1) + '"></label>' : '');
   }
   // NBA: whether the player starts tonight, when known (the model's lineup
   // input). Unknown leaves the forecast on his usual role.
@@ -2427,7 +2496,21 @@ export function sportsFactory(host, doc, options) {
     return '<div class="sp-settings">' +
       '<label class="sp-field"><span>App</span><select data-sp-operator>' + Object.keys(OPERATOR_NAMES).map((k) => opt(k, OPERATOR_NAMES[k], d.operator)).join('') + '</select></label>' +
       '<label class="sp-field"><span>Entry type</span><select data-sp-format>' + opt('power', 'Power: every pick must hit', d.format) + opt('flex', 'Flex: pays with some misses', d.format) + opt('parlay', 'Parlay: odds on each bet (sportsbook, Kalshi)', d.format) + '</select></label>' +
-      '<label class="sp-field"><span>Paper stake</span><span class="sp-money"><i>$</i><input data-sp-stake type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" value="' + escape(d.stake) + '"></span></label></div>';
+      '<label class="sp-field"><span>Paper stake</span><span class="sp-money"><i>$</i><input data-sp-stake type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" value="' + escape(d.stake) + '"></span></label></div>' + promoBoxHtml();
+  }
+  // The entry promo the app shows: a profit boost, or a protected play whose
+  // net loss comes back as bonus credit.
+  function promoBoxHtml() {
+    const d = draft(), P = d.promo || {}, type = P.type || 'none';
+    const opt = (v, t) => '<option value="' + v + '"' + (v === type ? ' selected' : '') + '>' + t + '</option>';
+    const field = (key, name, pre, post, attrs) => '<label class="sp-field"><span>' + name + '</span><span class="sp-money">' + (pre ? '<i>' + pre + '</i>' : '') +
+      '<input data-sp-promo-field="' + key + '" type="number" ' + attrs + ' inputmode="decimal" value="' + escape(P[key] == null ? '' : P[key]) + '">' + (post ? '<i>' + post + '</i>' : '') + '</span></label>';
+    const fields = type === 'profit_boost' ? field('boost_pct', 'Boost', '', '%', 'min="1" max="500" step="1"') + field('max_boost', 'Most extra profit (optional)', '$', '', 'min="0.01" max="100000" step="0.01"')
+      : type === 'protected' ? field('conversion', '$1 of bonus is worth', '', '¢', 'min="0" max="100" step="1" placeholder="40"') + field('max_bonus', 'Most bonus (optional)', '$', '', 'min="0.01" max="100000" step="0.01"') : '';
+    const note = type === 'profit_boost' ? 'The boost raises the profit above your stake (a 50% boost turns 6× into 8.5×); a loss is unchanged.'
+      : type === 'protected' ? 'A net loss comes back as bonus credit, not cash. Enter how much $1 of that credit is worth to you once played through (40¢ if you leave it empty).' : '';
+    return '<div class="sp-settings sp-promo-box"><label class="sp-field"><span>Promo</span><select data-sp-promo-type>' + opt('none', 'None') + opt('profit_boost', 'Profit boost') + opt('protected', 'Protected (loss back as bonus)') + '</select></label>' + fields + '</div>' +
+      (note ? '<p class="sp-note">' + escape(note) + '</p>' : '');
   }
   function payoutsHtml() {
     validateCarriedPayout();
@@ -2536,7 +2619,48 @@ export function sportsFactory(host, doc, options) {
       body = beBarHtml(E.joint_probability, E.breakeven_probability, E.bounds) + '<div class="sp-tiles">' + tiles + '</div>' + dist + sameGameNoteHtml(E, n) + oddsBlockHtml(E, ev) +
         '<p class="sp-note">Independence baseline: it assumes no pick affects another, using the chances entered above' + (fromHistory ? ' (some copied from history rates)' : '') + '. A starting point, not a forecast.</p>';
     }
-    return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + evCheckHtml(E.ev_check) + body + '</div>';
+    return '<div class="sp-eval">' + (warn.length ? '<ul class="sp-warn">' + warn.map((w) => '<li>' + w + '</li>').join('') + '</ul>' : '') + evCheckHtml(E.ev_check) + body + promoEvalHtml(E, ev) + parlayCheckHtml(E.parlay_check) + '</div>';
+  }
+  // The promo's value: the expected return with and without it, and the
+  // promo size that makes the entry break even.
+  function promoEvalHtml(E, ev) {
+    const P = E && E.promo;
+    if (!P) return '';
+    const cls = (r) => (r > 0 ? 'sp-pos' : r < 0 ? 'sp-neg' : '');
+    const even = P.type === 'profit_boost'
+      ? (P.breakeven_boost_pct != null ? (P.breakeven_boost_pct === 0 ? 'The entry is already positive without the boost.' : 'A boost of ' + P.breakeven_boost_pct + '% or more breaks even.') : '')
+      : (P.breakeven_conversion != null ? (P.breakeven_conversion === 0 ? 'The entry is already positive without the bonus.' : 'It breaks even if $1 of bonus is worth ' + (Math.round(P.breakeven_conversion * 1000) / 10) + '¢ or more; you set ' + Math.round(P.conversion * 100) + '¢' + (P.conversion_assumed ? ' (assumed)' : '') + '.') : '') +
+        ' On average ' + pct(P.expected_net_loss_share) + ' of the stake comes back as bonus, not cash.';
+    return '<div class="sp-promo-eval"><p class="sp-label">' + (P.type === 'profit_boost' ? 'Profit boost ' + escape(P.boost_pct) + '%' : 'Protected play') + '</p>' +
+      '<p>Expected return without the promo <b class="' + cls(P.expected_roi_without) + '">' + roiText(P.expected_roi_without) + '</b>, with it <b class="' + cls(P.expected_roi_with) + '">' + roiText(P.expected_roi_with) + '</b> (' + signedMoney(P.expected_net_with) + ' on ' + money(ev.stake) + ').</p>' +
+      (even ? '<p class="sp-note">' + escape(even) + '</p>' : '') + '</div>';
+  }
+  // The parlay check (lib/sports/parlay-check.mjs, the same read the MCP
+  // gives): every pick's chance against what it needs with the others as they
+  // are, the books' and the model's chance beside it, and how far it can be
+  // trusted.
+  const PC_HEAD = { plus_ev: 'Plus EV at market or measured chances', plus_ev_untested: 'Plus EV only on untested model chances', plus_ev_unconfirmed: 'Plus EV on your own or hit-rate chances',
+    plus_ev_books_disagree: 'Plus EV, but it loses at the books’ prices', negative_ev: 'Negative EV', unsure: 'About break-even', unknown: 'Not priced yet' };
+  const TRUST_TEXT = { market: 'books', measured: 'measured', model: 'model', model_untested: 'model, untested', history: 'hit rate', owner: 'yours', none: '—' };
+  function parlayCheckHtml(C) {
+    if (!C || !C.picks || !C.picks.length || C.verdict === 'unknown') return '';
+    const gap = (g) => (g == null ? '—' : '<span class="' + (g > 0 ? 'sp-pos' : g < 0 ? 'sp-neg' : '') + '">' + (g > 0 ? '+' : g < 0 ? '−' : '') + Math.abs(g).toFixed(1) + '</span>');
+    const rows = C.picks.map((p) => '<tr><th scope="row">' + p.pick + '. ' + escape(p.label) + (p.offer ? ' <small class="sp-muted">' + escape(OFFER_TEXT[p.offer] || p.offer) + (p.normal_line != null ? ' from ' + escape(p.normal_line) : '') + '</small>' : '') + '</th>' +
+      '<td class="sp-n">' + pct(p.chance) + '</td><td class="sp-n">' + pct(p.needs) + '</td><td class="sp-n">' + gap(p.gap_pts) + '</td><td class="sp-n">' + pct(p.book) + '</td><td class="sp-n">' + pct(p.model) + '</td>' +
+      '<td title="' + escape(p.trust_note || '') + '">' + escape(TRUST_TEXT[p.trust] || p.trust) + '</td></tr>').join('');
+    const alt = [];
+    const r = (x) => (x.expected_roi_with_promo != null ? x.expected_roi_with_promo : x.expected_roi);
+    if (C.at_book_chances) alt.push('At the books’ chances: ' + roiText(r(C.at_book_chances)));
+    if (C.at_model_chances) alt.push('at the model’s: ' + roiText(r(C.at_model_chances)));
+    if (C.at_normal_lines) alt.push('with the promo lines back at their normal lines and no promo: ' + roiText(C.at_normal_lines.expected_roi));
+    // A positive read gets its own box (the trust behind it is the point);
+    // a negative or break-even one is already the box above.
+    const plus = C.verdict.indexOf('plus_ev') === 0;
+    const head = plus ? '<div class="sp-pc-v sp-pc-' + (C.verdict === 'plus_ev' ? 'good' : 'warn') + '" role="status"><b>' + escape(PC_HEAD[C.verdict] || C.verdict) + '</b><p>' + escape(C.summary) + '</p>'
+      : '<div class="sp-pc-v"><b>Parlay check</b><p>' + escape(C.summary) + '</p>';
+    return '<div class="sp-pc">' + head + (alt.length ? '<p class="sp-ev-src">' + escape(alt.join('; ')) + '.</p>' : '') + '</div>' +
+      '<table class="sp-table sp-odds-table sp-pc-table" data-nosort><thead><tr><th scope="col">Pick</th><th scope="col">Chance</th><th scope="col">Needs</th><th scope="col">Gap</th><th scope="col">Books</th><th scope="col">Model</th><th scope="col">From</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<p class="sp-note">Needs: the chance a pick must have for the entry' + (C.promo ? ', promo counted,' : '') + ' to break even with the other picks at their chances (treated as unrelated). Gap in points. Plus EV counts only on sportsbook prices and measured promo rates; a model stat that scores no better than a coin flip at real PrizePicks lines is marked untested.</p></div>';
   }
   // Is the entry worth playing at these chances (lib/sports/payout.mjs
   // evCheck, the same read the MCP gives): a warning when the expected return
@@ -2732,13 +2856,14 @@ export function sportsFactory(host, doc, options) {
   }
   function entryCardHtml(e) {
     const st = e.settlement;
-    const legs = e.legs.map((l) => '<li><span>' + (isTeamPick(l) ? escape(l.label || teamPickLabel(l)) : escape(l.player_name || l.player_id) + ' · ' + escape(label(l.stat)) + ' ' + sideWord(l.side) + ' ' + escape(l.threshold)) +
+    const legs = e.legs.map((l) => '<li><span>' + (isTeamPick(l) ? escape(l.label || teamPickLabel(l)) : escape(l.player_name || l.player_id) + ' · ' + escape(label(l.stat)) + ' ' + sideWord(l.side) + ' ' + escape(l.threshold) + (OFFER_TEXT[l.offer_type] ? ' (' + OFFER_TEXT[l.offer_type] + (l.normal_line != null ? ', normally ' + escape(l.normal_line) : '') + ')' : '')) +
       ' <span class="sp-muted">' + matchupText(l.matchup) + (l.model && l.model.status === 'ok' ? ' · model ' + pct(l.model.probability) : '') + (l.probability != null ? ' · used ' + pct(l.probability) + (l.probability_source ? ' ' + escape(SOURCE_TEXT[l.probability_source] || '') : '') : '') +
       (l.price > 1 ? ' · at ' + escape(oddsText({ decimal: l.price })) : '') + '</span></span>' + legResultHtml(l) + '</li>').join('');
-    const money2 = st.state === 'settled' ? '<p class="sp-entry-money">Paid back ' + money(st.gross) + ' · <b class="' + (st.net > 0 ? 'sp-pos' : st.net < 0 ? 'sp-neg' : '') + '">' + signedMoney(st.net) + '</b>' + (st.manual ? ' <span class="sp-muted">entered by hand' + (st.note ? ': ' + escape(st.note) : '') + '</span>' : '') + '</p>'
+    const money2 = st.state === 'settled' ? '<p class="sp-entry-money">Paid back ' + money(st.gross) + (st.boost_cash ? ' (boost ' + money(st.boost_cash) + ')' : '') + ' · <b class="' + (st.net > 0 ? 'sp-pos' : st.net < 0 ? 'sp-neg' : '') + '">' + signedMoney(st.net) + '</b>' + (st.manual ? ' <span class="sp-muted">entered by hand' + (st.note ? ': ' + escape(st.note) : '') + '</span>' : '') +
+        (st.bonus ? ' · bonus credit ' + money(st.bonus.face) + ' <span class="sp-muted">(worth ' + money(st.bonus.value) + ' at ' + Math.round(st.bonus.conversion * 100) + '¢)</span>' : '') + '</p>'
       : st.state === 'review' ? '<p class="sp-entry-money">' + escape(st.reason || 'Enter what the app paid.') + '</p>' : '';
     return '<li class="sp-entry' + (st.state === 'withdrawn' ? ' is-withdrawn' : '') + '" data-sp-entry="' + escape(e.entry_id) + '"><div class="sp-entry-head"><span>' + escape(fmtWhen(e.created_utc, zone())) + ' · ' + escape(OPERATOR_NAMES[e.operator] || e.operator) + ' · ' + (e.format === 'flex' ? 'Flex' : e.format === 'parlay' ? 'Parlay' : 'Power') + ' · ' + money(e.stake) + ' paper</span>' + badgeHtml(st) + '</div>' +
-      '<p class="sp-entry-pay">' + payoutText(e) + '</p><ul class="sp-entry-legs">' + legs + '</ul>' + money2 +
+      '<p class="sp-entry-pay">' + payoutText(e) + (e.promo ? ' · ' + (e.promo.type === 'profit_boost' ? escape(e.promo.boost_pct) + '% profit boost' : 'protected play') : '') + '</p><ul class="sp-entry-legs">' + legs + '</ul>' + money2 +
       (savedEvalText(e.evaluation) ? '<p class="sp-note">' + escape(savedEvalText(e.evaluation)) + '</p>' : '') +
       (e.note ? '<p class="sp-entry-note">' + escape(e.note) + '</p>' : '') +
       (e.mine ? '' : '<p class="sp-muted">Saved by the other owner.</p>') + entryActionsHtml(e) + '</li>';
@@ -2756,11 +2881,23 @@ export function sportsFactory(host, doc, options) {
       (S.priced_settled ? tile('Expected at save', signedMoney(S.expected_net_settled), 'on the ' + S.priced_settled + ' settled entr' + (S.priced_settled === 1 ? 'y' : 'ies') + ' with chances') : '') + '</div>';
     const C = J.calibration || {};
     const check = (name, x) => x && x.picks ? '<li><b>' + name + '</b> ' + x.picks + ' settled pick' + (x.picks === 1 ? '' : 's') + ': average chance ' + pct(x.mean_chance) + ', hit ' + pct(x.hit_rate) + ', score ' + x.brier.toFixed(3) + '</li>' : '';
-    const calib = check('Model chances', C.model) + check('Chances used', C.used);
+    const calib = check('Model chances', C.model) + check('Chances used', C.used) + check('Measured promo-line chances', C.promo_lines);
     const calibHtml = calib ? '<ul class="sp-calib">' + calib + '</ul><p class="sp-note">Score is the average squared miss (lower is better; always guessing 50% scores 0.250). Pushes and voids are left out. A few dozen picks say little.</p>' : '';
     const shown = pb.journalAll ? J.entries : J.entries.slice(0, 30);
-    return tiles + calibHtml + '<ul class="sp-entries">' + shown.map(entryCardHtml).join('') + '</ul>' +
+    return tiles + promoSplitHtml(J.by_promo) + calibHtml + '<ul class="sp-entries">' + shown.map(entryCardHtml).join('') + '</ul>' +
       (shown.length < J.entries.length ? '<button type="button" class="sp-btn" data-sp-journal-all>Show all ' + J.entries.length + ' entries</button>' : '');
+  }
+  // Promo entries read apart from normal ones: does the promo edge show up
+  // in the paper results?
+  const PROMO_KIND_TEXT = { normal: 'No promo', profit_boost: 'Profit boost', protected: 'Protected', discount: 'Discount line', guarantee: 'Guarantee line' };
+  function promoSplitHtml(B) {
+    if (!B || !B.promo || !B.promo.entries) return '';
+    const row = (name, x) => '<tr><th scope="row">' + escape(name) + '</th><td class="sp-n">' + x.entries + '</td><td class="sp-n">' + x.settled + '</td><td class="sp-n">' + signedMoney(x.net) +
+      (x.bonus_value ? ' <small class="sp-muted">+' + money(x.bonus_value) + ' bonus</small>' : '') + '</td><td class="sp-n">' + (x.roi == null ? '—' : roiText(x.roi)) + '</td><td class="sp-n">' + (x.expected_net_settled == null ? '—' : signedMoney(x.expected_net_settled)) + '</td></tr>';
+    const kinds = Object.keys(B.kinds || {});
+    return '<p class="sp-label">Promo entries apart from normal ones</p><table class="sp-table sp-odds-table" data-nosort><thead><tr><th scope="col">Entries</th><th scope="col">Saved</th><th scope="col">Settled</th><th scope="col">Cash profit</th><th scope="col">Return</th><th scope="col">Expected</th></tr></thead><tbody>' +
+      row(PROMO_KIND_TEXT.normal, B.normal) + (kinds.length > 1 ? kinds.map((k) => row(PROMO_KIND_TEXT[k] || k, B.kinds[k])).join('') : row(PROMO_KIND_TEXT[kinds[0]] || 'Promo', B.promo)) + '</tbody></table>' +
+      '<p class="sp-note">Bonus credit from protected plays is shown at the value you set, apart from cash. Expected is what the check said at save, with the promo.</p>';
   }
   function loadJournal() {
     pb.journalErr = null;
@@ -3167,6 +3304,22 @@ export function sportsFactory(host, doc, options) {
           if (t.value === 'yes') l.starting = true; else if (t.value === 'no') l.starting = false; else delete l.starting;
           clearChance(legEl, l); saveDraft(); scheduleEval();
         }
+      } else if (t.matches('[data-sp-leg-offer]') && legEl) {
+        const l = d.legs[Number(legEl.getAttribute('data-sp-leg'))];
+        if (l) {
+          const was = l.offer_type || 'standard';
+          if (t.value === 'standard') delete l.offer_type; else l.offer_type = t.value;
+          // Goblins and promo lines are More only; a Guarantee is the 0.5 line,
+          // and the line typed before becomes the normal line.
+          if (t.value !== 'standard') l.side = 'over';
+          if (t.value === 'guarantee') { if (l.normal_line == null && l.threshold > 0.5) l.normal_line = l.threshold; l.threshold = 0.5; }
+          else if (t.value === 'discount') { if (l.normal_line == null && l.threshold > 0) l.normal_line = l.threshold; }
+          else { if (was === 'guarantee' && l.normal_line > 0.5) l.threshold = l.normal_line; delete l.normal_line; }
+          clearChance(legEl, l); saveDraft(); paint(BUILDER, 'legs', legsHtml()); scheduleEval();
+        }
+      } else if (t.matches('[data-sp-promo-type]')) {
+        d.promo = t.value === 'none' ? null : { type: t.value };
+        saveDraft(); paint(BUILDER, 'settings', settingsHtml()); scheduleEval();
       } else if (t.matches('[data-sp-leg-side]') && legEl) {
         const l = d.legs[Number(legEl.getAttribute('data-sp-leg'))];
         if (l) {
@@ -3232,6 +3385,15 @@ export function sportsFactory(host, doc, options) {
         if (ms) ms.textContent = milestone(l.side, l.threshold) || '';
         saveDraft(); scheduleEval();
       }
+      else if (t.matches('[data-sp-leg-normal]') && l) {
+        l.normal_line = t.value === '' ? null : Number(t.value); clearChance(legEl, l);
+        saveDraft(); scheduleEval();
+      }
+      else if (t.matches('[data-sp-promo-field]')) {
+        if (!d.promo) return;
+        d.promo[t.getAttribute('data-sp-promo-field')] = t.value === '' ? '' : Number(t.value);
+        saveDraft(); scheduleEval();
+      }
       else if (t.matches('[data-sp-leg-tline]') && l) {
         l.line = t.value === '' ? '' : Number(t.value); l.label = teamPickLabel(l); clearChance(legEl, l);
         const lab = legEl.querySelector('[data-sp-tlabel]');
@@ -3252,7 +3414,7 @@ export function sportsFactory(host, doc, options) {
       }
       else if (t.matches('[data-sp-leg-chance]') && l) {
         const v = Number(t.value);
-        l.probability = t.value !== '' && v >= 1 && v <= 99 ? Math.round(v) / 100 : null;
+        l.probability = t.value !== '' && v >= 0.1 && v <= 99.9 ? Math.round(v * 10) / 1000 : null;
         l.probability_source = l.probability == null ? null : 'owner';
         const src = legEl.querySelector('[data-sp-src]');
         if (src) src.textContent = l.probability == null ? '' : 'typed';
@@ -3338,7 +3500,7 @@ export function sportsFactory(host, doc, options) {
     if (!l || !(p > 0 && p < 1)) return;
     l.probability = p; l.probability_source = 'model';
     if (legEl) {
-      legEl.querySelector('[data-sp-leg-chance]').value = String(Math.round(p * 100));
+      legEl.querySelector('[data-sp-leg-chance]').value = chanceText(p);
       legEl.querySelector('[data-sp-src]').textContent = SOURCE_TEXT.model;
     }
   }
@@ -3363,8 +3525,19 @@ export function sportsFactory(host, doc, options) {
       const l = d.legs[i], legEl = b.closest('[data-sp-leg]');
       if (l && legEl && p > 0 && p < 1) {
         l.probability = p; l.probability_source = 'book';
-        legEl.querySelector('[data-sp-leg-chance]').value = String(Math.round(p * 100));
+        legEl.querySelector('[data-sp-leg-chance]').value = chanceText(p);
         legEl.querySelector('[data-sp-src]').textContent = SOURCE_TEXT.book;
+        saveDraft(); scheduleEval(0);
+      }
+      return;
+    }
+    if ((b = hit('[data-sp-usemeasured]'))) {
+      const i = Number(b.getAttribute('data-sp-usemeasured')), p = Number(b.getAttribute('data-prob'));
+      const l = d.legs[i], legEl = b.closest('[data-sp-leg]');
+      if (l && legEl && p > 0 && p < 1) {
+        l.probability = p; l.probability_source = 'measured';
+        legEl.querySelector('[data-sp-leg-chance]').value = chanceText(p);
+        legEl.querySelector('[data-sp-src]').textContent = SOURCE_TEXT.measured;
         saveDraft(); scheduleEval(0);
       }
       return;
@@ -3461,5 +3634,5 @@ export function sportsFactory(host, doc, options) {
     else if (L.view === 'games' && !L.propsPending) { loadBoard(page, lg); paint(page, 'board', boardHtml(lg)); }
   });
   // priceOf is returned for the smoke test, which compares it with parsePrice.
-  return { load, priceOf, neverBoth, evCheckHtml };
+  return { load, priceOf, neverBoth, evCheckHtml, availHtml, fcInputsHtml, legAvailHtml };
 }

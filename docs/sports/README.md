@@ -492,6 +492,18 @@ Since adapter 2 (2026-11-11):
   the active roster is marked out and is never ranked. A practice-squad
   player (DEV) is marked unsure, not out: he plays when the team elevates him
   for the game.
+- **Two-way players (adapter 3, 2026-11-20).** The weekly file lists a
+  player by his listed position group, so a cornerback who also plays
+  receiver (Travis Hunter) was dropped from the stats and kept only as an
+  all-zero snap row: his 101-yard game was stored as 0. A player outside
+  QB / RB / WR / TE with a target or carry in 3+ games of a season file
+  (`TWO_WAY_MIN_GAMES`, `twoWayPlayers`) is now stored like a receiver or
+  back (WR when targets lead, else RB) with his offensive snaps; a game with
+  no offensive snap and no touch is left out of his averages, and one-off
+  trick plays (a punter's fake) stay out. The status record counts
+  `two_way_players`, `two_way_rows` and `other_position_rows_skipped`. The
+  version bump re-downloads every NFL season once (free GitHub release
+  files).
 
 **NBA** (`lib/sports/hoopr.mjs`) reads the hoopR release files from
 `sportsdataverse-data`: `espn_nba_schedules/nba_schedule_<year>.csv` and
@@ -520,6 +532,16 @@ points, rebounds and assists, and players NBA.com has but the store does not.
 Only counts and a few examples are kept in the status record; nothing from
 NBA.com is stored as data, and when the files cannot be reached the check
 says `unavailable` and the run goes on.
+
+**Accuracy check (2026-11-20).** The stored stats were compared with outside
+copies. NFL: every stored QB / RB / WR / TE row matched nflverse's weekly
+file exactly; the one gap was the two-way players above, now fixed. NBA: a
+sample of 278 player lines matched NBA.com's box scores (none off, one
+missing), and 7 of 1,322 2025-26 games still have box points short of the
+final score (the ESPN gaps above; repairing them needs NBA.com or ESPN,
+which the build sandbox cannot reach). NFL final scores come from the
+nflverse schedule only; there is no second free source to check them
+against.
 
 Local checks without credentials:
 
@@ -650,10 +672,58 @@ baseline can be checked against what happened.
 **Shared links.** `/?tab=sports-pick-builder&entry=<base64url JSON>` fills
 the draft (`lib/sports/prefill.mjs`: `encodePrefill` / `decodePrefill`; the
 page reads the parameter once and removes it). Fields: `v: 1`, `operator`,
-`format`, `stake`, `payouts`, and `legs` of `sport`, `player_id`, `game_id`,
-`stat`, `side`, `threshold`. The MCP's `sports_evaluate_entry` hands these
+`format`, `stake`, `payouts`, `promo` (type and sizes, never a chance), and
+`legs` of `sport`, `player_id`, `game_id`, `stat`, `side`, `threshold`, plus
+`offer_type` / `normal_line` on Goblin and promo lines. The MCP's `sports_evaluate_entry` hands these
 out after Claude or ChatGPT reads a screenshot. The owner still checks and
 saves.
+
+**Promos (2026-11-20, `lib/sports/promo.mjs`).** The owner types what the app
+shows; nothing reads PrizePicks.
+
+- **Entry promo** (the Promo box): a profit boost (`boost_pct`, optional
+  `max_boost` dollars: the profit above the stake grows by that share, so a
+  50% boost turns 6× into 8.5×; a loss is unchanged), or a protected play (a
+  net loss comes back as bonus credit worth `conversion` per $1, 40¢ when
+  left empty, optional `max_bonus`). The evaluation's `promo` block gives the
+  expected return with and without it and the boost or conversion that breaks
+  even, from the same outcome table as the entry (`promoValue`). A settled
+  boosted entry pays the boost in cash (`boost_cash`); a protected loss shows
+  its bonus credit and its value apart from the cash result.
+- **Promo lines** (each pick's Line box): Discount (a Taco / Flash Sale line
+  below the normal line, More only, with the normal line) and Guarantee (the
+  0.5 line, More only). They are priced from measured rates, not the model's
+  curve, kept in `model.json` as `promo_tables` by the refit: the
+  **clearance table** (real lines, from the archive and the mirror seed, in
+  up to four buckets of similar size; for each, the share of results above
+  the line at every 2.5% below it) and the **zero table** (held-out
+  forecasts in ten bins; the share of players who played and recorded none,
+  beside the model curve's own chance of 0). A pick gets `promo_line`
+  (chance, range, how many games, what a normal line that size clears) and a
+  "Use X% (measured)" button (source `measured`). The model's curve
+  underrates zeros for yardage and big counts (NFL receiving yards: 15% of
+  players forecast near 24 yards had none, the curve says 3%), which is why
+  the Guarantee reads the zero table. `at_normal_lines` reprices the entry
+  with every promo line back at its normal line and no entry promo: what the
+  promo lines added.
+- **Journal.** Saved entries keep `promo` and `promo_kind`; the summary adds
+  `by_promo` (normal, promo, and each kind apart) and the calibration
+  `promo_lines` (the measured rate against what happened).
+
+**Parlay check (2026-11-20, `lib/sports/parlay-check.mjs`).** Every
+evaluation carries `parlay_check`, shown under the numbers and returned by
+the MCP: the chance every pick hits against what the payout needs (with the
+promo), the expected return with and without the promo, the same entry at
+the books' and at the model's chances, and per pick its chance and source,
+the chance it needs given the others (held fixed, treated as unrelated), the
+gap, the books' and the model's chance, and how far it can be trusted.
+Verdicts: `plus_ev` only when the return is positive and every chance is a
+sportsbook price or a measured promo rate; `plus_ev_untested` when it rests
+on model chances for a stat that trails a coin flip at real lines or is
+experimental; `plus_ev_books_disagree` when the same entry loses at the
+books' prices; `plus_ev_unconfirmed` for the owner's or hit-rate chances;
+`negative_ev`, `unsure`, `unknown`. A read, never a block. A saved entry
+keeps only the verdict and trust.
 
 **Browser storage.** The unsaved draft lives in sessionStorage
 (`stonks-sports-draft-v1`) and is gone when the tab closes. Saved entries are
@@ -661,8 +731,9 @@ only in R2.
 
 ## Stat models
 
-`lib/sports/models.mjs` (`sports-model-5` since 2026-11-13, adding the NBA
-lineup input; `sports-model-4` since 2026-11-11: the game
+`lib/sports/models.mjs` (`sports-model-7` since 2026-11-20, adding the
+return-from-absence and NFL vacated-volume inputs and the promo tables;
+`sports-model-5` since 2026-11-13, adding the NBA lineup input; `sports-model-4` since 2026-11-11: the game
 spread and total and the NFL snap share; `sports-model-3` the same day: 21
 stats, teammates out, real lines; `sports-model-2` added the gated
 recalibration). Deterministic and AI-free: the same stored games always
@@ -724,6 +795,26 @@ the player's last-10 hit rate at that line and a coin flip. Once 300 held-out
 games have a real line, a stat must beat both there too or it is not
 validated. Until then the Model check card shows the count. The archive
 starts empty, so this fills in over the season.
+
+**Mirror seed (2026-11-20).** The public PrizePicks mirror
+(github.com/enkday/prizepicks-data-mirror: one standard-line snapshot a day
+since December 2025; its README allows any use) was matched to stored games
+and players once by `scripts/sports-mirror-seed.mjs` (run by hand, never by
+a workflow: both teams and a start within 10 minutes, the player among those
+whose last stored game was with that team, the first pregame line per game,
+player and stat) and committed as `research/sports/prizepicks-mirror/<sport>.json.gz`
+(`[date, game_id, player_id, stat, line]`, no outcomes). The data job reads
+it from the checkout (`lib/sports/mirror-seed.mjs`, no network, no store
+write); a line the props scans archived for the same pick wins (archive,
+then issued, then mirror). As of 2026-11-19 it holds 39,084 NBA lines (308
+snapshots) and 8,096 NFL lines (278). With them the real-line check fills at
+once: on the 2026-11-19 data the model scored worse than a coin flip at
+real lines for NBA points, rebounds, assists and turnovers and for every NFL
+stat with 300+ lines (Brier about 0.25-0.28 against 0.25), and only threes,
+steals and blocks beat it slightly. So once the job runs, most stats read
+experimental and carry `real_lines_check`; that is the honest read, since
+PrizePicks' own lines already hold what the model knows. `real_lines.sources`
+counts `mirror` beside `issued` and `archive`.
 
 **Teammates out (NBA, since 2026-11-11).** A regular is a player whose latest
 game was for that team within 12 days, who played 3 of his last 5, and who
@@ -800,8 +891,11 @@ stable across seasons) and a short-game mixture for blowouts and early exits.
 The negative binomial beat the normal curve for NFL rushing, receiving and
 rush + receiving yards; passing and pass + rush yards stay normal. With
 only two NFL seasons, passing yards had 239 held-out games, which is why NFL
-keeps older seasons. Forecasts know nothing about rest or news, and about
-injuries only through the NBA teammates-out lift (the site and the MCP show
+keeps older seasons. Forecasts know nothing about news; NFL rest is used
+for passing volume and NBA rest was tested and is not (see "Return from
+absence and vacated volume"); they know about injuries through the NBA
+teammates-out lift, the NFL vacated volume and a player's own return from
+missed games (the site and the MCP show
 the injury report beside them, and the MCP the sportsbook price, see "MCP
 tools").
 
@@ -897,6 +991,62 @@ These gains assume the lineup is known, as it is in a box score. A pick
 made before lineups are out gets none of it, which is why the Starting box
 exists. The same study found no reliable gain from the pregame spread or a
 blowout-minutes adjustment, so neither is used.
+
+**Return from absence and vacated volume (`sports-model-7`, 2026-11-20).**
+Six more game inputs were tested with the same factor check, on all seasons
+and again on games before 2025-07-01 (NBA) / 2026-03-01 (NFL), offline with
+`scripts/sports-factor-research.mjs` (a local copy of the records, no
+network). Three passed both times and are now served; the rest were noise or
+passed on one holdout and not the other:
+
+- `return`: the first game back after missing 2+ of the team's finished
+  games (`RETURN`, the player's last played game for that team within 60
+  days; counted from the stored schedule, `gamesMissed` /
+  `teamFinalDates`, the same way in the check and live). Players back from
+  a few missed games record less: the betas are all negative, about −0.06 to
+  −0.09 NBA and −0.08 to −0.23 NFL (quarterbacks most). It passes NBA
+  rebounds, threes, steals, PRA, points + rebounds, points + assists and
+  blocks + steals, and NFL passing yards, pass + rush yards, completions,
+  rushing yards and carries. Forecasts carry `return_from_absence: {
+  games_missed, factor, applied }` only on that first game back.
+- `vacated` (NFL): the share of the team's targets and carries per game, over
+  its last 4 games, held by regulars who are not playing (`VACATED`: played 3
+  of those 4, 3+ targets or 5+ carries a game there, last game within 21
+  days; each share held to 60%). In the check "not playing" is no row for
+  the game; live it is the injury report's Out or Doubtful (`teamAbsence`
+  for NFL, the same report and matching as NBA's teammates out). It passes
+  receiving yards (targets beta +0.33), rush + receiving yards and carries
+  (carries beta +0.52). Forecasts carry `vacated: { targets_share,
+  carries_share, factor, applied }` when a share is above 0, and the NFL
+  teammates out list each regular's targets and carries.
+- `rest` (NFL): a short week (5 days or less since the team's last finished
+  game) and 12+ days off (`REST`, `teamRestDays`). It passes completions and
+  pass attempts on both holdouts, with the same direction both times: a
+  short week means about 4-8% more passing volume, a bye about 1-2% less.
+  Forecasts carry `rest: { days, short_week, bye, factor, applied }` on
+  those weeks. NBA rest (back-to-backs, 3+ days off) passed on different
+  stats each time and stays out.
+
+| Factor | NBA, all seasons | NBA, earlier holdout | NFL, all seasons | NFL, earlier holdout | Served |
+|---|---|---|---|---|---|
+| Return from absence | 7 of 12 stats | 8 of 12 | 5 of 9 | 5 of 9 | yes |
+| Vacated targets / carries (NFL) | — | — | 3 of 9 | 4 of 9 | yes |
+| Rest (NBA back-to-back, 3+ days off; NFL short week, bye) | 2 | 3, mostly different stats | completions, attempts | the same | NFL yes, NBA no |
+| Rest against the opponent's | 0 | 0 | 0 | 0 | no |
+| Time zones crossed | 2-3 | 4, different stats | 0-1 | 1, different | no |
+| Same-position minutes out (NBA) | 3 | 1, different | — | — | no |
+
+The gains are small (NBA return about 0.0001-0.0002 Brier per stat; NFL
+passing up to 0.004), so these move a forecast a few percent on the games
+they touch. The two holdouts overlap (both include the 2024-25 season), so
+they are not fully independent; every refit tests each input again per stat
+and applies it only where it still passes. Where an input is missing (no injury report read, the Pick
+Builder page, which reads none) the forecast is exactly as before; the
+return input needs only the stored schedule, so it works everywhere. The
+player page and each Pick Builder pick say when either input moved the
+forecast. Earlier tests that stay out: pace and defense by position beyond
+the opponent factor, early season, a blowout mixture, weather and the NBA
+pregame spread.
 
 **Recalibration, gated (2026-11-11).** The refit also fits a Platt curve
 (`fitCalibration`: `sigmoid(a + b × logit p)`, `a` held to ±0.5 and `b` to
@@ -1232,6 +1382,17 @@ Since 2026-11-12:
 - `sports_get_model_check` adds `team_model`: the team model's check per
   kind of bet.
 
+Since 2026-11-20 `sports_evaluate_entry` takes `promo` (profit_boost,
+protected) and each player pick's `offer_type` (standard, goblin, discount,
+guarantee) and `normal_line`, returns `promo_line` on promo picks and
+`evaluation.parlay_check` (see Pick Builder) repriced with the books' chance
+per pick, and warns `PLUS_EV`, `PLUS_EV_UNTESTED`, `BOOKS_DISAGREE`,
+`PLUS_EV_UNCONFIRMED`, `PROMO_LINE_UNPRICED` and `PROMO_CONVERSION_ASSUMED`.
+With `use_book_chances` or `use_model_chances` a promo line takes its
+measured rate first (the books post no 0.5 line). NFL forecasts from
+`sports_get_player` and evaluate read the injury report for the vacated
+input, as NBA's do for teammates out.
+
 The intended flow: send a slip screenshot to Claude or ChatGPT; it reads the
 players, lines and payout, finds each player (`sports_find_players`), checks
 the entry (`sports_evaluate_entry`, which can leave out `game_id` to use the
@@ -1342,7 +1503,10 @@ the 2026-11-17 cadence cut), and the
 team model refit adds a few seconds and one R2 write per league per run. The
 PropLine feed (free key) is read by the props board and, since 2026-11-11, by
 the MCP tools above; all share one two-minute cache per request, so a burst
-of calls is one read.
+of calls is one read. The 2026-11-20 promo, parlay-check and model changes
+add nothing: the mirror seed is a committed file read from the checkout,
+the factor script runs by hand on local files, and the NFL adapter bump
+re-downloads the free nflverse files once.
 
 ## Build plan
 
@@ -1387,4 +1551,6 @@ One branch and pull request each, from `main`:
 npm run test:sports           # access, route, time zones, keys, schema, wiring, both adapters, ingest, views, payout math, the journal, the stat models, same-game chances, the MCP tools, the player / team stats and the team game model (sports-team-smoke: pricing, page/server parity, rest, curves)
 npm run test:sports-browser   # Owner / member / signed-out at 1440 and 390, boards, games, logs, forecasts, every chart, the stats views, the model check, the Pick Builder flow, a same-game estimate, game bets and a sportsbook parlay, Team bets and the player page (tabs, keys, focus, Back, deep links)
 node scripts/regen-sports.mjs # rebuild index.html / app.js / styles.css without data/
+node scripts/sports-promo-smoke.mjs   # promos, promo tables, the parlay check, the mirror seed (also run by sports-pick-smoke)
+node scripts/sports-factor-research.mjs --store DIR --sport nba|nfl [--before DATE]   # offline factor research on a local copy of the records
 ```

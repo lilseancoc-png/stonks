@@ -55,7 +55,9 @@ report (`nfl/injuries.json`), `players.csv` team and roster status, and the
 schedule's closing spread and total, moneylines dropped; NBA from hoopR / ESPN
 box scores, ids filled and duplicate rows dropped, summed against final scores
 and cross-checked against NBA.com's public box-score files, counts only).
-Adapter version 2 re-downloaded every season once; each run writes its checks
+Adapter version 2 re-downloaded every season once (NFL adapter 3, 2026-11-20,
+again: two-way players such as a cornerback who also plays receiver are kept
+as WR / RB, `twoWayPlayers`); each run writes its checks
 to `integrity` in the status record (the public log prints counts only). The Pick Builder prices entries
 from typed-in payouts and owner chances (`lib/sports/payout.mjs`: breakeven,
 independence baseline, Fréchet range; same-game picks priced only with measured links) and
@@ -70,7 +72,7 @@ are drawn in `sports-client.mjs` from the player route's full log
 (`lib/sports/models.mjs`, deterministic, no AI) are refit by the same daily
 job into `_stonks/sports/v1/<sport>/model.json` with a dated holdout check
 (validated only with 300+ games, a better score than both baselines and
-calibration error ≤ 0.03); since `sports-model-3` (2026-11-11; now `sports-model-5`, with the game factors below) 12 NBA and 9 NFL
+calibration error ≤ 0.03); since `sports-model-3` (2026-11-11; now `sports-model-7`, with the game factors below) 12 NBA and 9 NFL
 stats are modeled, combos from their summed values. NFL keeps three extra
 finished seasons for the model only and NBA one (`modelHistory`). NBA forecasts
 rise when regular teammates are out (`teammates_out`, used per stat only where
@@ -92,7 +94,28 @@ on later dates by more than a day-clustered standard error: `game_lines` (the
 team's implied points from the spread and total; NFL from the schedule, NBA
 from the sportsbook spread/total the props scan archives under `games` in the
 line archive, PropLine `spreads,totals` in the existing reference request) and
-NFL `snap_trend`. Weather was tested and is not used. Props line matching
+NFL `snap_trend`; since `sports-model-7` (2026-11-20) also `return` (first
+game back after missing 2+ team games, both leagues), NFL `vacated` (share of
+the team's targets and carries held by regulars out; live from the injury
+report) and NFL `rest` (short week, bye), each kept after passing two holdouts
+in `scripts/sports-factor-research.mjs` (offline, a local copy of the
+records). Weather, NBA rest, travel, rest against the opponent and
+same-position absences were tested and are not used. The refit also reads a
+committed seed of real lines from the public PrizePicks mirror
+(`research/sports/prizepicks-mirror/<sport>.json.gz`, built by hand with
+`scripts/sports-mirror-seed.mjs`, read by `lib/sports/mirror-seed.mjs`; archive
+and issued lines win) and keeps `promo_tables` in `model.json` (real lines
+cleared at each step below the line; zero rates by forecast).
+**Promos and the parlay check (2026-11-20):** the Pick Builder and the MCP's
+evaluate take an entry `promo` (profit boost, protected play with a bonus
+conversion; `lib/sports/promo.mjs`, priced on the same outcome table) and
+promo lines (`offer_type` discount / guarantee with `normal_line`, priced from
+the measured tables, chance source `measured`); journal entries keep `promo`
+/ `promo_kind` and the summary splits them (`by_promo`). Every evaluation
+carries `parlay_check` (`lib/sports/parlay-check.mjs`: chance all hit vs
+needed, return with and without the promo, the entry at the books' and the
+model's chances, each pick's needed chance, gap and trust; `plus_ev` only on
+book or measured chances). Props line matching
 (`playerFor` in `lib/sports/props.mjs`) takes short first-name forms, skips a
 player whose team changed since his last stored game (`team_changed`) and NFL
 players off the active roster.
