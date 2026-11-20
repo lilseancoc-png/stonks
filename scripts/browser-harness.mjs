@@ -1,13 +1,14 @@
 // Shared pieces for the browser checks (2026-11-08): a local server that
 // serves the committed site with synthetic or failing data, and the page
 // checks every browser test runs (no page errors, no raw "undefined" / "NaN"
-// text, no sideways scroll). Imported by outage-drill-browser.mjs and
+// text, no sideways scroll, nothing painted over the data). Imported by outage-drill-browser.mjs and
 // layout-check-browser.mjs; nothing here contacts a provider, an account or
 // the production store.
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { coverProblems } from './cover-check.mjs';
 
 export const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
@@ -43,7 +44,7 @@ export async function startSiteServer(mode = {}) {
     // A page with known problems, so a test can prove the checks catch them.
     if (url.pathname === '/__harness-selftest.html') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      return res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Self test</title></head><body style="margin:0"><p>Price: undefined and NaN points for a page that is long enough to count as having text on it for the blank check.</p><div style="width:3000px;height:10px;background:red"></div></body></html>');
+      return res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Self test</title></head><body style="margin:0"><p>Price: undefined and NaN points for a page that is long enough to count as having text on it for the blank check.</p><div style="width:3000px;height:10px;background:red"></div><div style="position:relative;margin-top:20px"><p style="margin:0;font:16px sans-serif">Closing price 101.25 for the covered check</p><div style="position:absolute;top:0;left:0;width:240px;height:24px;background:#222"></div></div></body></html>');
     }
     const path = resolve(ROOT, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
     if (!path.startsWith(ROOT.endsWith(sep) ? ROOT : ROOT + sep)) return json({ error: 'Not found' }, 404);
@@ -83,7 +84,8 @@ export async function openTab(browser, base, { width = 1440, height = 1000, them
 const JUNK_RE = /(^|[\s(>:,])(undefined|NaN|\[object Object\])([\s)<.,]|$)/;
 
 // Structural checks on the open page. Returns a list of problems (empty = ok).
-export async function pageProblems({ page, errors, consoleErrors }, { allowOverflow = false } = {}) {
+// allowCovers: skip the covered-data check (scripts/cover-check.mjs).
+export async function pageProblems({ page, errors, consoleErrors }, { allowOverflow = false, allowCovers = false } = {}) {
   const problems = [];
   errors.forEach((e) => problems.push('page error: ' + e.split('\n')[0]));
   consoleErrors.forEach((e) => problems.push('console error: ' + e.split('\n')[0]));
@@ -122,6 +124,8 @@ export async function pageProblems({ page, errors, consoleErrors }, { allowOverf
   r.junk.forEach((j) => problems.push('raw value in text: ' + j));
   if (r.blank) problems.push('page is blank (under 80 characters of text)');
   if (r.brokenImages) problems.push(r.brokenImages + ' broken image(s)');
+  // A control, badge or bar painted over the data, where the reader can't move it away.
+  if (!allowCovers) (await coverProblems(page)).forEach((p) => problems.push(p));
   return problems;
 }
 
@@ -131,7 +135,7 @@ export async function selfTest(browser, base) {
   const problems = await pageProblems(s);
   await s.context.close();
   const hit = (re) => problems.some((p) => re.test(p));
-  if (!hit(/raw value in text/) || !hit(/sideways scroll|past the right edge/)) throw new Error('browser harness self-test failed: ' + JSON.stringify(problems));
+  if (!hit(/raw value in text/) || !hit(/sideways scroll|past the right edge/) || !hit(/covers data/)) throw new Error('browser harness self-test failed: ' + JSON.stringify(problems));
 }
 
 export async function settle(page, ms = 600) {

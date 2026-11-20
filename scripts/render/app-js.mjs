@@ -36360,7 +36360,7 @@ ${renderExportBindings()}
   function heatmapSyncLayout(){
     var root = $('heatmap-root'), alt = $('heatmap-alt');
     var useAlt = heatmapState.layout !== 'map';
-    var zoomCtl = document.querySelector('#heatmap-section .heatmap-zoom');
+    var zoomCtl = document.querySelector('#heatmap-section .heatmap-zoombar');
     var pbCtl = document.querySelector('#heatmap-section .heatmap-periodb-control');
     if (zoomCtl) zoomCtl.hidden = useAlt;
     if (pbCtl) pbCtl.hidden = heatmapState.layout !== 'periods';

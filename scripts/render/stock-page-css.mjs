@@ -59,8 +59,8 @@ export function renderStockPageCss() {
 .stp-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .stp-watch.is-on, .stp-actions .cmp-toggle.is-on { border-color: var(--accent-line, var(--accent)); color: var(--accent); }
 .stp-chart-card { position: relative; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 0; }
-.stp-chart-tools { position: absolute; top: 16px; right: 16px; z-index: 2; }
-.stp-chart-card .ck-top { padding-right: 150px; }
+/* The chart style buttons sit in their own row above the chart, never on the range buttons or the price labels. */
+.stp-chart-tools { position: static; margin-bottom: 8px; }
 .stp-kind { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .stp-chart-card .ck-ranges { margin-right: 0; }
 .stp-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
@@ -172,8 +172,6 @@ export function renderStockPageCss() {
   .stp-actions { justify-content: flex-start; }
   .stp-price { font-size: 32px; }
   .stp-chart-card { padding: 12px; }
-  .stp-chart-tools { position: static; margin-bottom: 8px; }
-  .stp-chart-card .ck-top { padding-right: 0; }
   .stp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stp-stat-range { grid-column: 1 / -1; }
 }
