@@ -94,7 +94,7 @@ try {
     check(shareRow === 1, 'the fixture has engine share trades');
     const coreRow = view.total.core && (view.total.core.n + view.total.core.open) > 0 ? 1 : 0;
     check(coreRow === 1, 'the fixture has core-engine holdings');
-    check((await s.page.locator('#eng-all-cmp tbody tr').count()) === ENGINE_IDS.length + 2 + shareRow + coreRow, 'side by side: the flagship, eight engines, a total row, the share-trades row and the core-holdings row');
+    check((await s.page.locator('#eng-all-cmp tbody tr').count()) === ENGINE_IDS.length + 2 + shareRow + coreRow, 'side by side: the flagship, nine engines, a total row, the share-trades row and the core-holdings row');
     const cmpText = await s.page.locator('#eng-all-cmp').innerText();
     check(/Signal engines, share trades/.test(cmpText) && /Core engines, holdings/.test(cmpText), 'share trades and core holdings are scored on their own lines');
     check(/core, monthly/.test(cmpText) && /vs SPY/.test(cmpText), 'a core engine row reads against SPY');
@@ -126,7 +126,11 @@ try {
     check(!/\d{4}-\d{2}-\d{2}/.test(await s.page.locator('#eng-all-curve .ln-svg').innerHTML().then((h) => h.replace(/data-ch='[^']*'/, ''))), 'the curve axis reads as days, not raw ISO dates');
     check(/Went first/i.test(await s.page.locator('#eng-all-runs').innerText()), 'the run log says which engine went first');
     // The money-leak fixes (2026-11-17): one line each, with its switch state.
-    const fix3 = view.fixes.filter((f) => f.step !== 4), fix4 = view.fixes.filter((f) => f.step === 4);
+    const fix3 = view.fixes.filter((f) => f.step !== 4 && f.step !== 5), fix4 = view.fixes.filter((f) => f.step === 4), fix5 = view.fixes.filter((f) => f.step === 5);
+    // The live data pack (2026-11-20): its own section, one line per part, switches named.
+    const liveTrials = (view.trialSwitches || []).filter((t) => t.date === '2026-11-20');
+    check(fix5.length === 2 && liveTrials.length === 2 && (await s.page.locator('#eng-all-live .eng-fixes li').count()) === fix5.length + liveTrials.length + 1, 'one line per live data pack part (two changes, two Flow trials, the rotation)');
+    check(/Owner Settings/.test(await s.page.locator('#eng-all-live').innerText()) && /Multi-asset rotation/.test(await s.page.locator('#eng-all-live').innerText()), 'the live data pack says where to switch each part');
     check((await s.page.locator('#eng-all-fixes .eng-fixes li').count()) === fix3.length && fix3.length === 4, 'one line per rule fix');
     check(/Owner Settings/.test(await s.page.locator('#eng-all-fixes').innerText()) && (await s.page.locator('#eng-all-fixes .evb-s-pass').count()) === fix3.filter((f) => f.on).length, 'each fix shows whether it is on and where to switch it');
     // Honest paper trades (2026-11-19): their own section, one line each, and the sizing comparison.
@@ -268,7 +272,7 @@ try {
       if (e.open.length) check(/Held until a monthly check swaps it/.test(await s.page.locator('#eng-open').innerText()), id + ': no stop or target, held to the monthly check');
       check((await s.page.locator('#eng-core-log tbody tr').count()) === e.holdings.log.length && e.holdings.log.length >= 2, id + ': one row per monthly check (' + e.holdings.log.length + ')');
       check(/S&P 500 \(SPY\) since then/.test(text), id + ': read against SPY since it started');
-      check((await s.page.locator('#eng-core-ranked').count()) === (id === 'momentum' ? 1 : 0), id + ': the ranked list only for the basket');
+      check((await s.page.locator('#eng-core-ranked').count()) === (id === 'momentum' || id === 'rotation' ? 1 : 0), id + ': the ranked list only for the basket and the rotation');
       check(/Never an option|never an option/.test(text) && /bought as stock in the Webull paper account/i.test(text), id + ': the rules say stock only, bought as stock at Webull');
       await clean(s, id + ' now');
       await sub(s, 'record');
@@ -280,7 +284,9 @@ try {
       await clean(s, id + ' learn');
       await sub(s, 'history');
       text = await paneText(s);
-      check(/SPY a year/.test(text) && (await s.page.locator('#eng-core-years tbody tr').count()) >= 10, id + ': the portfolio line against SPY, year by year');
+      const hasHist = !!(e.history && (e.history.live || e.history.held || e.history.raw)?.core);
+      if (hasHist || !e.liveTest) check(/SPY a year/.test(text) && (await s.page.locator('#eng-core-years tbody tr').count()) >= 10, id + ': the portfolio line against SPY, year by year');
+      else check(/No history test on file/.test(text) && /live test/.test(text), id + ': a live test with no history run yet says so');
       if (id === 'momentum') check(/1,000-name list/.test(text), 'momentum: the survivor bias is spelled out');
       await clean(s, id + ' history');
       await sub(s, 'webull');
@@ -292,6 +298,8 @@ try {
     }
     await pick(s, 'momentum'); await sub(s, 'now');
     await s.page.screenshot({ path: resolve(output, 'momentum-now-1440.png'), fullPage: true });
+    await pick(s, 'rotation'); await sub(s, 'now');
+    await s.page.screenshot({ path: resolve(output, 'rotation-now-1440.png'), fullPage: true });
     await pick(s, 'trend'); await sub(s, 'history');
     await s.page.screenshot({ path: resolve(output, 'trend-history-1440.png'), fullPage: true });
 

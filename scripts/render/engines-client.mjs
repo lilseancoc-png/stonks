@@ -364,10 +364,21 @@ export function renderEnginesJs() {
     if (!out.length) out.push(engPill('Trading', 'evb-s-pass'));
     return out.join(' ');
   }
+  // The live data pack's facts at entry (2026-11-20), kept on the record for
+  // review: the Flow trials' reads, the run-in's options band, and the news
+  // tag on Reversion's bounce entries (logged only, never a vote).
+  function engFactsHtml(t){
+    var f = (t && t.facts) || {}, bits = [];
+    if (f.wfl5 != null) bits.push('large orders net ' + slpPts(f.wfl5, 1) + '% over 5 sessions, ' + slpPts(f.wfl, 1) + '% latest');
+    if (f.callPrem != null) bits.push('$' + Math.round(f.callPrem / 1000).toLocaleString('en-US') + 'k flagged calls, ' + Math.round((f.callShare || 0) * 100) + '% of premium');
+    if (f.ivBand && t.contract && t.contract.structure === 'shares') bits.push('options ' + String(f.ivBand).replace('-', ' ') + ': shares');
+    if (f.news) bits.push(f.news.spike ? 'news spike (' + slpNum(f.news.nvr, 1) + 'x volume' + (f.news.frn ? ', ' + f.news.frn + ' Register doc' + (f.news.frn === 1 ? '' : 's') : '') + ')' : f.news.frn ? f.news.frn + ' Register doc' + (f.news.frn === 1 ? '' : 's') + ', no news spike' : 'no news spike');
+    return bits.length ? '<div class="crd-dim">' + escapeHtml(bits.join(' · ')) + '</div>' : '';
+  }
   function engOpenTable(e, d){
     var cols = [
       { label: 'Trade', cell: function(t){ return '<b>' + escapeHtml(t.symbol) + '</b> ' + engSideT(t) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + engSharedHtml(t); }, sort: function(t){ return t.symbol; } },
-      { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">' + (e.core ? 'monthly target' : 'score ' + slpNum(t.score, 0)) + (t.alloc && t.alloc.status !== 'new' ? ' · Allocator ' + (t.alloc.w === 0 ? 'would hold back' : slpNum(t.alloc.w, 2) + 'x') : '') + '</div>'; }, sort: function(t){ return t.setup; } },
+      { label: 'Setup', cell: function(t){ return escapeHtml(engSetup(e, t.setup)) + '<div class="crd-dim">' + (e.core ? 'monthly target' : 'score ' + slpNum(t.score, 0)) + (t.trial ? ' · paper trial' : '') + (t.alloc && t.alloc.status !== 'new' ? ' · Allocator ' + (t.alloc.w === 0 ? 'would hold back' : slpNum(t.alloc.w, 2) + 'x') : '') + '</div>' + engFactsHtml(t); }, sort: function(t){ return t.setup; } },
       { label: 'Contract', cell: function(t){ return engContract(t) + '<div class="crd-dim">opened ' + escapeHtml(rglEt(t.entryDate)) + '</div>'; }, sort: function(t){ return Date.parse(t.entryDate) || 0; } },
       { label: 'In / now', num: true, cell: function(t){ return engMoney(t.contract && t.contract.mid) + ' → ' + engMoney(t.lastMid) + (t.fill && t.fill.basis === 'ask-bid' ? '<div class="crd-dim">booked: ask ' + engMoney(t.fill.entry) + (t.lastBid != null ? ' → bid ' + engMoney(t.lastBid) : '') + '</div>' : ''); }, sort: function(t){ return t.lastMid; } },
       { label: 'Result', num: true, cell: function(t){ return engPnl(t.optionPnlPct) + (t.markPnlPct != null && t.fill ? '<div class="crd-dim">at the mid ' + slpPts(t.markPnlPct, 1) + '%</div>' : '') + '<div class="crd-dim">best ' + slpPts(t.hiPct, 0) + '%, worst ' + slpPts(t.loPct, 0) + '%</div>'; }, sort: function(t){ return t.optionPnlPct; } },
@@ -628,6 +639,13 @@ export function renderEnginesJs() {
   function engMonth(m){ var x = /^(\\d{4})-(\\d{2})/.exec(String(m || '')); return x ? ENG_MONTHS[+x[2] - 1] + ' ' + x[1] : '—'; }
   function engCoreRulesHtml(e){
     var trend = e.id === 'trend';
+    if (e.id === 'rotation') return '<ul class="eng-rules">' +
+      '<li><b>What it holds.</b> Up to three of ten funds (' + escapeHtml((e.funds || []).join(', ')) + '): the three with the biggest average rise over the last 3, 6 and 12 months, each only while it closed the month above its 10-month average and rose more than T-bills over 12 months. A place that fails either check stays in T-bills (cash). About $' + Number(e.lotUsd || 0).toLocaleString('en-US') + ' each.</li>' +
+      '<li><b>When it changes.</b> Once a month, at the first 11:00 or 15:30 ET run after a month closes, read from month-end closes. In between the target is fixed.</li>' +
+      '<li><b>Exits.</b> Only when a monthly check drops a holding. No stop, no take-profit, no time limit.</li>' +
+      '<li><b>How.</b> Stock only, long only, never an option. Each holding is bought as stock in the Webull paper account at the record’s share count (Owner Settings can switch share orders off).</li>' +
+      '<li><b>Why it runs.</b> A live paper test added on 20 November 2026: in the 2007-2026 review a multi-asset trend book did worse than the Trend follower, but it is the one engine that can own gold, silver, oil, small caps or Asia when US large caps are not leading, so it is run live to see. No learning, and the Allocator does not size it. Turn it off in Owner Settings (Data &amp; desks → Strategy engines) or with ENGINES_OFF=rotation.</li>' +
+      '</ul>';
     return '<ul class="eng-rules">' +
       '<li><b>What it holds.</b> ' + (trend ? 'One fund: SPY or QQQ, whichever rose more over the last 12 months while that rise beat T-bills; otherwise TLT if it beat T-bills; otherwise T-bills (cash). About $' + Number(e.lotUsd || 0).toLocaleString('en-US') + ' of it.' : 'The ten covered stocks with the biggest rise from 12 months ago to 1 month ago (the latest month is left out because it tends to reverse), about $' + Number(e.lotUsd || 0).toLocaleString('en-US') + ' each. While SPY closed the month under its 10-month average, the whole basket’s money goes to TLT if it beat T-bills, else T-bills.') + '</li>' +
       '<li><b>When it changes.</b> Once a month, at the first 11:00 or 15:30 ET run after a month closes, read from month-end closes (nothing from the new month). In between the target is fixed, so a day’s move cannot reshuffle it.</li>' +
@@ -636,9 +654,21 @@ export function renderEnginesJs() {
       '<li><b>Learning.</b> None: a fixed monthly rule, the one that beat holding the S&P 500 in the 1972-2026 research. The Allocator does not size it.</li>' +
       '</ul>';
   }
+  // Flow data check (2026-11-20): how many of the latest scan's flagged
+  // option prints had a readable bought or sold side. The Flow engine's own
+  // setups need five readable prints on one name; its paper trials read
+  // Webull order flow and the plain call volume instead.
+  function engFlowHealthHtml(hl){
+    var f = hl && hl.flow;
+    if (!f) return '';
+    if (!f.scan) return '<p class="evb-note" id="eng-flow-health">Flow data check: no fresh option-flow scan reached this run, so the Flow engine read nothing from option prints.</p>';
+    var pct = f.prints ? Math.round(f.readable / f.prints * 100) : 0;
+    return '<p class="evb-note" id="eng-flow-health">Flow data check: the scan of ' + escapeHtml(rglEt(f.scan)) + ' flagged ' + f.prints + ' option print' + (f.prints === 1 ? '' : 's') + '; ' + f.readable + ' (' + pct + '%) had a readable bought or sold side, ' + f.stale + ' traded more than 15 minutes before the scan (side unreadable) and ' + f.noTape + ' had no side for another reason. ' + f.signedNames + ' name' + (f.signedNames === 1 ? '' : 's') + ' had signed flow today. Webull large-order flow was read for ' + (hl.webullFlowNames || 0) + ' names (the big-order paper trial).</p>';
+  }
   function engCoreReads(e, h){
     var r = h.reads || {};
     var cash = r.cash != null ? slpNum(r.cash, 2) + '%' : '—';
+    if (e.id === 'rotation') return '<span class="eng-chip"><b>Funds ranked:</b> ' + (r.ranked || 0) + '</span><span class="eng-chip"><b>T-bills:</b> ' + cash + '</span>' + ((r.missing || []).length ? '<span class="eng-chip"><b>No history:</b> ' + r.missing.map(escapeHtml).join(', ') + '</span>' : '');
     if (e.id === 'trend') return '<span class="eng-chip"><b>SPY 12 months:</b> ' + engPnl(r.SPY) + '</span><span class="eng-chip"><b>QQQ:</b> ' + engPnl(r.QQQ) + '</span><span class="eng-chip"><b>TLT:</b> ' + engPnl(r.TLT) + '</span><span class="eng-chip"><b>T-bills:</b> ' + cash + '</span>';
     return '<span class="eng-chip"><b>SPY month-end:</b> ' + engMoney(r.spy) + ' vs 10-month average ' + engMoney(r.spyAvg10) + (r.spyAbove ? ' (above)' : ' (under)') + '</span><span class="eng-chip"><b>TLT 12 months:</b> ' + engPnl(r.TLT) + '</span><span class="eng-chip"><b>T-bills:</b> ' + cash + '</span><span class="eng-chip"><b>Stocks ranked:</b> ' + (r.ranked || 0) + '</span>';
   }
@@ -653,13 +683,15 @@ export function renderEnginesJs() {
       ['Monthly check', engMonth(h.month), h.asOf ? 'Read from the ' + engDay(h.asOf) + ' close; the next check is the first run after this month closes' : ''],
       ['Closed holdings', String(sh.n || 0), (sh.n ? engPnl(sh.avg, 1) + ' average, % of the share price' : 'None yet')],
     ]);
-    var ranked = (h.ranked || []).length ? slpTable([['Rank', 1], ['Stock'], ['12-1 momentum', 1, 'Rise from 12 months ago to 1 month ago'], ['Now', 'l']], h.ranked.map(function(r){ var inT = (h.hold || []).indexOf(r.symbol) >= 0, held = (h.held || []).indexOf(r.symbol) >= 0; return '<tr' + (held ? ' class="eng-rank-held"' : '') + '><td class="num">' + r.rank + '</td><td><b>' + escapeHtml(r.symbol) + '</b></td><td class="num">' + engPnl(r.mom) + '</td><td class="l">' + (held ? engPill('Held', 'evb-s-pass') : inT ? engPill('In the ten', 'evb-s-ready') : '<span class="crd-dim">Not in the ten</span>') + '</td></tr>'; }).join('')) : '';
+    var rot = e.id === 'rotation';
+    var ranked = rot && (h.ranked || []).length ? slpTable([['Rank', 1], ['Fund'], ['Score', 1, 'Average of the 3, 6 and 12-month rise'], ['3 months', 1], ['6 months', 1], ['12 months', 1], ['Above 10-month average'], ['Now', 'l']], h.ranked.map(function(r){ var inT = (h.hold || []).indexOf(r.symbol) >= 0, held = (h.held || []).indexOf(r.symbol) >= 0; return '<tr' + (held ? ' class="eng-rank-held"' : '') + '><td class="num">' + r.rank + '</td><td><b>' + escapeHtml(r.symbol) + '</b></td><td class="num">' + engPnl(r.mom) + '</td><td class="num">' + engPnl(r.r3) + '</td><td class="num">' + engPnl(r.r6) + '</td><td class="num">' + engPnl(r.r12) + '</td><td>' + (r.above ? 'Yes' : 'No') + '</td><td class="l">' + (held ? engPill('Held', 'evb-s-pass') : inT ? engPill('In the three', 'evb-s-ready') : r.rank <= (e.top || 3) ? '<span class="crd-dim">Top three, failed a check: T-bills</span>' : '<span class="crd-dim">Not in the three</span>') + '</td></tr>'; }).join(''))
+      : (h.ranked || []).length ? slpTable([['Rank', 1], ['Stock'], ['12-1 momentum', 1, 'Rise from 12 months ago to 1 month ago'], ['Now', 'l']], h.ranked.map(function(r){ var inT = (h.hold || []).indexOf(r.symbol) >= 0, held = (h.held || []).indexOf(r.symbol) >= 0; return '<tr' + (held ? ' class="eng-rank-held"' : '') + '><td class="num">' + r.rank + '</td><td><b>' + escapeHtml(r.symbol) + '</b></td><td class="num">' + engPnl(r.mom) + '</td><td class="l">' + (held ? engPill('Held', 'evb-s-pass') : inT ? engPill('In the ten', 'evb-s-ready') : '<span class="crd-dim">Not in the ten</span>') + '</td></tr>'; }).join('')) : '';
     var log = (h.log || []).length ? slpTable([['Month'], ['Holds', 'l'], ['In', 'l'], ['Out', 'l'], ['Why', 'l']], h.log.map(function(c){ return '<tr><td>' + escapeHtml(engMonth(c.month)) + (c.since ? '<div class="crd-dim">from ' + escapeHtml(engDay(c.since)) + '</div>' : '') + '</td><td class="l">' + ((c.hold || []).length ? c.hold.map(escapeHtml).join(', ') : 'T-bills') + '</td><td class="l">' + ((c.in || []).length ? c.in.map(escapeHtml).join(', ') : '—') + '</td><td class="l">' + ((c.out || []).length ? c.out.map(escapeHtml).join(', ') : '—') + '</td><td class="l"><span class="crd-dim">' + escapeHtml(c.why || '') + '</span></td></tr>'; }).join('')) : '<p class="hint">No monthly check yet.</p>';
     return '<p class="evb-lead">' + escapeHtml(e.idea || '') + '</p>' +
       kpis +
       slpSection('eng-core-target', 'This month’s target' + (h.month ? ' (' + escapeHtml(engMonth(h.month)) + ')' : ''), h.month ? '<div class="eng-reads">' + target + '</div><p class="evb-note">' + escapeHtml(h.why || '') + '</p><div class="eng-reads"><span class="eng-reads-lbl">Reads</span>' + engCoreReads(e, h) + '</div>' : '<p class="hint">No target yet: the engine needs 13 month-end closes and the fed funds rate.</p>') +
       slpSection('eng-open', 'Holdings', engOpenTable(e, d)) +
-      (ranked ? slpSection('eng-core-ranked', 'Strongest covered stocks at the last check', ranked) : '') +
+      (ranked ? slpSection('eng-core-ranked', rot ? 'Every fund at the last check' : 'Strongest covered stocks at the last check', ranked) : '') +
       slpSection('eng-core-log', 'Monthly checks', log) +
       slpSection('eng-rules', 'The rules', engCoreRulesHtml(e));
   }
@@ -674,7 +706,7 @@ export function renderEnginesJs() {
   function engCoreHistHtml(e, d){
     var H = e.history || {}, h = H.live || H.held || H.raw, c = h && h.core, R = d.research;
     var notes = R && R.notes && R.notes.length ? '<ul class="eng-notes">' + R.notes.map(function(n){ return '<li>' + escapeHtml(n) + '</li>'; }).join('') + '</ul>' : '';
-    if (!c) return '<p class="evb-lead">No history test on file for this engine yet.</p>' + (notes ? slpSection('eng-hist-notes', 'What the test cannot see', notes) : '');
+    if (!c) return '<p class="evb-lead">No history test on file for this engine yet.' + (e.liveTest ? ' It was added on 20 November 2026 as a live test: an earlier 2007-2026 review of a multi-asset trend book did worse than the Trend follower, so the live record is the test. The next run of the history test includes it.' : '') + '</p>' + (notes ? slpSection('eng-hist-notes', 'What the test cannot see', notes) : '');
     var byYear = slpTable([['Year'], [e.name, 1], ['SPY', 1], ['Difference', 1]], (c.byYear || []).map(function(y){ return '<tr><td>' + escapeHtml(y.year) + '</td><td class="num">' + engPnl(y.ret) + '</td><td class="num">' + engPnl(y.spy) + '</td><td class="num">' + engPnl(y.ret != null && y.spy != null ? Math.round((y.ret - y.spy) * 10) / 10 : null) + '</td></tr>'; }).join(''));
     return '<p class="evb-lead">The same rule code replayed day by day from ' + escapeHtml(engDay(c.from)) + ' to ' + escapeHtml(engDay(R && R.data ? R.data.to : '')) + ' (' + slpNum(c.years, 1) + ' years), as $1 that follows the holdings at every open and close, idle money earning the fed funds rate, against $1 in SPY bought the same day and held.' + (e.id === 'momentum' ? ' This one picks from today’s covered names, which are largely the names that went on to win, so it reads much better than a list of the time would: on a 1,000-name list of the time the same rule made about 21% a year.' : '') + '</p>' +
       slpKpis([
@@ -871,15 +903,28 @@ export function renderEnginesJs() {
   // ---- All engines ----------------------------------------------------------
   // The money-leak fixes of 17 November 2026 and whether each is on (Owner
   // Settings → Data & desks → Strategy engines).
+  // The live data pack (20 November 2026): what was added to gather more
+  // live market data, each part with its Owner Settings switch.
+  function engLivePackHtml(d){
+    var fx = (d.fixes || []).filter(function(f){ return f.step === 5; });
+    var tr = (d.trialSwitches || []).filter(function(t){ return t.date === '2026-11-20'; });
+    var rot = (d.engines || []).filter(function(e){ return e.id === 'rotation'; })[0];
+    if (!fx.length && !tr.length && !rot) return '';
+    var li = function(on, label, who){ return '<li>' + engPill(on ? 'On' : 'Off', on ? 'evb-s-pass' : 'evb-s-fail') + ' ' + escapeHtml(label) + ' <span class="crd-dim">(' + escapeHtml(who) + ')</span></li>'; };
+    var rows = fx.map(function(f){ return li(f.on, f.label, (f.engines || []).map(engName).join(', ')); }).join('') +
+      tr.map(function(t){ return li(t.on, t.label, engName(t.engine)); }).join('') +
+      (rot ? li(!rot.switchedOff, 'Multi-asset rotation: the three strongest of ten funds each month, a live test', 'core engine') : '');
+    return slpSection('eng-all-live', 'Live data pack (20 November 2026)', '<p class="evb-note">Added to gather more live market data from quality trades. The history test could not settle these, so they run live in the Webull paper account and the live record decides. The Flow engine had opened nothing, because most flagged option prints cannot be read as bought or sold, so two paper trials read Webull large-order flow and call volume with the stock rising instead. The earnings run-in buys shares when the options are rich, Reversion and Macro size without their setup score (their higher scores did worse in the test), Reversion’s bounce entries log whether news explains the drop, and the Multi-asset rotation can own gold, silver, oil, small caps or Asia when US large caps are not leading. Each has its own switch in Owner Settings (Data & desks → Strategy engines); each change is logged as new rules, never a reset.</p><ul class="eng-notes eng-fixes">' + rows + '</ul>');
+  }
   function engFixesHtml(d){
     var all = d.fixes || [];
     if (!all.length) return '';
     var li = function(f){ return '<li>' + engPill(f.on ? 'On' : 'Off', f.on ? 'evb-s-pass' : 'evb-s-fail') + ' ' + escapeHtml(f.label) + ' <span class="crd-dim">(' + (f.engines || []).map(function(id){ return escapeHtml(engName(id)); }).join(', ') + ')</span></li>'; };
-    var list = all.filter(function(f){ return f.step !== 4; }), honest = all.filter(function(f){ return f.step === 4; });
+    var list = all.filter(function(f){ return f.step !== 4 && f.step !== 5; }), honest = all.filter(function(f){ return f.step === 4; });
     var rows = list.map(li).join('');
     var z = d.sizing, fg = d.fear;
     var honestHtml = honest.length ? slpSection('eng-all-honest', 'Honest paper trades (19 November 2026)', '<p class="evb-note">These make the paper record count what a real account would pay and hold. They were not picked from the history test. Option trades book the ask going in and the bid coming out, so the spread is a cost in the record (stops and targets still fire on the mid). Each trade is sized to risk about ' + (z && z.budget ? engUsdWord(z.budget) : 'the risk budget') + ', 1 to ' + ((z && z.maxQty) || 25) + ' contracts (1 to 10 until 20 November), and a conviction multiplier of ' + slpNum((z && z.convMin) || 0.5, 1) + 'x to ' + slpNum((z && z.convMax) || 2, 0) + 'x moves it with how far the score clears the bar, the Allocator’s read, whether the options are cheap or rich, the spread, and what is already open in the name and its sector group; every trade keeps its flat size beside it. Technicals trades shares only. Reversion’s washout bounce stands aside after a 7% one-day drop. The extreme-fear bounce is a labeled test: one call and a shares twin when fear and greed is under ' + ((fg && fg.below) || 25) + ', each with its own fills. Each has its own switch in Owner Settings (Data & desks → Strategy engines), and the record splits at a new rules version, never reset.' + (fg ? ' Fear and greed at the last run: ' + slpNum(fg.score, 0) + ' (' + escapeHtml(fg.source || 'CNN') + (fg.stale ? ', stale' : '') + ')' + (fg.score < fg.below && !fg.stale ? ', under ' + fg.below + ': the test can open.' : '.') : ' No fear and greed reading reached the last run, so the test opened nothing.') + '</p><ul class="eng-notes eng-fixes">' + honest.map(li).join('') + '</ul>' + (z && z.compare ? engSizingHtml(z.compare, d) : '')) : '';
-    return honestHtml + slpSection('eng-all-fixes', 'Rule fixes from the history replay', '<p class="evb-note">On 17 November 2026 every 2007 to 2026 history-test trade was replayed with other entries, exits and contracts. The ' + (['no', 'one', 'two', 'three', 'four', 'five', 'six'][list.length] || list.length) + ' changes below helped in both halves of the history and still helped when the whole history was run again with each one switched off in turn. A fifth, no take-profit on Macro’s yields-falling TLT calls, looked better trade by trade but made less in that full run (each call held longer and blocked the next TLT signal), so it was not made. Each change has its own switch in Owner Settings (Data & desks → Strategy engines); off puts that part back for new trades. They were picked from the same history they are scored on, so the live record decides: each engine’s Track record tab shows its setups live against the test.</p><ul class="eng-notes eng-fixes">' + rows + '</ul>');
+    return engLivePackHtml(d) + honestHtml + slpSection('eng-all-fixes', 'Rule fixes from the history replay', '<p class="evb-note">On 17 November 2026 every 2007 to 2026 history-test trade was replayed with other entries, exits and contracts. The ' + (['no', 'one', 'two', 'three', 'four', 'five', 'six'][list.length] || list.length) + ' changes below helped in both halves of the history and still helped when the whole history was run again with each one switched off in turn. A fifth, no take-profit on Macro’s yields-falling TLT calls, looked better trade by trade but made less in that full run (each call held longer and blocked the next TLT signal), so it was not made. Each change has its own switch in Owner Settings (Data & desks → Strategy engines); off puts that part back for new trades. They were picked from the same history they are scored on, so the live record decides: each engine’s Track record tab shows its setups live against the test.</p><ul class="eng-notes eng-fixes">' + rows + '</ul>');
   }
   function engAllHtml(d){
     var f = d.flagshipStats;
@@ -929,7 +974,7 @@ export function renderEnginesJs() {
       if ((hl.noChain || []).length) miss.push('no option chain this build: ' + hl.noChain.map(escapeHtml).join(', '));
       if ((hl.thinBars || []).length) miss.push('too little price history: ' + hl.thinBars.map(escapeHtml).join(', '));
       if ((hl.staleBars || []).length) miss.push('price history out of date: ' + hl.staleBars.map(escapeHtml).join(', '));
-      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + ((hl.earnBackup || []).length ? ' Report date from Webull (the main source had none; used only to hold back new entries near the report, never to open one): ' + hl.earnBackup.map(escapeHtml).join(', ') + '.' : '') + '</p>';
+      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + ((hl.earnBackup || []).length ? ' Report date from Webull (the main source had none; used only to hold back new entries near the report, never to open one): ' + hl.earnBackup.map(escapeHtml).join(', ') + '.' : '') + '</p>' + engFlowHealthHtml(hl);
     }
 
     var R = d.research, hist = '';
@@ -946,7 +991,7 @@ export function renderEnginesJs() {
     }
 
     var mode = d.mode === 'off' ? engPill('Engines off', 'evb-s-fail') : d.mode === 'pause' ? engPill('Paused: open trades are still managed, nothing new opens', 'evb-s-collect') : engPill('Running', 'evb-s-pass');
-    return '<p class="evb-lead">' + mode + ' Eight rules-only engines trade on paper beside Top Picks. Six signal engines each have their own idea, data, score and track record and share one Webull paper account; two core engines (Trend follower, Momentum basket) hold stock month to month, bought as stock in the same paper account since 19 November 2026. The Allocator decides which signal setups may trade in today’s market. None of them uses AI, and none can change a Top Pick, a grade or the Top Picks Track Record. Paper tracking started ' + escapeHtml(engDay(d.startedIso || d.startDate)) + '.</p>' +
+    return '<p class="evb-lead">' + mode + ' Nine rules-only engines trade on paper beside Top Picks. Six signal engines each have their own idea, data, score and track record and share one Webull paper account; three core engines (Trend follower, Momentum basket, and since 20 November 2026 the Multi-asset rotation, a live test) hold stock month to month, bought as stock in the same paper account. The Allocator decides which signal setups may trade in today’s market. None of them uses AI, and none can change a Top Pick, a grade or the Top Picks Track Record. Paper tracking started ' + escapeHtml(engDay(d.startedIso || d.startDate)) + '.</p>' +
       slpSection('eng-all-cmp', 'Side by side', cmp + '<p class="evb-note">Engine results are % of the entry premium, marked at each 11:00 and 15:30 ET run; the dollars count each trade at its size (' + engSizeWords() + (engRisk() ? ' since 19 November 2026; about $2,000 of premium from 17 November' : ' since 17 November 2026') + '). Setups that buy shares instead of a call (since 17 November 2026) are scored on their own line, in % of the share price. With few trades the win-rate range is wide: judge an engine on dozens of closed trades, not a week.</p>') +
       engFixesHtml(d) +
       slpSection('eng-all-curve', 'Running total, every engine', engAllCurveHtml(d) + '<p class="evb-note">Closed trades only, each at its size, by the day each trade closed. Top Picks keeps its own curve on the Top Picks track record.</p>') +

@@ -126,7 +126,7 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
 // extreme-fear bounce test and the index-fear paper trial; without it
 // neither opens anything in the test.
 export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {}, keepOnTrades = false } = {}) {
-  const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum"];
+  const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum", "rotation"];
   const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids,
     groupOf: (s) => { try { return sectorGroupOf(s) || null; } catch { return null; } }, ...settings };
   const raw = runBacktest({ ...base, learn: false, raw: true, keepTrades: true });

@@ -144,7 +144,7 @@ export const SITE_SECTIONS = [
       { id: 'picks', label: 'Top picks', blurb: 'The model’s highest-conviction option contracts for today.' },
       { id: 'open-picks', label: 'Open picks', alias: 'Check a position you hold Personal tools', blurb: 'Every open Webull paper trade, Top Picks and the strategy engines, with copy-ready trade lines and a checker for a contract you hold.' },
       { id: 'track', label: 'Top Picks track record', blurb: 'How every closed pick worked out.' },
-      { id: 'engines', label: 'Strategy engines', alias: 'Paper engines earnings macro technicals fundamentals flow reversion trend momentum allocator ERN MAC TEC FUN FLO REV TRD MOM', blurb: 'Eight rules-only paper engines beside Top Picks, each with its own trades and record, and the Allocator’s read of every setup.' },
+      { id: 'engines', label: 'Strategy engines', alias: 'Paper engines earnings macro technicals fundamentals flow reversion trend momentum rotation multi-asset allocator ERN MAC TEC FUN FLO REV TRD MOM ROT', blurb: 'Nine rules-only paper engines beside Top Picks, each with its own trades and record, and the Allocator’s read of every setup.' },
       { id: 'strategies', label: 'Strategy builder', alias: 'Strategies', blurb: 'Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.' },
       { id: 'leaps', hub: 'idea-desks', label: 'LEAPS', blurb: 'Names scored for a one- to two-year options hold.' },
       { id: 'stocks', hub: 'idea-desks', label: 'Stock picks', alias: 'Daily DCA dial VOO QQQ', blurb: 'Quality companies on a dip, as shares rather than options, and your daily VOO and QQQ amount.' },
