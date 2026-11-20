@@ -2053,6 +2053,25 @@ ok("live pack: Reversion's bounce entries carry the news tag, and it changes no 
   const dip = evalReversion(V("DDD", baseF({ c: 100, pc: 101, sma5: 102, sma20: 101, sma200: 90, z20: -0.8, rsi2: 3, move5Atr: -1 }), { live: { news: { frn: 0, nvr: 1.1 } } }), CTX).find((c) => c.setup === "rsi2-dip");
   assert.deepEqual(dip.facts.news, { frn: 0, nvr: 1.1, ntn: null, spike: false });
 });
+ok("live pack (audit): the run-in's share swap respects share trades off and a chosen instrument", () => {
+  const hist = [1, 2, 3, 4].map(() => ({ movePct: 4, week1Pct: 2, pre10Pct: 3 }));
+  const earn = { last: null, hist, next: { date: "2026-11-23", session: "PM", sessionsUntil: 5, exitBy: "2026-11-23" } };
+  const view = (band) => V("EEE", baseF({}), { earn, live: { iv: { band } } });
+  // Share trades off: very rich still skips (no call where the old rule skipped); rich buys the call.
+  assert.equal(stepBook(emptyState(), emptyRecord(), bookInput({ EEE: view("very-rich") }, { engines: ["earnings"], shares: false })).opened.length, 0);
+  assert.equal(evalEarnings(view("very-rich"), { ...CTX, setups: ENGINES.earnings.setups, swapToShares: false }).length, 0);
+  // The Owner chose options for Earnings: options it is.
+  const optSpecs = engineSpecs(undefined, undefined, { earnings: "options" });
+  assert.equal(stepBook(emptyState(), emptyRecord(), bookInput({ EEE: view("very-rich") }, { engines: ["earnings"], shares: true, specs: optSpecs })).opened.length, 0);
+  const rich = stepBook(emptyState(), emptyRecord(), bookInput({ EEE: view("rich") }, { engines: ["earnings"], shares: true, specs: optSpecs })).opened[0];
+  assert.equal(rich.contract.structure, "long");
+});
+ok("live pack (audit): one Flow trial lot per name, across both trials", () => {
+  const v = flowView("TWO", { wb: { wfl5: 24, wfl: 50 }, surge: { n: 3, nCall: 3, callPrem: 9e5, putPrem: 0 } });
+  assert.equal(evalFlow(v, CTX).length, 2, "both trials match the name");
+  const out = stepBook(emptyState(), emptyRecord(), bookInput({ TWO: v }, { engines: ["flow"], shares: true }));
+  assert.equal(out.opened.length, 1); assert.ok(out.candidates.flow.some((c) => !c.taken && /already holds this name/.test(c.why || "")));
+});
 const rotViews = (over = {}, last = "2026-10") => {
   const base = { SPY: ramp(400, 480), QQQ: ramp(300, 390), IWM: ramp(200, 210), SMH: ramp(200, 330), TLT: ramp(100, 90), GLD: ramp(180, 260), SLV: ramp(20, 31), USO: ramp(70, 65), EWY: ramp(60, 63), KWEB: ramp(30, 29) };
   return Object.fromEntries(Object.entries({ ...base, ...over }).map(([s, c]) => [s, coreView(s, c, { last })]));
@@ -2076,6 +2095,20 @@ ok("Multi-asset rotation: the three strongest funds that pass both checks, T-bil
   const few = rotViews(); for (const s of ["IWM", "SMH", "TLT", "GLD", "SLV", "USO", "EWY"]) delete few[s];
   assert.equal(rotationRead(few, coreCtx()), null);
   assert.equal(rotationRead(rotViews(), { ...CTX, macro: {} }), null);
+});
+ok("rotation (audit): a target read with a fund missing is replaced in the same month by a fuller read", () => {
+  const es = {};
+  const part = rotViews(); part.SLV = coreView("SLV", ramp(20, 31), { last: "2026-09" });
+  standCore(es, "rotation", part, coreCtx(), { today: "2026-11-02" });
+  assert.deepEqual(es.core.reads.missing, ["SLV"]); assert.ok(!es.core.hold.includes("SLV"));
+  const first = es.core.hold.slice();
+  standCore(es, "rotation", rotViews(), coreCtx(), { today: "2026-11-03" });
+  assert.equal(es.core.reads.missing, undefined); assert.deepEqual(es.core.hold, ["SMH", "SLV", "GLD"]);
+  assert.equal(es.core.since, "2026-11-02", "the month's start stands"); assert.equal(es.coreLog.length, 1, "one log line for the month");
+  assert.ok(es.coreLog[0].in.includes("SLV")); assert.notDeepEqual(first, es.core.hold);
+  // A same-month read that is no fuller changes nothing.
+  standCore(es, "rotation", part, coreCtx(), { today: "2026-11-04" });
+  assert.deepEqual(es.core.hold, ["SMH", "SLV", "GLD"]);
 });
 ok("book: the rotation buys three $10,000 lots of shares, then swaps at the next monthly check", () => {
   const state = emptyState(), record = emptyRecord();
