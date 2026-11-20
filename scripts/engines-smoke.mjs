@@ -1833,4 +1833,12 @@ ok("views: the Webull earnings backup fills only names the main source has no re
   assert.deepEqual(on.health.earnBackup, [a]);
 });
 
+// The stock split guard (2026-11-20) keeps its checks in its own file; CI
+// runs them through this one.
+{
+  const { spawnSync } = await import("node:child_process");
+  const r = spawnSync(process.execPath, [new URL("./engines-split-smoke.mjs", import.meta.url).pathname], { stdio: "inherit" });
+  if (r.status !== 0) { console.log("FAIL engines split smoke"); process.exitCode = 1; }
+}
+
 console.log(`${passed} engine checks passed${process.exitCode ? " (with failures)" : ""}`);

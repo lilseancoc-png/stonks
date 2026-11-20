@@ -198,7 +198,8 @@ t 3.9):
 
 | Trial | Rule | What the history showed | Switch (Owner Settings → Data & desks) |
 |---|---|---|---|
-| RSI(2) dip in an uptrend (`rsi2-dip`, Reversion) | Above the 200-day with a 2-day RSI under 5. Buys $5,000 of stock (never options: calls on these dips lost money on real option prices) and sells on a close back above the 5-day average, after 10 sessions, or at the usual 2 ATR stop / 3 ATR target | +0.62% a trade, t 3.0 against random days in the same names and t 5.1 against SPY, alike in 2007-16 and 2017-26; weak on sector funds (+0.21%). Through the engine code: 2,439 trades, +0.4%, 64% wins, at or above zero in 18 of 20 years (2008 and 2018 lost) | `ENGINES_TRIAL_RSI2_DIP` |
+| RSI(2) dip in an uptrend (`rsi2-dip`, Reversion) | Above the 200-day with a 2-day RSI under 5. Buys $5,000 of stock (never options: calls on these dips lost money on real option prices) and sells on a close back above the 5-day average, after 10 sessions, or at the usual 2 ATR stop / 3 ATR target | +0.62% a trade, t 3.0 against random days in the same names and t 5.1 against SPY, alike in 2007-16 and 2017-26; weak on sector funds (+0.21%). Through the engine code: 2,439 trades, +0.4%, 64% wins, at or above zero in 18 of 20 years (2008 and 2018 lost) | `ENGINES_SPLIT_GUARD` | Owner Settings → Data & desks | Unset / on = open trades follow a stock split (levels divided, count multiplied; see "Stock splits"). `0` = old prices marked on the new tape |
+| `ENGINES_TRIAL_RSI2_DIP` |
 | Index funds after extreme fear (`fear-index`, Macro) | The day after CNN Fear & Greed first closes under 25 (the last two daily closes before the run, from `fear-greed-history.json`, read by `fearReading` in `macro.mjs`; none older than 5 days), buys $5,000 each of SPY, QQQ and IWM and holds them 20 sessions with no stop or target (`levels: false`), as tested | Through the engine code on our rebuild of Fear & Greed (entry at the next open, `--fg <file>` on the history test, version 4): 216 trades, +1.0% a trade, 63% wins; by period 2008 -1.4%, 2009-12 +0.2%, 2013-17 +2.5%, 2018-19 +2.2%, 2020 -2.9%, 2021 +3.4%, 2022 -2.4%, 2023-24 +5.2%. The first numbers quoted for it (+1.26% over 162 trades, -0.06% / +2.49% by half, and 162 trades at +1.3% through the engine code) read the rebuild file's third column, the VIX, as the score (fixed 2026-11-19 in the merge with #873: the history test reads the second column). Unproven; the owner asked for it on paper (2026-11-19) | `ENGINES_TRIAL_FEAR_INDEX` |
 
 In the engine's own history test (`research/engines/results/latest.json`,
@@ -518,6 +519,40 @@ Webull" column beside the engine's own result.
 A file that is missing is a fresh start. A file that is there and cannot be
 read skips the engines for that build and keeps the stored copy (an empty
 record never replaces a real one).
+
+### Stock splits (2026-11-20)
+
+An engine trade keeps its entry, stop, target and strike in the dollars of
+the day it opened, so a split would otherwise read as a loss: Sandisk's
+8-for-1 at the open on 2026-11-20 would have marked the Momentum basket's
+SNDK lot at about -87%, and an option's old strike prices near zero on the
+new tape. Before each open or shadow trade is marked, `lib/engines/split.mjs`
+compares the run's price with the trade's last mark:
+
+- The gap has to be about one standard ratio (1.5, 2, 2.5, 3, 4, 5, 6, 7, 8,
+  10, 20, or the reverse). Yahoo back-adjusts its daily closes after a split,
+  so the close on the last mark's date, divided into the last mark, must give
+  the same ratio (within 10%); the stock may also have moved up to 35% since.
+- Before Yahoo adjusts, only an exact gap (within 4%) of a ratio of 3 or more
+  counts. With no dated history at all, an exact gap counts for any ratio
+  (the Top Picks rule).
+- A 40%+ move the history does not confirm is held unmarked (no exit fires)
+  for up to two runs, then marked as a real move. Without the hold, the
+  first mark would move the last price to the new scale and no later run
+  could see the split.
+
+A split divides every dollar level by the ratio and multiplies the share or
+contract count by it (the OCC's adjustment), so the trade's dollars and its %
+result do not move; `corpActions` on the trade and `splits` on the run log say
+so. A 3:2 or 5:2 split on an option sets `splitReview` (Webull changes the
+deliverable instead). The history test passes no history to the guard (its
+bars are split-adjusted). Owner Settings → Data & desks → "Engine trades
+follow stock splits" (`ENGINES_SPLIT_GUARD`) turns it off.
+
+The Webull paper mirror does not follow a split by itself: Webull's own
+adjustment changes the held shares or contracts, the holdings check sees the
+difference and pauses orders for review (`lib/webull-reconciliation.mjs`).
+Test: `node scripts/engines-split-smoke.mjs` (also run by `engines-smoke.mjs`).
 
 ## Same contract on two engines
 

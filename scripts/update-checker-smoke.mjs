@@ -47,6 +47,8 @@ assert.equal(inspectFeature(spec,healthyPayload(spec),now).status,'available');
 assert.equal(inspectFeature(spec,{builtAtIso:clock,tickers:'bad'},now).status,'invalid');
 assert.equal(inspectFeature(spec,null,now).status,'missing');
 assert.equal(inspectFeature(spec,{tickers:[]},now).status,'undated');
+// prediction-odds.json, ai-disruption.json and quant-labs.json stamp `builtAt` (2026-11-20).
+for(const id of ['prediction-markets','ai-disruption','quant-labs']){const f=UPDATE_FEATURES.find(x=>x.id===id);const p=healthyPayload(f);delete p.builtAtIso;p.builtAt=clock;assert.equal(inspectFeature(f,p,now).status,'available',id);}
 assert.equal(inspectFeature(spec,{tickers:[],builtAtIso:'2026-10-01T00:00:00Z'},now).status,'stale');
 assert.equal(inspectFeature(spec,{tickers:[],builtAtIso:'2026-11-02T00:00:00Z'},now).status,'invalid');
 assert.equal(inspectFeature(spec,{tickers:[],builtAtIso:clock,coverage:{complete:false}},now).status,'degraded');
