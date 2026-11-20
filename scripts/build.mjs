@@ -42410,6 +42410,14 @@ async function main() {
           fred: (id) => sharedFredRows(historicalSourceCache, id),
           symbols: labStocks, optionSymbols: TICKERS.filter((sym) => chains?.[sym]),
           barsOf: (sym) => regimeLabBars(chains?.[sym] || null, labNow),
+          // The factor lab reads the two-year research bars this build already
+          // fetched (_patternBars): 12-month momentum and the 52-week high need
+          // 253 sessions, which the one-year scoring bars never reach.
+          longBarsOf: (sym) => {
+            const chain = chains?.[sym] || null;
+            const long = Array.isArray(chain?._patternBars) && chain._patternBars.length > (chain?._bars?.length || 0);
+            return regimeLabBars(long ? { ...chain, _bars: chain._patternBars } : chain, labNow);
+          },
           ivOf: (sym) => ivHistory?.get?.(sym)?.entries || [],
           fundamentalsOf: (sym) => chains?.[sym]?.fundamentals || null,
           gradesDaily: dailyForLabs, grades: Object.fromEntries(Object.entries(lastTotals).map(([sym, total]) => [sym, { total }])),

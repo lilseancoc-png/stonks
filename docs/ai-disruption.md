@@ -131,9 +131,16 @@ before are tagged by rules:
 
 | Reader | Sources |
 | --- | --- |
-| `feed` (RSS / Atom) | OpenAI news, Google Workspace updates, the Microsoft 365 blog, the GitHub changelog (Copilot posts only), Meta newsroom (AI posts only) |
-| `dated` (release-notes page) | ChatGPT, Claude and Gemini release notes |
-| `cards` (news index) | Anthropic news, xAI news |
+| `feed` (RSS / Atom) | OpenAI news, Google Workspace updates, the Microsoft 365 blog, the GitHub changelog (Copilot posts only), Meta newsroom (AI posts only); ChatGPT release notes and xAI news through the releases.sh Atom mirror |
+| `dated` (release-notes page) | Claude and Gemini release notes |
+| `cards` (news index) | Anthropic news |
+
+The official ChatGPT release notes and xAI news pages are drawn in the
+browser, so the server read finds no entries; since 2026-11-20 they are read
+from releases.sh's Atom copies (`read.fetch`, listed as a source of the lab),
+and each post still links to the official page. A `read.kind` of `notes` marks
+a feed of release notes, so its entries are treated as product changes. Dates
+are read as 2026-11-19, 2026.11.19 (Gemini) or 2026/11/19.
 
 Each source fails on its own (timed out, refused, layout changed) and shows in
 the health list; the rest carry on. Only Claude release notes, Anthropic news

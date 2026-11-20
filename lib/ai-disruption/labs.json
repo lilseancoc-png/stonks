@@ -17,7 +17,9 @@
      "url": "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
      "role": "primary",
      "read": {
-      "parser": "dated",
+      "parser": "feed",
+      "fetch": "https://releases.sh/openai/chatgpt-release-notes.atom",
+      "kind": "notes",
       "product": "ChatGPT"
      }
     },
@@ -168,10 +170,15 @@
      "url": "https://x.ai/news",
      "role": "secondary",
      "read": {
-      "parser": "cards",
-      "match": "/news/",
+      "parser": "feed",
+      "fetch": "https://releases.sh/xai/news.atom",
       "product": "Grok"
      }
+    },
+    {
+     "name": "xAI news mirror",
+     "url": "https://releases.sh/xai/news",
+     "role": "secondary"
     }
    ]
   }

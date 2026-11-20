@@ -408,6 +408,9 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   ok('a CEO affairs bet is dropped', classifyTheme({ text: 'Will 3 Jensen Huang affairs be reported by December 31?' }) === null);
   ok('a tracked affairs bet is flagged for removal', isExcludedContract({ title: 'Fourth Jensen Huang affair reported by December 31?', eventTitle: 'Jensen Huang affairs' }));
   ok('foreign affairs is not gossip', !isExcludedContract({ title: 'Will the Minister of Foreign Affairs of Japan resign in 2026?' }));
+  // A search-ranking bet only names Google; it was linked to GOOGL (2026-11-20 audit).
+  ok('a search-ranking bet is flagged for removal', isExcludedContract({ title: 'Will Lindsay Clancy be the #1 searched person on Google this year?' }));
+  ok('a company bet that names Google stays', !isExcludedContract({ title: 'Will Google be fined by the EU in 2026?' }));
   const NOW2 = Date.parse('2026-11-16T21:00:00Z');
   const pm = (id, title, p, slug, close) => ({ id, venue: 'polymarket', theme: 'fed', status: 'open', title, eventSlug: slug, closeTime: close, last: { p } });
   const open = [

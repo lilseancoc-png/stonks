@@ -30,6 +30,10 @@ eq(parseDateText("Tue, 27 Oct 2026 23:05:50 -0700"), "2026-10-27", "RSS date as 
 eq(parseDateText("2026-11-02T08:00:00Z"), "2026-11-02", "ISO");
 eq(parseDateText("February 30, 2026"), null, "impossible date");
 eq(parseDateText("Release notes"), null, "no date");
+eq(parseDateText("2026.11.19"), "2026-11-19", "dotted date (Gemini release notes)");
+eq(parseDateText("2026/11/09"), "2026-11-09", "slashed date");
+eq(parseDateText("2026.13.01"), null, "impossible dotted date");
+eq(parseDateText("version 2026.11"), null, "a version number is not a date");
 
 // --- Feeds ------------------------------------------------------------------
 const RSS = `<?xml version="1.0"?><rss><channel><title>Blog</title>
@@ -65,6 +69,14 @@ eq(notes[1].title, "Spreadsheet agent (beta)", "bold paragraph is a title");
 ok(/financial models/.test(notes[1].text), "text joins the title above");
 eq(notes[0].url, "https://support.claude.com/en/articles/1-meetings", "a note's own link wins");
 ok(notes[0].title.startsWith("Claude Meetings is rolling out"), "untitled note titled by its first sentence");
+// Gemini's release notes: one <h2> per date written 2026.11.19, an <h3> per
+// note (the page read no dated posts from 2026-11-16 to 2026-11-20).
+const GEMINI = `<h1>Release Notes</h1><h2 class="t _size:headline-5">2026.11.19</h2><div class="_r"><h3>Get tasks done across your Mac apps and the web with Computer use</h3><div><p>What: Gemini can now use your Mac apps.</p></div></div>
+<h2 class="t">2026.11.17</h2><div><h3>Checkout with Google Pay in Tasks in Gemini</h3><p>Pay at checkout without leaving the chat.</p><h3>Forward an email, get the task done</h3><p>Forward any email to Gemini.</p></div>`;
+const gem = parseDatedSections(GEMINI, "https://gemini.google/us/release-notes/");
+eq(gem.map((n) => n.date), ["2026-11-19", "2026-11-17", "2026-11-17"], "Gemini dotted date headings");
+eq(gem[0].title, "Get tasks done across your Mac apps and the web with Computer use", "Gemini note title");
+ok(/Mac apps/.test(gem[0].text), "Gemini note text");
 
 // --- News index pages ----------------------------------------------------------
 const CARDS = `<main><a href="/news/announcements">Announcements</a>
@@ -82,6 +94,19 @@ const sources = readableSources(LABS);
 eq(new Set(sources.map((s) => s.lab)).size, 6, "every lab has a readable source");
 ok(sources.every((s) => /^https:\/\//.test(s.fetch)), "https fetches only");
 ok(sources.every((s) => { try { return LABS.find((l) => l.id === s.lab).sources.some((x) => new URL(x.url).host === new URL(s.url).host); } catch { return false; } }), "every fetch belongs to a listed lab source");
+// help.openai.com and x.ai answer 403 to the build runner (no post read since
+// 2026-11-16); both are read through releases.sh's Atom feeds, listed as
+// each lab's mirror source. A release-notes feed keeps the notes kind.
+ok(sources.every((s) => { try { const h = new URL(s.fetch).host; return LABS.find((l) => l.id === s.lab).sources.some((x) => new URL(x.url).host === h); } catch { return false; } }), "every fetched host is a listed source of its lab");
+const chatgpt = sources.find((s) => s.name === "ChatGPT release notes");
+eq([chatgpt.read.parser, chatgpt.read.kind, new URL(chatgpt.fetch).host], ["feed", "notes", "releases.sh"], "ChatGPT release notes read through the mirror feed");
+eq(new URL(sources.find((s) => s.lab === "xai").fetch).host, "releases.sh", "xAI news read through the mirror feed");
+{
+  const MIRROR = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Health expands to desktop, Android, dots, and sites</title><link rel="alternate" type="text/html" href="https://help.openai.com/en/articles/6825453-chatgpt-release-notes#health" /><updated>2026-11-19T00:00:00.000Z</updated><published>2026-11-19T00:00:00.000Z</published><content type="html"><![CDATA[Health is rolling out to Free, Go, Plus and Pro users.]]></content></entry></feed>`;
+  const openai = { id: "openai", sources: [{ name: "ChatGPT release notes", url: "https://help.openai.com/x", read: chatgpt.read }] };
+  const got = await collectPosts({ labs: [openai], since: "2026-11-01", fetchImpl: async (u) => (u === chatgpt.fetch ? { ok: true, status: 200, text: async () => MIRROR } : { ok: false, status: 404, text: async () => "" }) });
+  eq(got.posts.map((p) => [p.date, p.kind, p.product, p.url]), [["2026-11-19", "notes", "ChatGPT", "https://help.openai.com/en/articles/6825453-chatgpt-release-notes#health"]], "mirror feed post keeps kind notes and the help-center link");
+}
 
 // --- Tagging ---------------------------------------------------------------------
 const meet = tagPost({ ...notes[0], kind: "notes", product: "Claude" }, lab("anthropic"));

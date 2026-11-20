@@ -345,6 +345,16 @@ async function main() {
     eq(percentiles([1, 2, 3]).filter((v) => v != null).length, 0, "under five values are not ranked");
     const pnl = foldPanel(foldPanel([], panelSnapshot("2026-11-09", ["A"], () => 1)), panelSnapshot("2026-11-12", ["A"], () => 1));
     eq(pnl.map((x) => x.d), ["2026-11-12"], "one snapshot per week, the newest");
+    // The bake's scoring bars cover one year, too short for 12-month momentum
+    // and the 52-week high; the factor lab reads the longer bars when given
+    // (ctx.longBarsOf), and only the factor lab (2026-11-20 audit).
+    const short = (s) => (fx.ctx.barsOf(s) || []).slice(-240);
+    const has = (run, key) => run.payload.factors.names.some((r) => r.f[key] != null);
+    const shortRun = runQuantLabs({ ...fx.ctx, state: {}, prior: null, barsOf: short });
+    ok(!has(shortRun, "mom12") && !has(shortRun, "high52"), "one year of bars leaves the 12-month factors blank");
+    const longRun = runQuantLabs({ ...fx.ctx, state: {}, prior: null, barsOf: short, longBarsOf: fx.ctx.barsOf });
+    ok(has(longRun, "mom12") && has(longRun, "high52"), "the longer bars fill the 12-month factors");
+    eq(JSON.stringify(longRun.payload.vol.test.live), JSON.stringify(shortRun.payload.vol.test.live), "the volatility lab keeps reading the scoring bars"); ok(shortRun.payload.vol.test.live.rows > 0, "the volatility check had rows to compare");
     // The history test on a longer synthetic universe with planted momentum.
     const market = fx.market.bars.slice(-1500), uni = synthUniverse({ market, names: 40, sessions: 1500, seed: 17 });
     const ev = evaluateFactors(Object.fromEntries(uni.symbols.map((s) => [s, uni.bars[s]])), market, { step: 21 });
