@@ -16,7 +16,7 @@ import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, 
 import { precompute, featAt, toColumns, barDate, monthEnds } from "../lib/engines/features.mjs";
 import { trendRead, momentumRead, rotationRead, standCore, ret12, ret12skip1, avg10 } from "../lib/engines/core.mjs";
 import { ALLOC, allocObserve, allocDecide, allocKey, allocStamp, allocBook, allocPriorFrom, allocView, emptyAlloc } from "../lib/engines/allocator.mjs";
-import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamentals, evalFlow, thesisCheck } from "../lib/engines/signals.mjs";
+import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamentals, evalFlow, evalDownside, DOWNSIDE, withSkips, thesisCheck } from "../lib/engines/signals.mjs";
 import { stepBook, emptyRecord, emptyState, engineTradeId } from "../lib/engines/book.mjs";
 import { pickContract, quoteContract, contractKey, sharesContract, positionUsd, optionQty, contractsOf, exitFill, sizeOption, sizeShares, convictionRead, entryPxOf, flatPositionUsd } from "../lib/engines/contracts.mjs";
 import { SIZE_WEIGHTS } from "../lib/engines/config.mjs";
@@ -101,13 +101,16 @@ const V = (sym, f, extra = {}) => ({ sym, isEtf: false, spot: f.c, f, ...extra }
 // ---- config ----------------------------------------------------------------
 // The rules under the live data pack and the newer paper trials (2026-11-20),
 // which sit on top of everything else: the older checks read what is under them.
+// The signal engines with the fix history (Downside puts, 2026-11-20, starts on its own rules 1).
+const FIXED_IDS = SIGNAL_IDS.filter((id) => !ENGINES[id].ownRules);
 const peel = (r) => { while (r && r.before && /\|(live|trials2):[^|]*$|\|down:[^|]*(\|putcap:\d+)?$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
-ok("nine engines (six signal, three core), unique tags, every setup has a label", () => {
-  assert.deepEqual(ENGINE_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "trend", "momentum", "rotation"]);
-  assert.deepEqual(SIGNAL_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion"]);
+ok("ten engines (seven signal, three core), unique tags, every setup has a label", () => {
+  assert.deepEqual(ENGINE_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside", "trend", "momentum", "rotation"]);
+  assert.deepEqual(SIGNAL_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside"]);
   assert.deepEqual(CORE_IDS, ["trend", "momentum", "rotation"]);
+  assert.deepEqual(FIXED_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion"]);
   const tags = ENGINE_IDS.map((id) => ENGINES[id].tag);
-  assert.equal(new Set(tags).size, 9);
+  assert.equal(new Set(tags).size, 10);
   assert.ok(!tags.includes(FLAGSHIP.tag));
   for (const id of ENGINE_IDS) {
     const e = ENGINES[id];
@@ -570,7 +573,7 @@ ok("book: the rule change reaches a running engine once, as a logged version bum
   // the slow call setups, Macro's vol-normal dropped); each lands once.
   const st2 = emptyState(); for (const id of ENGINE_IDS) { st2.engines[id] = newEngineState(ENGINES[id]); delete st2.engines[id].rules; }
   out = stepBook(st2, emptyRecord(), bookInput({ AAA: V("AAA", pullF()) }, {}));
-  assert.deepEqual(out.changes.map((c) => c.engine), SIGNAL_IDS, "the core engines start on their first rules");
+  assert.deepEqual(out.changes.map((c) => c.engine), FIXED_IDS, "the core engines and Downside puts start on their first rules");
   assert.ok(out.changes.filter((c) => c.engine !== "fundamentals").every((c) => /shares/.test(c.text)));
   assert.match(out.changes.find((c) => c.engine === "macro").text, /dropped/);
   // A trade opened under the first rules still closes on a report that goes against it, and never on the rank.
@@ -780,7 +783,7 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   const rules3Of = (r, id) => (hasTrial(id) ? r.before.before : r.before);
   // The contract cap (2026-11-20) sits on top: rules 6 on Reversion and
   // Macro, 5 elsewhere, its note naming the new range and the old one.
-  for (const id of SIGNAL_IDS) {
+  for (const id of FIXED_IDS) {
     const rc = peel(ENGINES[id].rules), r = rc.before, r3 = rules3Of(r, id);
     assert.equal(rc.n, hasTrial(id) ? 6 : 5, id); assert.equal(rc.date, "2026-11-20"); assert.match(rc.note, /^New rules \(wider size range\): each risk-sized option trade buys 1 to 25 contracts \(was 1 to 10\)/, id);
     assert.match(rc.note, /Riskier dial/); assert.equal(rc.key, `${r.key}|cap:25`, id); assert.match(rc.switchNote, /Size range: each risk-sized option trade buys 1 to 25 contracts\.$/);
@@ -806,7 +809,7 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   // on main before this change).
   const step4 = Object.fromEntries(ENGINE_FIXES.filter((f) => f.step === 4).map((f) => [f.id, false]));
   const s3 = engineSpecs(step4);
-  for (const id of SIGNAL_IDS) {
+  for (const id of FIXED_IDS) {
     const s3r = peel(s3[id].rules);
     assert.equal(s3r.n, hasTrial(id) ? 4 : 3, id);
     assert.equal((hasTrial(id) ? s3r.before : s3r).note, r3(id), id);
@@ -821,7 +824,8 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   assert.equal(peel(nt.macro.rules).n, 6, "the other engine's trial is untouched");
   const allOff = engineSpecs(Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false])));
   // (The Flow paper trials of 2026-11-20 are a rules step of their own on top.)
-  for (const id of SIGNAL_IDS) assert.equal(allOff[id].rules.n, (hasTrial(id) ? 3 : 2) + (id === "flow" ? 1 : 0), id);
+  for (const id of FIXED_IDS) assert.equal(allOff[id].rules.n, (hasTrial(id) ? 3 : 2) + (id === "flow" ? 1 : 0), id);
+  assert.equal(allOff.downside.rules, ENGINES.downside.rules, "Downside puts keeps its own rules"); assert.equal(allOff.downside.newsGate, false, "but the news gate switch still reaches it");
 });
 ok("fixes: option trades buy about $2,000 of premium in the record; Webull still buys one", () => {
   assert.equal(optionQty(1.2, 2000), 17); assert.equal(optionQty(30, 2000), 1, "a $3,000 contract is bought once");
@@ -1616,10 +1620,10 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
   assert.equal(st.runs.length, runs);
   assert.ok(st.replay && st.replay.date === "2026-11-25" && !st.replay.error, JSON.stringify(st.replay).slice(0, 200));
   // The page file.
-  assert.equal(view.engines.length, 9);
+  assert.equal(view.engines.length, 10);
   assert.deepEqual(view.engines.map((e) => e.id), ENGINE_IDS);
   assert.equal(view.engines.reduce((a, e) => a + e.open.length, 0), rec.open.length);
-  assert.equal(view.compare.length, 9);
+  assert.equal(view.compare.length, 10);
   // The core engines: a monthly target from the October month-end, held as share lots.
   for (const id of CORE_IDS) {
     const e = view.engines.find((x) => x.id === id);
@@ -1929,7 +1933,7 @@ ok("views: the Webull earnings backup fills only names the main source has no re
 ok("live pack: registry, switches and rules steps", () => {
   // Under the downtrend pack (2026-11-20), which sits on top of every signal engine.
   const LP = (id) => { const r = ENGINES[id].rules; return /\|down:/.test(r.key) ? r.before : r; };
-  for (const id of SIGNAL_IDS) assert.match(ENGINES[id].rules.note, /^New rules \(downtrend pack\)/, id);
+  for (const id of FIXED_IDS) assert.match(ENGINES[id].rules.note, /^New rules \(downtrend pack\)/, id);
   // Two Flow paper trials on top of the cap step (rules 6 on Flow), dated today.
   assert.equal(LP("flow").n, 6); assert.equal(LP("flow").date, "2026-11-20");
   assert.match(LP("flow").note, /^New rules: paper trials are added, labeled unproven: .*large orders.*flagged call volume/);
@@ -2178,7 +2182,7 @@ ok("downtrend pack: switches, Owner Settings, rules step and the put cap setting
   assert.equal(def.default, 10); assert.equal(def.min, 1); assert.equal(def.max, 25); assert.equal(def.kind, "number");
   for (const env of ["ENGINES_FUN_PUTS5", "ENGINES_NEWS_GATE", "ENGINES_TAPE_SIZE"]) assert.equal(ownerSettingDef(env)?.default, true, env);
   // Rules: the newest step on every signal engine, naming the put cap; core engines untouched.
-  for (const id of SIGNAL_IDS) {
+  for (const id of FIXED_IDS) {
     const r = ENGINES[id].rules;
     assert.equal(r.date, "2026-11-20", id); assert.match(r.note, /^New rules \(downtrend pack\): .*news volume.*market tape.*each risk-sized put buys 1 to 10 contracts \(calls keep the 25-contract cap\)/, id);
     assert.match(r.key, /\|down:(funPuts,)?newsGate,tapeSize\|putcap:10$/, id);
@@ -2271,6 +2275,79 @@ ok("downtrend pack: longs shrink with the market tape, puts and paper trials kee
   const putRun = (ctx) => { const st = emptyState(), rec = emptyRecord(); stepBook(st, rec, bookInput(fundViews(), { engines: ["fundamentals"], ctx: { ...CTX, ...ctx } })); return stepBook(st, rec, bookInput(fundViews(), { engines: ["fundamentals"], nowIso: NOW_PM, late: true, ctx: { ...CTX, ...ctx } })).opened[0]; };
   const pCalm = putRun({ macroState: "neutral" }), pSevere = putRun({ macroState: "severe-risk-off", macroGross: 0.4 });
   assert.equal(pSevere.side, "put"); assert.equal(contractsOf(pSevere.contract), contractsOf(pCalm.contract)); assert.deepEqual(pSevere.tape, { state: "severe-risk-off", mult: 1 });
+});
+
+// ---- Downside puts (2026-11-20) --------------------------------------------------
+// A stock that lost its 200-day two sessions ago after a month over it, with a
+// falling 50-day, down 6% in three months while SPY is up 5%.
+const lostF = (over = {}) => baseF({ c: 96, pc: 97, sma200: 98, sma50: 101, sma50Prev: 103, sma20: 99, ret63: -0.06, below200Days: 2, above200Prior20: 18, z20: -1, rsi2: 30, ...over });
+const DCTX = (over = {}) => ({ ...CTX, macroState: "risk-off", macro: { y2: 4.2, dff: 3.6 }, ...over });
+ok("features: closes in a row under the 200-day and how many of the 20 before closed over it", () => {
+  // 260 rising bars, then a drop under the 200-day for the last three.
+  const bars = DATES.slice(-260).map((t, k) => ({ t, o: 100 + k * 0.2, h: 101 + k * 0.2, l: 99 + k * 0.2, c: 100 + k * 0.2, v: 1e6 }));
+  for (const k of [257, 258, 259]) bars[k] = { ...bars[k], c: 100, o: 100, h: 101, l: 99 };
+  const f = featAt(precompute(bars));
+  assert.equal(f.below200Days, 3); assert.equal(f.above200Prior20, 20);
+  const up = featAt(precompute(bars.slice(0, 257)));
+  assert.equal(up.below200Days, 0); assert.equal(up.above200Prior20, null);
+});
+ok("Downside puts: registry, its own switch, half the budget, its own rules", () => {
+  const e = ENGINES.downside;
+  assert.equal(e.tag, "DWN"); assert.equal(e.universe, "stocks"); assert.equal(e.budgetX, 0.5); assert.equal(e.liveTest, true); assert.equal(e.test, "forward");
+  assert.equal(e.rules.n, 1); assert.equal(e.ownRules, true); assert.ok(e.forwardWhy);
+  assert.deepEqual(Object.keys(e.setups), ["lost-200"]);
+  assert.ok(!engineSwitches({}).off.has("downside")); assert.ok(engineSwitches({ ENGINES_DOWNSIDE: "0" }).off.has("downside"));
+  assert.equal(ownerSettingDef("ENGINES_DOWNSIDE")?.default, true);
+  assert.equal(engineSpecs({ newsGate: false }).downside.newsGate, false);
+  assert.equal(engineSpecs(undefined, undefined, null, 25, 4).downside.rules, e.rules, "the put cap is in the sizing, not its rules");
+});
+ok("Downside puts: fires only on a risk-off tape, on a fresh loss of the 200-day, falling 50-day and weak against SPY", () => {
+  const hit = evalDownside(V("DDD", lostF()), DCTX());
+  assert.equal(hit.length, 1); assert.equal(hit[0].side, "put"); assert.equal(hit[0].setup, "lost-200"); assert.equal(hit[0].engine, "downside");
+  assert.equal(hit[0].stopLevel, 99); assert.equal(hit[0].budgetX, undefined);
+  assert.ok(hit[0].reasons.some((r) => /Hikes priced: the 2-year is 0\.6 points over fed funds/.test(r)));
+  const base = hit[0].score;
+  for (const [ctx, f, label] of [
+    [DCTX({ macroState: "neutral" }), {}, "neutral tape"], [DCTX({ macroState: "risk-on" }), {}, "risk-on tape"], [DCTX({ macroState: null }), {}, "no tape"],
+    [DCTX(), { below200Days: 0 }, "still over the 200-day"], [DCTX(), { below200Days: 11 }, "lost it too long ago"], [DCTX(), { above200Prior20: 14 }, "no run over it before"],
+    [DCTX(), { sma50Prev: 100 }, "50-day rising"], [DCTX(), { ret63: 0.06 }, "stronger than SPY"],
+  ]) assert.equal(evalDownside(V("DDD", lostF(f)), ctx).length, 0, label);
+  assert.equal(evalDownside(V("DDD", lostF(), { isEtf: true }), DCTX()).length, 0, "stocks only");
+  // Severe adds, as do the bubble tracker (role-aware), a souring news spike and a notice.
+  assert.equal(evalDownside(V("DDD", lostF()), DCTX({ macroState: "severe-risk-off" }))[0].score, base + 4);
+  const bub = { ai: "bust", market: "late", roles: { DDD: "borrower" } };
+  const b = evalDownside(V("DDD", lostF()), DCTX({ bubble: bub }))[0];
+  assert.equal(b.score, Math.min(100, base + 9)); assert.ok(b.reasons.some((r) => /AI buildout bust signs showing, and this stock is a buildout borrower/.test(r)));
+  assert.equal(evalDownside(V("EEE", lostF()), DCTX({ bubble: bub }))[0].score, base + 3, "a stock outside the buildout gets the market stage only");
+  const nw = evalDownside(V("DDD", lostF(), { live: { news: { nvr: 3, ntn: -2, frn: 1 } } }), DCTX())[0];
+  assert.equal(nw.score, base + 6); assert.deepEqual(nw.facts.news, { frn: 1, nvr: 3, ntn: -2, spike: true });
+  // No hikes priced: four points fewer.
+  assert.equal(evalDownside(V("DDD", lostF()), DCTX({ macro: { y2: 3.7, dff: 3.6 } }))[0].score, base - 4);
+});
+ok("Downside puts: stands aside before a report and on very rich options; half size in extreme fear", () => {
+  const near = withSkips(() => evalDownside(V("DDD", lostF(), { earn: { next: { sessionsUntil: 4 } } }), DCTX()));
+  assert.equal(near.out.length, 0); assert.match(near.skips[0].why, /report within 6 sessions/);
+  const rich = withSkips(() => evalDownside(V("DDD", lostF(), { live: { iv: { band: "very-rich" } } }), DCTX()));
+  assert.equal(rich.out.length, 0); assert.match(rich.skips[0].why, /very rich/);
+  assert.equal(evalDownside(V("DDD", lostF(), { live: { iv: { band: "rich" } } }), DCTX()).length, 1, "rich is fine");
+  const fear = evalDownside(V("DDD", lostF()), DCTX({ fearGreed: { score: 12, asOf: TODAY, stale: false, source: "CNN" } }))[0];
+  assert.equal(fear.budgetX, 0.5); assert.ok(fear.reasons.some((r) => /extreme fear\): half size/.test(r)));
+});
+ok("Downside puts in the book: half the risk budget (a quarter in extreme fear), at most 10 contracts, news-gated", () => {
+  const views = { DDD: V("DDD", lostF()) };
+  const run = (ctx, over = {}) => stepBook(emptyState(), emptyRecord(), honestInput(views, { engines: ["downside"], ctx: { ...DCTX(ctx), byId: views }, sizing: { ...RISK, maxQty: 25, putMaxQty: 10 }, ...over }));
+  const out = run({});
+  const t = out.opened[0];
+  assert.ok(t, JSON.stringify(out.candidates.downside));
+  assert.equal(t.side, "put"); assert.equal(t.engine, "downside"); assert.equal(t.contract.size.budget, 1000); assert.ok(contractsOf(t.contract) <= 10); assert.equal(t.contract.size.cap, 10);
+  assert.deepEqual(t.tape, { state: "risk-off", mult: 1 }, "a put keeps its size on the tape");
+  const fear = run({ fearGreed: { score: 12, asOf: TODAY, stale: false, source: "CNN" } }).opened[0];
+  assert.equal(fear.contract.size.budget, 500);
+  // A brightening news spike holds the put back (as a shadow trade).
+  const gated = stepBook(emptyState(), emptyRecord(), honestInput({ DDD: V("DDD", lostF(), { live: { news: { nvr: 3, ntn: 2 } } }) }, { engines: ["downside"], ctx: DCTX(), sizing: RISK }));
+  assert.equal(gated.opened.length, 0); assert.equal(gated.shadowOpened, 1);
+  // Switched off in Owner Settings: nothing opens.
+  assert.equal(run({}, { off: new Set(["downside"]) }).opened.length, 0);
 });
 
 // The stock split guard (2026-11-20) keeps its checks in its own file; CI
