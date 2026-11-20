@@ -160,12 +160,12 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
   const leg = (t) => isSharesTrade(t) ? `${t.contract.shares} shares` : `BUY ${new Date(t.contract.expiry * 1000).toISOString().slice(0, 10)} ${t.contract.strike} ${String(t.contract.optionType).toUpperCase()}`;
   const mirrorRow = (t, i, closed) => {
     const shared = !!t.noMirror, missed = !shared && i % 9 === 4;
-    // Size asked and filled (2026-11-19): the record's qty (1 to 10) or share
+    // Size asked and filled (2026-11-19): the record's qty (1 to 25 since 2026-11-20) or share
     // count; every 7th filled multi-unit trade is only partly filled.
     // Stock orders move inside the Owner's stock order range ($2,000 to
     // $25,000 by default): the Trend follower's $50,000 lot is cut.
     const stock = isSharesTrade(t), sized = stock ? stockOrderShares(Math.max(1, t.contract.shares || 1), t.contract.mid, STOCK_MIN_USD, STOCK_MAX_USD) : null;
-    const req = stock ? sized.qty ?? 1 : Math.min(10, Math.max(1, t.contract.qty || 1));
+    const req = stock ? sized.qty ?? 1 : Math.min(25, Math.max(1, t.contract.qty || 1));
     const got = shared || missed ? 0 : req > 1 && i % 7 === 2 ? Math.max(1, Math.floor(req / 2)) : req;
     const fill = shared || missed ? null : +(t.contract.mid * (1 + ((i % 5) - 1) * 0.008)).toFixed(2);
     const exit = closed && fill != null ? +((t.exitMid ?? t.contract.mid) * (1 - (i % 3) * 0.01)).toFixed(2) : null;
@@ -178,7 +178,7 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
       paperPnlPct: exit != null && fill > 0 ? +(((exit - fill) / fill) * 100).toFixed(1) : null, fees: 0.55, needsReview: false,
       labels: shared ? ["Held by Top Picks: not bought twice"] : [], note: shared ? `Same contract is held by Top Picks${t.shared?.heldById ? ` (${t.shared.heldById})` : ""}: recorded on its own track record, not bought twice.` : missed ? "Entry did not fill inside the allowed range." : null,
       madeBy: engineName(t.engine), instrument: stock ? "stock" : "option", requestedQty: shared ? 1 : req, filledQty: got, closedQty: exit != null ? got : 0, openQty: exit != null ? 0 : got,
-      qtyBasis: stock ? sized.basis : (t.contract.qty || 1) > 10 ? "record-capped" : t.contract.qty ? "record" : "one",
+      qtyBasis: stock ? sized.basis : (t.contract.qty || 1) > 25 ? "record-capped" : t.contract.qty ? "record" : "one",
       ...(stock ? { recordQty: Math.max(1, t.contract.shares || 1), ...(sized.basis !== "shares" ? { stockRange: { minUsd: STOCK_MIN_USD, maxUsd: STOCK_MAX_USD } } : {}) } : {}),
       fillOutcome: shared ? "shared" : missed ? "missed" : got < req ? "partial" : "filled",
       attempts: shared ? [] : [{ phase: "entry", n: 1, orderPrefix: orderIdPrefix(clientOrderId(t.tradeId, "entry", 1, t.engine)) }], decisions: [],
@@ -194,7 +194,7 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
     scope: "engines", enabled: true, enginesMirror: true, goLiveIso: rec.startedIso, lastRunIso, engineSnapshotIso: out.view.runIso,
     health: { status: "saved-checks-current", issues: [], counts: {}, engines: { open: opt(rec.open).length, mirrored: trades.filter((t) => t.state === "open").length, shared: opt(rec.open).filter((t) => t.noMirror).length, unfilled: trades.filter((t) => t.state === "missed" && opt(rec.open).some((o) => o.tradeId === t.tradeId)).length, pending: 0, untracked: 0 } },
     reconciliation: { checkedAtIso: lastRunIso, status: "matched", alerts: [] }, runs: [], rows: [], trades,
-    sizing: { shares: true, quantities: true, picksSizing: true, riskUsd: 2000, maxQty: 10, stockMinUsd: STOCK_MIN_USD, stockMaxUsd: STOCK_MAX_USD },
+    sizing: { shares: true, quantities: true, picksSizing: true, riskUsd: 2000, maxQty: 25, picksMaxQty: 25, stockMinUsd: STOCK_MIN_USD, stockMaxUsd: STOCK_MAX_USD },
   };
   return { view: out.view, record: out.record, state: out.state, mirror, flagship, names: NAMES, engines: Object.keys(ENGINES) };
 }

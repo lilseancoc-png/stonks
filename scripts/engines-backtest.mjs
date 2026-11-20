@@ -23,11 +23,13 @@
 // Settings for reruns (2026-11-19; each changes the assumptions, so a run
 // with any of them is a what-if: write it with --public to a scratch file, or
 // --dry, never over the committed result):
-//   --sizing risk|premium|one   risk = the live default (risk budget, 1-10
+//   --sizing risk|premium|one   risk = the live default (risk budget, 1-25
 //                               contracts); premium = about $2,000 of premium
 //                               (the 2026-11-17 size); one = one contract
 //   --budget N                  the risk budget in dollars (default 2000)
 //   --conviction 0              risk sizing without the conviction multiplier
+//   --max-qty N                 the contract cap under risk sizing, 1 to 25
+//                               (default 25 since 2026-11-20; 10 before)
 //   --off fillBasis,riskSize,...  switch fixes off (ENGINE_FIXES ids)
 //   --inst technicals=options,reversion=both  the per-engine instrument choice
 //   --fg FILE                   a fear and greed series ([date, score] pairs or
@@ -53,7 +55,7 @@ import { buildLabelSeries, LABEL_RULES_VERSION } from "../lib/regime-lab/labels.
 import { FOMC_DECISIONS } from "../lib/historical-events.mjs";
 import { runBacktest, publicResult, WINDOWS, BACKTEST_VERSION } from "../lib/engines/backtest.mjs";
 import { firstFridays } from "../lib/engines/macro.mjs";
-import { ENGINES, ENGINES_VERSION, MACRO_ETFS, BOOK, ENGINE_FIXES, engineSpecs, INSTRUMENT_CHOICES } from "../lib/engines/config.mjs";
+import { ENGINES, ENGINES_VERSION, MACRO_ETFS, BOOK, ENGINE_FIXES, engineSpecs, INSTRUMENT_CHOICES, normalizeMaxQty } from "../lib/engines/config.mjs";
 import { allocPriorFrom } from "../lib/engines/allocator.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -162,7 +164,12 @@ export function tradeOutRow(t) {
     engine: t.engine, setup: t.setup || null, symbol: t.symbol, side: t.side, trial: !!t.trial, test: !!t.test,
     entryDate: String(t.entryDate || "").slice(0, 10), exitDate: String(t.exitDate || "").slice(0, 10), status: t.status || null,
     optionType: c.optionType, strike: c.strike, expiry: c.expiry, dte: c.dte ?? null, entryMid: c.mid ?? null, iv: c.iv ?? null,
-    exitMid: t.exitMid ?? null, pnlPct: t.optionPnlPct ?? null, qty: t.qty ?? null, outcome: t.outcome || null,
+    exitMid: t.exitMid ?? null, pnlPct: t.optionPnlPct ?? null, outcome: t.outcome || null,
+    // The size (the count was read from the trade, where it never is, until
+    // 2026-11-20): contracts, the flat risk size, the conviction multiplier,
+    // what the budget asked for and whether the cap set it.
+    qty: Number.isInteger(c.qty) ? c.qty : null, flatQty: Number.isInteger(c.flatQty) ? c.flatQty : null,
+    mult: c.size?.mult ?? null, wantQty: c.size?.wantQty ?? null, capped: c.size?.capped ?? null,
   };
 }
 
@@ -206,14 +213,16 @@ export function parseSettings(flags) {
   if (mode === "premium") { settings.sizing = { mode: "premium", optionUsd: BOOK.optionUsd }; changed.push(`sizing: about $${BOOK.optionUsd} of premium a trade`); }
   else if (mode === "one") { settings.sizing = { mode: "one" }; changed.push("sizing: one contract a trade"); }
   else {
-    settings.sizing = { mode: "risk", budget, conviction };
+    const maxQty = normalizeMaxQty(flags["max-qty"] ?? flags.maxQty);
+    settings.sizing = { mode: "risk", budget, conviction, maxQty };
     if (budget !== BOOK.riskUsd) changed.push(`risk budget $${budget}`);
+    if (maxQty !== BOOK.riskMaxQty) changed.push(`contract cap ${maxQty}`);
     if (!conviction) changed.push("no conviction multiplier");
   }
   const inst = {};
   if (typeof flags.inst === "string") for (const kv of flags.inst.split(",")) { const [k, v] = kv.split("=").map((x) => x.trim()); if (ENGINES[k] && INSTRUMENT_CHOICES.includes(v)) inst[k] = v; }
-  if (off.length || Object.keys(inst).length) {
-    settings.specs = engineSpecs(Object.fromEntries(off.map((id) => [id, false])), undefined, inst);
+  if (off.length || Object.keys(inst).length || (settings.sizing?.maxQty ?? BOOK.riskMaxQty) !== BOOK.riskMaxQty) {
+    settings.specs = engineSpecs(Object.fromEntries(off.map((id) => [id, false])), undefined, inst, settings.sizing?.maxQty);
     if (off.length) changed.push(`fixes off: ${off.join(", ")}`);
     if (Object.keys(inst).length) changed.push(`instrument: ${Object.entries(inst).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   }
@@ -283,7 +292,7 @@ async function main() {
       "Four setups that lost more than 3% a trade in both halves of this same history start on shadow. Three more were dropped on 2026-11-17 and are left out of every run, the 'every setup' one included: Macro's VIX-curve-back-to-normal call, Reversion's spike-in-a-downtrend put and Technicals' range-breakdown put. The numbers with those held back or dropped were picked with hindsight, so they flatter the engines; the 'every setup' run is the least picked read.",
       "The other money-leak fixes of 2026-11-17 were also picked from this same history, so this run flatters them too: 0.3-delta calls about 21 days out with a -60% stop for Reversion's washout bounce, and a 3 ATR stop on Technicals' share trades. The live record against this test, setup by setup on each engine's Record tab, is the check.",
       settings.sizing?.mode === "risk"
-        ? `Since 2026-11-19 each trade is sized to risk about $${settings.sizing.budget.toLocaleString("en-US")}${settings.sizing.conviction ? " times a conviction multiplier (0.5x to 2x)" : ""}: an option expiring within ${BOOK.riskWholeDte} days risks its whole premium, a longer one its premium x its stop x ${BOOK.riskStopPad}, 1 to ${BOOK.riskMaxQty} contracts; a share trade risks entry minus stop per share, at most $${BOOK.sharesMaxUsd.toLocaleString("en-US")} of stock. So a share trade now holds far more stock than the $5,000 lot of 2026-11-17, and a cheap contract is capped at ${BOOK.riskMaxQty}: compare dollar totals with a run sized the old way (--sizing premium), and results in % (which size does not change) across runs. Each result also carries flatUsd, the same trades at the flat size (no multiplier).`
+        ? `Since 2026-11-19 each trade is sized to risk about $${settings.sizing.budget.toLocaleString("en-US")}${settings.sizing.conviction ? " times a conviction multiplier (0.5x to 2x)" : ""}: an option expiring within ${BOOK.riskWholeDte} days risks its whole premium, a longer one its premium x its stop x ${BOOK.riskStopPad}, 1 to ${settings.sizing.maxQty ?? BOOK.riskMaxQty} contracts (10 until 2026-11-20); a share trade risks entry minus stop per share, at most $${BOOK.sharesMaxUsd.toLocaleString("en-US")} of stock. So a share trade now holds far more stock than the $5,000 lot of 2026-11-17, and a cheap contract is capped at ${settings.sizing.maxQty ?? BOOK.riskMaxQty}: compare dollar totals with a run sized the old way (--sizing premium), and results in % (which size does not change) across runs. Each result also carries flatUsd, the same trades at the flat size (no multiplier).`
         : `This run sizes option trades the 2026-11-17 way (${settings.sizing?.mode === "one" ? "one contract each" : "about $2,000 of premium each"}) and share trades at $5,000 of stock.`,
       "The call side of the slower setups buys stock instead of a call (since 2026-11-17; Technicals' squeeze too since 2026-11-19). Those share trades are priced at the open and close with 0.1% costs a round trip and scored on their own, against random share lots with the same stock exits. Split-adjusted prices are used as they are.",
       "The ask-in, bid-out fill basis of 2026-11-19 is not in this test: the modeled prices have no bid or ask, so the 3.5% round-trip cost stands in for the spread.",

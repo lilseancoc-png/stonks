@@ -1197,8 +1197,10 @@ async function webullSizing(store) {
   // Engine stock order range (Owner Settings WEBULL_STOCK_MIN_USD /
   // WEBULL_STOCK_MAX_USD, $2,000 to $25,000 unless changed; a Vercel value
   // wins). An unreadable settings file uses the defaults.
-  const { stockRangeFromSettings } = await import("../../lib/webull-mirror.mjs");
-  Object.assign(sizing, stockRangeFromSettings(values));
+  // The Top Picks contract cap (Owner Settings WEBULL_PICKS_MAX_QTY, 1 to
+  // 25, default 25 since 2026-11-20; a Vercel value wins).
+  const { stockRangeFromSettings, picksCapFromSettings } = await import("../../lib/webull-mirror.mjs");
+  Object.assign(sizing, stockRangeFromSettings(values), picksCapFromSettings(values));
   return sizing;
 }
 
@@ -1265,7 +1267,7 @@ async function webullMirror(req, res) {
         health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on", engines: enginesRecord, enginesMirror, sharesMirror: sizing.shares }),
         executionLock,
         enginesMirror,
-        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY,
+        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY, picksMaxQty: sizing.picksMaxQty ?? mirror.PICKS_MAX_QTY,
           stockMinUsd: sizing.stockMinUsd, stockMaxUsd: sizing.stockMaxUsd },
         webullData: { ...mirrorDataSwitches(), orderHistoryShape: rawLedger.orderHistoryShape ?? null, lastFeeSweep: rawLedger.lastFeeSweep ?? null },
         sharesGoLiveIso: ledger.sharesGoLiveIso ?? null,
