@@ -15,7 +15,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import * as Lg from "../lib/self-loop/ledger.mjs";
-import { cellKeys, estimateFor, fitCalibration, modelTable, reliability, MIN_ROWS_FOR_ESTIMATE, SHRINK_K } from "../lib/self-loop/calibrate.mjs";
+import { cellKeys, estimateFor, fitCalibration, modelTable, optionWindowOver, reliability, sessionsBetween, MIN_ROWS_FOR_ESTIMATE, SHRINK_K } from "../lib/self-loop/calibrate.mjs";
 import { buildScorecard, directionRead, gateAudit, historyRows, optionRead, rankSkill, tStat } from "../lib/self-loop/scorecard.mjs";
 import * as Loop from "../lib/self-loop/index.mjs";
 import * as Dg from "../lib/self-loop/diagnose.mjs";
@@ -282,6 +282,17 @@ async function main() {
   const tuned = [{ d: days[0], side: "call", tot: 8.2, tot0: 3.1, y10: 1 }];
   ok(fitCalibration(tuned, { useBase: true }).cells.b3, "counted under the untuned band");
   ok(fitCalibration(tuned).cells.b8, "or the live band when asked");
+  // The option outcome counts only once its 20-session window is over: young
+  // rows decided early (the fast take-profits) must not set the odds alone.
+  eq(sessionsBetween("2026-11-20", "2026-11-30"), 4, "Thanksgiving is not a session: the 23rd, 24th, 25th and 27th; neither end counts");
+  eq(sessionsBetween("2026-11-20", "2026-11-20"), 0);
+  const youngRows = Array.from({ length: 300 }, () => ({ d: "2026-11-18", side: "call", tot: 2, tot0: 2, mk: "neutral", y5: 1, opt: { res: "tp", net: 21.5 } }));
+  const youngEst = estimateFor(fitCalibration(youngRows, { before: "2026-12-01", useBase: true }), { band: 2, side: "call", mk: "neutral" });
+  eq([youngEst.pTp, youngEst.ev], [50, 0], "fast take-profits inside an open window leave the option odds at the prior");
+  eq(youngEst.learning, false, "the stock moves still count the rows");
+  const oldEst = estimateFor(fitCalibration(youngRows, { before: "2026-12-18", useBase: true }), { band: 2, side: "call", mk: "neutral" });
+  ok(oldEst.pTp > 90 && oldEst.ev > 0, "once the window is over they count");
+  ok(optionWindowOver({ d: "2026-11-18" }, null), "an offline fit with no cut-off counts every row");
   eq(modelTable(model).length, 20, "ten bands by two sides");
   eq(MIN_ROWS_FOR_ESTIMATE, 200);
   eq(SHRINK_K, 20);
@@ -865,7 +876,7 @@ async function main() {
     ...Array.from({ length: 260 }, () => ({ d: "2026-11-20", tot: 5, tot0: 5, side: "call", mk: "neutral", y5: 1, opt: { res: "stop", net: -20 } })),
     ...Array.from({ length: 100 }, () => ({ d: "2026-11-20", tot: -6, tot0: -6, side: "put", mk: "neutral", y5: 1, opt: { res: "tp", net: 30 } })),
   ];
-  const evModel = fitCalibration(negRows, { before: "2026-12-08", useBase: true });
+  const evModel = fitCalibration(negRows, { before: "2026-12-23", useBase: true });
   const plan = { version: 3, settings: Tn.cleanSettings({ weights: { rsiMomentum: 0 }, evGate: true }), model: evModel, tuned: true, frozen: false };
   const tuned = B.applyLoopTuning(prepared, plan, { mk: "neutral" });
   const byS = Object.fromEntries(tuned.prepared.scored.map((r) => [r.sym, r]));
@@ -881,7 +892,7 @@ async function main() {
   ok(tuned.odds["AAA:call"] && tuned.odds["AAA:call"].v === 3 && tuned.odds["AAA:call"].ev < 0, "stated odds ride back for the cards");
   const offGate = B.applyLoopTuning(prepared, { ...plan, settings: Tn.cleanSettings({ weights: { rsiMomentum: 0 } }) }, { mk: "neutral" });
   ok(!offGate.prepared.scored.some((r) => r.loopTune.evBlock), "no gate without the Owner's OK");
-  const learningPlan = { ...plan, model: fitCalibration(negRows.slice(0, 50), { before: "2026-12-08", useBase: true }) };
+  const learningPlan = { ...plan, model: fitCalibration(negRows.slice(0, 50), { before: "2026-12-23", useBase: true }) };
   ok(!B.applyLoopTuning(prepared, learningPlan, { mk: "neutral" }).prepared.scored.some((r) => r.loopTune.evBlock), "no gate while the model is learning");
   // A side exists only past the trade bar off the market path.
   eq([byS.AAA.side, byS.BBB.side, byS.CCC.side], [null, null, "put"], "the side follows the tuned tier off the market path");
