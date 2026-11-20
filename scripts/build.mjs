@@ -267,10 +267,10 @@ export const TICKERS = [
   "GS", "HOOD", "AXP", "AMD", "C", "UNH",
   "DELL", "ASML", "VST",
   // Software / SaaS / cloud / space / consumer / semis / hardware
-  "NOW", "MDB", "ACN", "OKTA", "SNOW",
-  "RKLB", "CRM", "FTNT", "INTU", "TEAM",
+  "NOW", "ACN", "OKTA", "SNOW",
+  "CRM", "FTNT", "INTU", "TEAM",
   "NKE", "PANW", "IBM", "QCOM",
-  "HD", "PLTR", "DDOG",
+  "HD", "PLTR",
   "SBUX", "ANET", "TXN", "INTC", "NVO",
   "CRWV", "MRVL", "AMAT", "MU", "BE", "SNDK",
   "WDC", "DRAM",
@@ -278,11 +278,18 @@ export const TICKERS = [
   "SPCX",
   // Added coverage — Arm IP, DC infra, retail
   "ARM", "VRT", "TGT",
+  // Added 2026-11-20 (user decision): Uber, and Anthropic (listed on Nasdaq
+  // 2026-11-19, not yet an index member). Until ANT's options list, its chain
+  // fetch fails fast ("No expirations", not retried) and it is left out of
+  // that build like any unfetched ticker.
+  "UBER", "ANT",
   // SMCI, ASTS, DIS, CBRS and PYPL moved to the wide tier on 2026-11-19 (user
   // decision, engine roadmap): no chain, grade or AI read; they stay on the
   // wide heat map (lib/wide-tier.mjs WIDE_EXTRAS) and keep their SECTORS
   // labels below for old Track Record rows. Open Top Picks and engine trades
   // on them close as not-counted "left-coverage" at the next run.
+  // MDB, DDOG and RKLB left on 2026-11-20 the same way (user decision); MDB
+  // is not an index member, so it joined WIDE_EXTRAS.
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
@@ -321,7 +328,7 @@ export const SECTORS = {
   PANW: "Software", WDAY: "Software", ZM: "Software", DOCU: "Software",
   TEAM: "Software", FTNT: "Software", TTD: "Software",
   U: "Software", APP: "Software",
-  TWLO: "Software", CRWV: "Software",
+  TWLO: "Software", CRWV: "Software", ANT: "Software",
   // Power / data-center infra
   CEG: "Power", VST: "Power", TLN: "Power",
   VRT: "Data center", CLS: "Data center",
@@ -342,6 +349,12 @@ export const SECTORS = {
   BA: "Industrial", CAT: "Industrial", DE: "Industrial", MMM: "Industrial",
   GD: "Defense", LMT: "Defense", RTX: "Defense", NOC: "Defense",
   FDX: "Logistics", UPS: "Logistics",
+  // Rides and delivery. GICS files Uber under Industrials (ground
+  // transportation), so its broad group is Industrials & energy, but demand is
+  // the discretionary consumer's: macroKindOf reads it as consumer services and
+  // Event spillover pairs it with the consumer names. No leveraged-ETF sector
+  // route or rotation basket (one stock, no matching fund).
+  UBER: "Mobility",
   // Healthcare / pharma / payors / med-tech
   NVO: "Pharma", LLY: "Pharma", MRNA: "Pharma", MRK: "Pharma", UNH: "Insurance", JNJ: "Pharma", PFE: "Pharma",
   TMO: "Medical", CI: "Insurance", ELV: "Insurance", MOH: "Insurance",
@@ -351,7 +364,7 @@ export const SECTORS = {
   // Energy
   XOM: "Energy", CVX: "Energy", OXY: "Energy",
   // Travel / modern consumer
-  UBER: "Consumer", ABNB: "Consumer", DASH: "Consumer",
+  ABNB: "Consumer", DASH: "Consumer",
   // China / international
   BABA: "China tech", BIDU: "China tech", JD: "China tech",
   PDD: "China tech", TCEHY: "China tech", BILI: "China tech", NIO: "China tech",
@@ -630,6 +643,7 @@ export const INDUSTRY_OF_TICKER = {
   FTNT: "Software Infrastructure",
   PLTR: "Software Infrastructure",
   CRWV: "Software Infrastructure",
+  ANT: "Software Infrastructure",
   // --- Technology · Software Applications ---
   CRM: "Software Applications",
   ADBE: "Software Applications",
@@ -638,6 +652,7 @@ export const INDUSTRY_OF_TICKER = {
   TEAM: "Software Applications",
   INTU: "Software Applications",
   SHOP: "Software Applications",
+  UBER: "Software Applications",
   // --- Technology · Semiconductors ---
   NVDA: "Semiconductors",
   AMD: "Semiconductors",
@@ -6814,7 +6829,7 @@ const EARNINGS_BMO_REPORTERS = new Map([
   ["WMT", null], ["HD", null], ["TGT", null],
   ["UNH", null], ["LLY", null], ["NVO", null], ["MRK", null], ["MRNA", null],
   ["MA", null], ["ACN", null], ["AXP", "2019-07-01"],
-  ["VST", null], ["DDOG", null], ["SHOP", null], ["VRT", null],
+  ["VST", null], ["DDOG", null], ["SHOP", null], ["VRT", null], ["UBER", null],
   ["TSM", null], ["ASML", null], ["BABA", null],
   ["DIS", "2024-05-01"], ["PYPL", "2024-04-01"],
 ]);
@@ -20844,8 +20859,9 @@ export function buildPutCallAxisInput(chains) {
 // rotation often LEADS the index level. Pure + exported; attached to
 // macroBackdrop.rotation in main() + regen-picks. Baked-only (needs the whole
 // universe, so the browser can't refresh it live — it carries the baked score).
-// SMCI left the basket on 2026-11-19 when it moved to the wide tier (no chain).
-const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "CRWD", "DDOG"];
+// SMCI left the basket on 2026-11-19 when it moved to the wide tier (no chain),
+// and DDOG on 2026-11-20 when it left coverage.
+const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "CRWD"];
 const ROTATION_DEFENSE = ["WMT", "COST", "SBUX", "LLY", "UNH"];
 export function buildRotationAxisInput(chains) {
   const pnum = marketAnalysis.number;
@@ -23954,7 +23970,7 @@ export function macroKindOf(sym, data) {
   if (/^(Retail|Apparel|Beauty|E-commerce)$/.test(sec)) return "consumerDiscretionaryGoods";
   if (sec === "Restaurants") return "restaurants";
   if (/^(Media|Social)$/.test(sec)) return "mediaEntertainment";
-  if (sec === "Consumer") return "consumerServices";
+  if (sec === "Consumer" || sec === "Mobility") return "consumerServices";
   if (sec === "Meme") return "highBeta";
   // — Industrials —
   if (sec === "Industrial") return "industrials";
@@ -32811,7 +32827,7 @@ const SPILLOVER_LABEL_GROUPS = {
   "Bank": "banks",
   "Broker": "brokers", "Asset mgmt": "brokers", "Fintech": "brokers", "Crypto": "brokers",
   "Payments": "payments",
-  "Retail": "consumer", "E-commerce": "consumer", "Apparel": "consumer",
+  "Retail": "consumer", "E-commerce": "consumer", "Apparel": "consumer", "Mobility": "consumer",
   "Beauty": "consumer", "Restaurants": "consumer", "Homebuilder": "consumer",
   "Consumer": "consumer", "Meme": "consumer",
   "Media": "media", "Cable": "media", "Telecom": "media",
@@ -38140,7 +38156,7 @@ export function isMaterialAiHeadline(title) {
 // macro news ("Fed cuts rates") is material for TLT without naming it.
 const MATERIAL_SUBJECT_FUND_RE = /\b(?:etf|etn|fund|trust|ishares|spdr|proshares|index)\b/i;
 // Tickers that are also everyday words never count as a bare-word mention.
-const MATERIAL_SUBJECT_WORD_TICKERS = new Set(["now", "cost", "arm", "team", "snow", "dram", "dis", "be", "hood", "tgt"]);
+const MATERIAL_SUBJECT_WORD_TICKERS = new Set(["now", "cost", "arm", "team", "snow", "dram", "dis", "be", "hood", "tgt", "ant"]);
 // Brand names headlines use instead of the legal name.
 const MATERIAL_SUBJECT_ALIASES = { googl: ["google"], goog: ["google"], tsm: ["tsmc"], meta: ["facebook", "instagram"] };
 export function headlineIsAboutSubject(title, subject) {

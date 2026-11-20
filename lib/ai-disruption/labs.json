@@ -42,7 +42,7 @@
   {
    "id": "anthropic",
    "name": "Anthropic",
-   "ticker": null,
+   "ticker": "ANT",
    "products": [
     "Claude",
     "Claude Code",

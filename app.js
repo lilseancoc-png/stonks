@@ -10399,8 +10399,8 @@ function calendarForDisplay(data, symbols, stockSymbols, nowMs = Date.now()) {
   return { ...data, events, coverage: { ...data.coverage, earningsUniverse: stockSymbols.length,
     earningsScheduled: scheduled.size, earningsMissing: stockSymbols.filter(s => !scheduled.has(s)) } };
 }
-  var CALENDAR_SYMBOLS = ["SPY","QQQ","IWM","SMH","UVXY","TLT","USO","GLD","SLV","KWEB","EWY","AAPL","MSFT","AMZN","META","GOOGL","TSLA","NVDA","TSM","AVGO","ORCL","NFLX","JPM","V","MA","LLY","MRNA","MRK","WMT","COST","CRWD","ADBE","SHOP","BAC","SCHW","BABA","MS","GS","HOOD","AXP","AMD","C","UNH","DELL","ASML","VST","NOW","MDB","ACN","OKTA","SNOW","RKLB","CRM","FTNT","INTU","TEAM","NKE","PANW","IBM","QCOM","HD","PLTR","DDOG","SBUX","ANET","TXN","INTC","NVO","CRWV","MRVL","AMAT","MU","BE","SNDK","WDC","DRAM","SPCX","ARM","VRT","TGT"];
-  var CALENDAR_STOCKS = ["AAPL","MSFT","AMZN","META","GOOGL","TSLA","NVDA","TSM","AVGO","ORCL","NFLX","JPM","V","MA","LLY","MRNA","MRK","WMT","COST","CRWD","ADBE","SHOP","BAC","SCHW","BABA","MS","GS","HOOD","AXP","AMD","C","UNH","DELL","ASML","VST","NOW","MDB","ACN","OKTA","SNOW","RKLB","CRM","FTNT","INTU","TEAM","NKE","PANW","IBM","QCOM","HD","PLTR","DDOG","SBUX","ANET","TXN","INTC","NVO","CRWV","MRVL","AMAT","MU","BE","SNDK","WDC","DRAM","SPCX","ARM","VRT","TGT"];
+  var CALENDAR_SYMBOLS = ["SPY","QQQ","IWM","SMH","UVXY","TLT","USO","GLD","SLV","KWEB","EWY","AAPL","MSFT","AMZN","META","GOOGL","TSLA","NVDA","TSM","AVGO","ORCL","NFLX","JPM","V","MA","LLY","MRNA","MRK","WMT","COST","CRWD","ADBE","SHOP","BAC","SCHW","BABA","MS","GS","HOOD","AXP","AMD","C","UNH","DELL","ASML","VST","NOW","ACN","OKTA","SNOW","CRM","FTNT","INTU","TEAM","NKE","PANW","IBM","QCOM","HD","PLTR","SBUX","ANET","TXN","INTC","NVO","CRWV","MRVL","AMAT","MU","BE","SNDK","WDC","DRAM","SPCX","ARM","VRT","TGT","UBER","ANT"];
+  var CALENDAR_STOCKS = ["AAPL","MSFT","AMZN","META","GOOGL","TSLA","NVDA","TSM","AVGO","ORCL","NFLX","JPM","V","MA","LLY","MRNA","MRK","WMT","COST","CRWD","ADBE","SHOP","BAC","SCHW","BABA","MS","GS","HOOD","AXP","AMD","C","UNH","DELL","ASML","VST","NOW","ACN","OKTA","SNOW","CRM","FTNT","INTU","TEAM","NKE","PANW","IBM","QCOM","HD","PLTR","SBUX","ANET","TXN","INTC","NVO","CRWV","MRVL","AMAT","MU","BE","SNDK","WDC","DRAM","SPCX","ARM","VRT","TGT","UBER","ANT"];
 function newsDateIsCurrent(value, now = Date.now(), days = 7) {
   const t = Date.parse(value || "");
   return Number.isFinite(t) && t <= now + 15 * 60000 && t >= now - days * 86400000;
@@ -12538,6 +12538,7 @@ function validNewsFeedPayload(data) {
     'Industrial': 'Industrials & energy',
     'Defense': 'Industrials & energy',
     'Logistics': 'Industrials & energy',
+    'Mobility': 'Industrials & energy',
     'Materials': 'Industrials & energy',
     'Space': 'Industrials & energy',
     'Data center': 'Industrials & energy',
