@@ -958,7 +958,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   Gemini API rejects `googleSearch` + a forced `responseSchema` in one call; the
   research step uses `AI_THESIS_SEARCH_MODEL` (default
   `gemini-3.1-flash-lite`) for this compact grounded extraction and failing it
-  degrades gracefully (the grader runs on baked data alone),
+  degrades gracefully (the grader runs on baked data alone; since 2026-11-20 an
+  answer with no Google Search queries or sources behind it is dropped the same
+  way, so the grader never weighs an unsearched answer as live news),
   `AI_THESIS_SEARCH=0` disables it, and the grounding **sources** ride the thesis
   payload (`ai.webResearch.sources`) for audit. The grader runs on the capable
   tier (`AI_THESIS_MODEL`, default **full `gemini-3.6-flash`** with a real

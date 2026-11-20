@@ -61,6 +61,7 @@ jobs:
           npm run test:webull-mirror
           npm run test:workflow-schedules
           npm run test:top-picks-watchdog
+          node scripts/sports-on-time-smoke.mjs
           npm run test:owner-settings
       - name: Verify browser behavior
         run: |
