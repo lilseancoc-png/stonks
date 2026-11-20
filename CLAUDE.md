@@ -599,6 +599,10 @@ The **FedWatch implied-rate math** is duplicated the same way: the server comput
 
 `lib/volume-flags.mjs` is **not** duplicated the same way — it is a single-source module. The intraday volume + support/resistance-break classifier (pure functions; since 2026-11-17 the "normal volume by now" curve is measured by the scanner from the last 20 sessions, `learnCurveDay` / `curveFromDays`, kept as `curveDays` in `volume-history.json`, with a fixed seed until five sessions are logged and `VOLUME_MEASURED_CURVE=0` for the old fixed U-curve; each scan also writes a session-so-far read per name, `session.reads`, which the grade's Unusual volume vote reads unless `VOLUME_SESSION_READ=0`; the heatmap refresh and the browser's live RVOL (`MANIFEST.volumeFlagsMeta.curveKnots`) read the same curve) is owned by `scan-unusual.mjs`, which precomputes its results into `data/volume-flags.json`. The browser only **renders** that JSON via `MANIFEST.volumeFlags` (`app-js.mjs:~5837` reads it and points back to `lib/volume-flags.mjs` for the rules) — it does not re-implement the classifier. So there is no "change it in both" obligation here; change the math in `lib/volume-flags.mjs` only.
 
+### Vercel packs only files it can trace (2026-11-20)
+
+Any file a deployed `api/` function reads must be named in full (`new URL("./x.json", import.meta.url)`, `import("./x.mjs")`). A path built at runtime is invisible to Vercel's tracer, so the deploy ships without the file and the function crashes on load while local tests pass (this took down `/mcp` from #840 to 2026-11-20). `node scripts/vercel-bundle-check.mjs` checks every function's import graph (and `.vercelignore`); the Update Checker probes the live endpoints (`lib/update-checker-endpoints.mjs`).
+
 ### Yahoo / Gemini quirks the code already handles — don't undo them
 
 - Yahoo's `query1.finance.yahoo.com` rejects raw fetches with `401 Host not in allowlist`. All calls go through `yahoo-finance2` with a desktop `User-Agent` header so the consent-cookie + crumb handshake works. The shared client lives in `lib/yahoo.mjs` for serverless functions and is duplicated at the top of `scripts/build.mjs` for the build.

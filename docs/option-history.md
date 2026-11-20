@@ -65,6 +65,18 @@ same-window and real-path averages, medians, win rates and t values, dollars
 at $2,000 of premium a trade, both halves of the period, the median entry
 spread, and the skip counts. Paper trials and test trades are kept apart.
 
+## The Top Picks record on real prices (2026-11-20)
+
+`scripts/top-picks-real-prices.mjs` re-prices the Top Picks record's closed
+single-leg trades from a saved `picks-accuracy.json`: the record's own entry ask
+(a real quote at the run; the DoltHub ask that day when the trade has none) in,
+the real bid out on the record's exit date (`sameWindow`), and the record's own
+take-profit and stop fired on real end-of-day mids (`realPath`), next to the
+modeled P&L and the record's own ask-in, bid-out lens (trades since
+2026-10-21). `--symbols` prints the DoltHub pull it needs. Aggregates only,
+to `research/top-picks-real-prices/latest.json`. Checks:
+`node scripts/top-picks-real-prices-smoke.mjs`.
+
 ## Tests
 
 `node scripts/option-history-smoke.mjs` (offline). DoltHub was not reachable

@@ -271,6 +271,12 @@ variables. No Discord app change is needed.
   `prompts/list` answer empty lists; `logging/setLevel` and `completion/complete` answer empty results. Browser `Origin`s: any https origin, plus http on localhost (the MCP Inspector); plain
   http from another host is refused. This is safe because auth is a bearer token the client holds, never a
   cookie the browser adds; a page without a token gets 401.
+- **Deploy gotcha (2026-11-20).** Vercel packs only the files its tracer can see from each function's imports. A file
+  read through a path built at runtime (``new URL(`./${name}`, import.meta.url)``) is left out, and the function
+  crashes on load (`FUNCTION_INVOCATION_FAILED`) while every local test passes. That took `/mcp` and the server card
+  down from #840 (the AI disruption registry) until 2026-11-20. Name every file in full;
+  `scripts/vercel-bundle-check.mjs` (in CI) fails on the pattern, and the Update Checker probes `/mcp`,
+  `/.well-known/mcp.json` and the OAuth metadata every scan (`lib/update-checker-endpoints.mjs`).
 - **Logs.** One JSON line per call (`evt: mcp.call`): tool, outcome, ms, a hashed subject and client. No
   arguments or data.
 - **Budget.** 120 calls per minute per token per instance. No AI is called; reads are R2 GETs plus Yahoo for

@@ -2133,6 +2133,21 @@ ok("book: the rotation buys three $10,000 lots of shares, then swaps at the next
   const page = buildEnginesView({ record, state, ctx: CTX, builtAtIso: NOW_AM }).engines.find((e) => e.id === "rotation");
   assert.equal(page.top, 3); assert.equal(page.funds.length, 10); assert.equal(page.liveTest, true); assert.ok(page.holdings.ranked.length >= 9);
 });
+ok("one bad name: a stock whose input throws is left out, the run and every other name go on", () => {
+  const nowIso = "2026-11-18T16:00:00.000Z", today = "2026-11-18";
+  const input = fixture(nowIso);
+  const [bad] = input.tickers.filter((s) => !MACRO_ETFS.includes(s) && s !== "SPY" && s !== "QQQ");
+  Object.defineProperty(input.chains[bad], "ivRank", { get() { throw new Error("poisoned input"); } });
+  const clean = buildEngineViews({ ...fixture(nowIso), today, nowMs: Date.parse(nowIso) });
+  const v = buildEngineViews({ ...input, today, nowMs: Date.parse(nowIso) });
+  assert.equal(v.views[bad], undefined);
+  assert.equal(v.P[bad], undefined);
+  assert.deepEqual(v.health.badInput.map((r) => r.symbol), [bad]);
+  assert.match(v.health.badInput[0].error, /poisoned input/);
+  assert.equal(v.health.views, clean.health.views - 1, "every other name still has its view");
+  const res = runEngines({ loaded: { record: emptyRecord(), state: emptyState() }, ...input });
+  assert.ok(res && !res.skipped, "the run itself completes");
+});
 
 // The stock split guard (2026-11-20) keeps its checks in its own file; CI
 // runs them through this one.
