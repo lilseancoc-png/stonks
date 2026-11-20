@@ -36,6 +36,22 @@ export function routeRun({ eventName, schedule, nowMs = Date.now() }) {
   return { run: true, why: "scheduled after the close" };
 }
 
+// GitHub's cron runs this workflow hours late or not at all, so the 16:10 ET
+// close bake (dispatched on time by cron-job.org) also dispatches it with
+// WEBULL_DATA_WAIT=1. That lands about 16:20 ET; wait for 16:40 ET (40
+// minutes after the close, past the 15-minute delay on Webull's option data)
+// before the first ping. Bounded: 0 when that time has passed, the day is
+// closed, or it is more than WAIT_LIMIT_MIN away. The scheduled run stays as
+// a backup and finds the day already done.
+export const WAIT_AFTER_CLOSE_MIN = 40;
+export const WAIT_LIMIT_MIN = 45;
+export function waitMinutes(nowMs = Date.now()) {
+  const clock = etClock(nowMs), s = sessionForDate(clock.date);
+  if (!s?.open) return 0;
+  const left = s.closeMinute + WAIT_AFTER_CLOSE_MIN - clock.minute;
+  return left > 0 && left <= WAIT_LIMIT_MIN ? left : 0;
+}
+
 // Every count a job records (webull-data-smoke checks this list against the
 // jobs, so a new job's counts show in the log). Labels only, never a ticker.
 export const LABELS = ["calls", "chain-contracts", "spot-missing", "snapshot-names", "snapshot-contracts", "snapshot-wide", "snapshot-stale", "snapshot-missing", "snapshot-empty",
@@ -54,6 +70,13 @@ async function main() {
   const base = process.env.WEBULL_DATA_URL || "https://mingstreet.app/api/auth/webull-data";
   const backfill = ["0", "1"].includes(process.env.WEBULL_DATA_BACKFILL) ? process.env.WEBULL_DATA_BACKFILL : "";
   const url = backfill ? `${base}?backfill=${backfill}` : base;
+  if (process.env.WEBULL_DATA_WAIT === "1") {
+    const left = waitMinutes();
+    if (left > 0) {
+      console.log(`Webull data: waiting ${left} min for 40 minutes after the close.`);
+      while (waitMinutes() > 0) await sleep(15000);
+    }
+  }
   const deadline = Date.now() + Math.max(1, Math.min(55, Number(process.env.WEBULL_DATA_MINUTES) || 50)) * 60000;
   const token = webullDataTriggerToken(secret);
   let pings = 0, failures = 0, last = null, done = false;

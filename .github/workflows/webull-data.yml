@@ -7,7 +7,10 @@ name: Webull data
 # minutes pass. Webull keys stay in Vercel; this job holds only the store
 # secret that derives the bearer token. Logs print counts and fixed labels.
 # The paired UTC crons make 16:40 ET DST-safe; the trigger routes by the cron
-# line and skips NYSE holidays (lib/us-equity-calendar.mjs).
+# line and skips NYSE holidays (lib/us-equity-calendar.mjs). GitHub's cron
+# runs hours late, so the 16:10 ET close bake (daily.yml) also dispatches this
+# workflow with wait=1: it waits for 16:40 ET itself, and the scheduled run
+# later finds the day done.
 on:
   schedule:
     - cron: "40 20 * * 1-5"
@@ -22,6 +25,10 @@ on:
         description: "Most minutes to keep pinging (1-55)"
         required: false
         default: "50"
+      wait:
+        description: "1 = wait for 40 minutes after the close first (at most 45 minutes; the close build sets this)"
+        required: false
+        default: ""
 
 concurrency:
   group: stonks-webull-data
@@ -34,7 +41,7 @@ jobs:
   run:
     if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 58
+    timeout-minutes: 105
     steps:
       - uses: actions/checkout@v5
         with:
@@ -47,12 +54,13 @@ jobs:
         with:
           node-version: "22"
       - name: Save today's Webull data
-        timeout-minutes: 56
+        timeout-minutes: 103
         env:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           EVENT_NAME: ${{ github.event_name }}
           TRIGGER_SCHEDULE: ${{ github.event.schedule }}
           WEBULL_DATA_BACKFILL: ${{ inputs.backfill || '' }}
           WEBULL_DATA_MINUTES: ${{ inputs.minutes || '50' }}
+          WEBULL_DATA_WAIT: ${{ inputs.wait || '' }}
           WEBULL_DATA_STRICT: '1'
         run: node scripts/webull-data-trigger.mjs

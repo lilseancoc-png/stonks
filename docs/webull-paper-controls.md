@@ -57,7 +57,7 @@ change never resizes a trade already there.
 | Top Picks option trade | `picksRiskQty`: the risk budget (`ENGINES_RISK_USD` from Owner Settings or env, else $2,000) divided by one contract's risk, rounded down, 1 to the Top Picks cap (`WEBULL_PICKS_MAX_QTY`, Owner Settings → Account limits, 1 to 25, default 25 since 2026-11-20, 10 before; a Vercel value wins; `picksCapFromSettings`). When the cap sets the size the ledger trade keeps `qtyCap` and `qtyWanted` (what the budget asked for). Risk is the whole premium under 30 days to expiry (or an unknown expiry), else premium × the trade's stop (50%) × 1.25 for gaps, never more than the premium; a credit spread risks width minus credit. A Top Pick is never skipped for size: at least one contract | `risk` |
 | Either, with **Webull quantities above one** off | one contract | `one` |
 | Top Picks, with **Webull Top Picks risk sizing** off | one contract | `one` |
-| Engine share trade, Trend follower and Momentum basket holdings | the record's whole-share count (`contract.shares`), as stock, moved inside the stock order range (below) | `shares`, `shares-min`, `shares-max` or `shares-over-max` |
+| Engine share trade, Trend follower, Momentum basket and Multi-asset rotation holdings | the record's whole-share count (`contract.shares`), as stock, moved inside the stock order range (below) | `shares`, `shares-min`, `shares-max` or `shares-over-max` |
 
 **Stock order range** (2026-11-19, Owner rule). Every engine stock order costs
 between $2,000 and $25,000 at the engine's entry price, unless the Owner

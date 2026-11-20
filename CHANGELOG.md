@@ -75,6 +75,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Write each trade's contract count, flat size, multiplier and cap read to the history test's `--trades-out` rows (the count was read from the wrong field and was always empty).
 - Keep NFL two-way players (a cornerback who also plays receiver) in the Sports stats: they were stored as all-zero snap rows, so a 101-yard game read 0 (nflverse adapter 3, which re-downloads each NFL season once).
 - Show NFL teammates out with their targets and carries on the player page, not as minutes.
+- Start the daily Webull data run from the 16:10 ET close build: GitHub's own cron for it runs hours late or not at all (the end-of-day workflow's scheduled runs arrived 2.5 to 7 hours late on 19 November), and a skipped day's option snapshots cannot be fetched later. The close build dispatches it, the run waits for 16:40 ET itself, and the scheduled run stays as a backup.
+- Flag a covered stock left out of a full build in the Update Checker (SNDK was left out of every build for a day around its 8-for-1 split while the checker stayed green).
+- Name the Multi-asset rotation among the holdings the Owner Settings "Webull share orders" switch covers.
 
 ## 2026-11-19
 
