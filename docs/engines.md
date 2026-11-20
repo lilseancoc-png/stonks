@@ -1,7 +1,8 @@
 # Strategy engines
 
-Eight rules-only paper engines run beside Top Picks: six signal engines and,
-since 2026-11-17, two core engines. Each has its own idea, its own data and
+Nine rules-only paper engines run beside Top Picks: six signal engines and
+three core engines (Trend follower and Momentum basket since 2026-11-17, the
+Multi-asset rotation since 2026-11-20). Each has its own idea, its own data and
 its own track record. The signal engines score their own setups 0 to 100 and
 trade options (and $5,000 share lots on the slow call setups) in the one
 Webull paper account that Top Picks uses. The core engines (Trend follower,
@@ -428,6 +429,62 @@ both groups to about the same size. The multiplier stays on (Owner Settings
 `ENGINES_SIZE_MULTIPLIER`), so the live record shows whether it holds up;
 the page's size table is the place to judge it.
 
+### Live data pack (2026-11-20)
+
+Owner, 2026-11-20: the goal is as much live market data as possible from
+quality trades; ideas the history test cannot settle are worth running live
+at Webull, because live markets may differ from the simulation. Each part is
+an Owner Settings switch (Data & desks → Strategy engines), on by default,
+and each flip is logged as a rules change.
+
+- **Flow paper trials** (rules 6 on Flow, `trials2:bigOrder,optionSurge` in
+  the key). The Flow engine had opened nothing: about 92% of the flagged
+  option prints the scanner reads are more than 15 minutes old at the scan
+  or have no quote side, so its setups rarely find five signed prints on one
+  name (the engines page now shows this every run, "Flow data check",
+  `flowHealth`). Two shares-only trials read other data the bake already has:
+  - `big-order-buying` (`ENGINES_TRIAL_BIG_ORDER`): Webull capital flow
+    (`webull-flow.json`, sessions before today) shows large orders net
+    buying 10%+ of everything traded over five sessions and net buying on
+    the latest one.
+  - `option-surge` (`ENGINES_TRIAL_OPTION_SURGE`): today's flagged contracts
+    7+ days out carry $500k+ of call premium, 70%+ of the flagged premium is
+    calls, and the stock is up 0.1 ATR or more today (the side of most prints
+    cannot be read, so the stock's own move stands in).
+  Both need a stock (not a fund) above its 50-day and pass the chasing
+  filter; $5,000 of stock, own 3 slots and one a run, 10 sessions at most,
+  ATR stop and target, no learning (`FLOW_TRIAL` in `signals.mjs`).
+- **Earnings run-in by options price** (`ENGINES_RUNIN_BY_IV`, rules 6 on
+  Earnings). When the options are rich or very rich against the stock's own
+  history, the run-in's up side buys shares instead of a call (`buyShares`),
+  still closed before the report. Very rich used to skip the setup.
+  `facts.ivBand` keeps the band.
+- **Setup score out of the size** (`ENGINES_CONV_NO_SCORE`, rules 7 on
+  Reversion and Macro, `convScore: false`). In the 2007-2026 test their
+  higher scores did worse (Reversion 80-84 lost 5.2%, Macro 75-79 lost 4.1%),
+  so the conviction multiplier leaves the score part at 1x there; the other
+  parts stay.
+- **News tag on Reversion** (log only). Bounce entries (washout, fear test,
+  capitulation, RSI(2) dip) keep `facts.news` from the Federal Register and
+  GDELT read (`frn`, `nvr`, `ntn`, `spike` at 2x volume), so a later review
+  can split bounces with and without a reason for the drop. No tag means the
+  read had nothing for the name, not that there was no news.
+- **Multi-asset rotation** (ROT, core, `ENGINES_ROTATION`, `liveTest`). Ten
+  funds (SPY, QQQ, IWM, SMH, TLT, GLD, SLV, USO, EWY, KWEB) ranked monthly by
+  the average of their 3, 6 and 12-month rises; it holds up to three, each
+  only while it closed the month above its 10-month average and beat
+  T-bills over 12 months, else that place stays in cash. $10,000 a lot,
+  shares, no stop, swapped as `rotate` at the next monthly check
+  (`rotationRead` in `core.mjs`). In the 2007-2026 review a multi-asset trend
+  book did worse than the Trend follower; it runs live because it is the one
+  engine that can own gold, silver, oil, small caps or Asia when US large
+  caps are not leading. There is no sector cap on the Momentum basket (owner:
+  the universe is tech by design).
+
+Webull: every part is a share trade, bought as stock with its engine's tag
+(`msflo…`, `msern…`, `msrot…`) inside the Owner's stock order range, and
+reported under `made_by` (`engines-mirror-smoke` checks it end to end).
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -834,7 +891,7 @@ w = expected / 4, clamped to 0.1x-2x.
 |---|---|---|
 | `ENGINES` | GitHub repo variable | Unset = on. `pause` = manage open trades, open none. `0` = freeze (files carried forward untouched) |
 | Strategy engines | Owner Settings → Data & desks | The same switch on the site: On, Manage open trades only (`pause`), Frozen (`off`). Applies from the next Top Picks run. A repo variable, when set, wins |
-| `ENGINES_OFF` | GitHub repo variable | Comma list of engines that open no new trades (`earnings`, `macro`, `technicals`, `fundamentals`, `flow`, `reversion`, `trend`, `momentum`, or their tags) |
+| `ENGINES_OFF` | GitHub repo variable | Comma list of engines that open no new trades (`earnings`, `macro`, `technicals`, `fundamentals`, `flow`, `reversion`, `trend`, `momentum`, `rotation`, or their tags) |
 | `ENGINES_ALLOCATOR` | Owner Settings → Data & desks → "Engine Allocator" (no repo variable) | Unset / `advise` = the Allocator records its read on every signal trade and holds nothing back. `on` = it holds back setups expected to lose in today's market type (shadow trades). `0` = not run |
 | `ENGINES_SHARES` | Owner Settings → Data & desks → "Engines buy shares for slow setups" (no repo variable) | Unset = on. `0` puts every setup back on calls; open share trades run to their exits |
 | `ENGINES_MIRROR` | Vercel env | `0` stops new engine trades entering the paper account. Trades already there keep being managed and closed |
@@ -854,6 +911,11 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_INSTRUMENT_<ENGINE>` | Owner Settings → Data & desks | Per signal engine (`EARNINGS`, `MACRO`, `TECHNICALS`, `FUNDAMENTALS`, `FLOW`, `REVERSION`): default (the registry), `options`, `shares` (call signals buy stock; puts stay options) or `both` |
 | `ENGINES_TRIAL_RSI2_DIP` | Owner Settings → Data & desks | Unset / on = Reversion's RSI(2) dip paper trial buys shares (own 4 slots, 2 a run, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
 | `ENGINES_TRIAL_FEAR_INDEX` | Owner Settings → Data & desks | Unset / on = Macro's index-fear paper trial buys SPY, QQQ and IWM shares after Fear & Greed first closes under 25 (own 3 slots, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
+| `ENGINES_TRIAL_BIG_ORDER` | Owner Settings → Data & desks | Unset / on = Flow's Webull big-order paper trial buys shares (own 3 slots, one a run, 10 sessions). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
+| `ENGINES_TRIAL_OPTION_SURGE` | Owner Settings → Data & desks | Unset / on = Flow's option-call surge paper trial buys shares. `0` = retired for new trades |
+| `ENGINES_RUNIN_BY_IV` | Owner Settings → Data & desks | Unset / on = the earnings run-in buys shares when options are rich or very rich. `0` = calls, and very rich skips |
+| `ENGINES_CONV_NO_SCORE` | Owner Settings → Data & desks | Unset / on = Reversion's and Macro's size leaves the setup score out. `0` = the score part is back |
+| `ENGINES_ROTATION` | Owner Settings → Data & desks | Unset / on = the Multi-asset rotation opens holdings. `0` = it opens nothing new; a holding already open still closes when a monthly check drops it, and nothing replaces it |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
 | `ACCOUNT_LIMIT_OPEN_USD`, `_DAY_LOSS_USD`, `_NAME_USD`, `_NEW_PER_DAY` | Owner Settings → Account limits | All 0 = off. Caps on open option premium, a daily loss stop, money per stock across engines and new trades a day; a trade a limit holds back is not opened and not shadowed. A limit never closes a trade |
 

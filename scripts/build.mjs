@@ -42057,6 +42057,11 @@ async function main() {
           // report, never to open a run-in trade (lib/engines/index.mjs).
           earningsBackup: webullW3?.backup ? earningsBackupMap(TICKERS, webullW3.backup, etDateKey(new Date(builtAtIso)), { isEtf: (s) => SECTORS[s] === "ETF" }) : null,
           unusual: scoringUnusual, crowdRollup: crowdPayload?.rollup || null,
+          // Live data pack (2026-11-20): Webull large-order flow for the Flow
+          // engine's big-order paper trial (sessions before today only), and
+          // the policy and news read for Reversion's news tag (log only).
+          webullFlow: webullShadow?.flow || null,
+          policyNews: policyNewsState ? policyNewsShadow(policyNewsState, { nowMs: Date.parse(builtAtIso), symbols: TICKERS }).rows : null,
           fred: Object.fromEntries(["DGS10", "DGS2", "T10Y2Y", "DFF", "NFCI", "DTWEXBGS", "CPIAUCSL", "UNRATE", "USREC"].map((id) => [id, fredRows(id)])),
           vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
           vix3m: regimeLabVolSeries(historicalSourceCache, null, globalMarkets?.["^VIX3M"]),

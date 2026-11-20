@@ -354,6 +354,36 @@ await ok("paper trials: a trial share trade is bought at Webull like any engine 
   assert.deepEqual(merged(accOf(), engOf([tri]), null, { shares: false }).open, []);
 });
 
+await ok("live data pack (2026-11-20): Flow trials, run-in shares and the rotation reach Webull as stock, tagged and reported by engine", async () => {
+  const sh = (engine, symbol, shares, mid, o = {}) => eng(engine, symbol, { tradeId: `${ENGINES[engine].tag}:${symbol}-S-11/20/26-11:00`, contract: { structure: "shares", optionType: "call", shares, mid, usd: shares * mid, costPct: 0.1 }, ...o });
+  const big = sh("flow", "BIG", 50, 100, { setup: "big-order-buying", trial: true, facts: { wfl5: 24, wfl: 50, wft: 30 } });
+  const srg = sh("flow", "SRG", 25, 200, { setup: "option-surge", trial: true, facts: { callPrem: 900000, putPrem: 100000, callShare: 0.9 } });
+  const rin = sh("earnings", "EEE", 40, 125, { setup: "run-in", exitBy: "2026-11-23", facts: { ivBand: "rich" } });
+  const rot = sh("rotation", "GLD", 40, 250, { setup: "top-3" });
+  const m = merged(accOf(), engOf([big, srg, rin, rot]), null, { shares: true });
+  assert.deepEqual(m.open.map((e) => e.symbol), ["BIG", "SRG", "EEE", "GLD"]);
+  const wb = fakeWebull();
+  const { ledger, summary } = await run({ client: wb, accountId: "PAPER1", acc: m, ledger: null, nowMs: T0, sizing: { ...LIVE_SIZING, riskUsd: 2000 } });
+  assert.equal(summary.placed, 4);
+  assert.ok(wb.placed.every((o) => o.instrument_type === "EQUITY" && o.side === "BUY"));
+  const pre = Object.fromEntries(wb.placed.map((o) => [o.symbol, o.client_order_id]));
+  assert.match(pre.BIG, /^msflo[0-9a-f]+$/); assert.match(pre.SRG, /^msflo/); assert.match(pre.EEE, /^msern/); assert.match(pre.GLD, /^msrot[0-9a-f]+$/);
+  assert.equal(orderIdTag(pre.GLD), "ROT"); assert.equal(orderIdTag(pre.BIG), "FLO");
+  for (const t of [big, srg, rin, rot]) { const row = ledger.trades[t.tradeId]; assert.equal(row.instrument, "stock", t.symbol); assert.equal(row.engine, t.engine, t.symbol); }
+  wb.fillAll();
+  const { ledger: l2 } = await run({ client: wb, accountId: "PAPER1", acc: m, ledger, nowMs: T0 + 5 * MIN, sizing: { ...LIVE_SIZING, riskUsd: 2000 } });
+  const rows = ledgerToFillRows(l2);
+  const byId = Object.fromEntries(rows.map((r) => [r.trade_id || r.tradeId || r.id, r]));
+  const made = rows.map((r) => r.made_by).sort();
+  assert.deepEqual(made, [engineName("earnings"), engineName("flow"), engineName("flow"), engineName("rotation")].sort());
+  assert.ok(rows.some((r) => r.setup === "big-order-buying") && rows.some((r) => r.setup === "top-3"), Object.keys(byId).join(","));
+  const csv = fillRowsToCsv(rows);
+  assert.match(csv, /Multi-asset rotation/); assert.match(csv, /option-surge/);
+  // The engines report holds them; the Top Picks report does not.
+  assert.equal(Object.keys(scopeLedger(l2, "engines").trades).length, 4);
+  assert.equal(Object.keys(scopeLedger(l2, "picks").trades || {}).length, 0);
+});
+
 await ok("expiry: the engines close on the day the mirror's own expiry control starts", () => {
   for (const exp of ["2026-12-18", "2026-11-27", "2027-01-15", "2026-12-28"]) {
     const sec = Date.parse(exp + "T00:00:00Z") / 1000;
