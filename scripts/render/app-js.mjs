@@ -47461,15 +47461,16 @@ ${renderExportBindings()}
       { label: 'Read', cell: function(t){ return readPill(t.read); }, sort: function(t){ return t.read; } }
     ];
     var upcoming = (sm.upcoming || []).slice(0, 6).map(function(a){ return escapeHtml(a.date + ' ' + a.term + (a.offered ? ' ' + bn(a.offered) : '')); }).join(' · ');
-    // Fiscal Data can stop posting results for weeks; say how old the newest one is.
+    // Fiscal Data can stop posting results for weeks (TreasuryDirect then fills
+    // in); if both are behind, say how old the newest result is.
     var staleNote = sm.couponStale && sm.couponAsOf
-      ? '<p class="hint"><b>Feed behind:</b> the newest coupon result the Treasury&rsquo;s Fiscal Data feed has posted is from ' + escapeHtml(sm.couponAsOf) + ' (' + sm.couponAgeDays + ' days ago). Later auctions appear here once the feed posts them.</p>'
+      ? '<p class="hint"><b>Feed behind:</b> the newest coupon result the Treasury has posted (Fiscal Data, with TreasuryDirect as the backup) is from ' + escapeHtml(sm.couponAsOf) + ' (' + sm.couponAgeDays + ' days ago). Later auctions appear here once the feed posts them.</p>'
       : '';
     host.innerHTML = '<p class="bonds-auction-head">' + escapeHtml(sm.couponStale ? 'Latest posted results (feed behind): ' + (sm.headline || '') : (sm.headline || '')) + '</p>' + staleNote +
       VIEWS.tableHtml(cols, sm.byTerm, { key: 'bonds-auctions', empty: 'No coupon auctions yet.' }) +
       (upcoming ? '<p class="hint"><b>Announced:</b> ' + upcoming + '</p>' : '') +
       '<div class="bonds-auction-chart"></div>' +
-      '<p class="hint">US Treasury, Fiscal Data API (auction results), read once a day. The average is the previous six auctions of the same term. "Soft" means fewer bids per dollar than that average by 0.15 or more, or dealers taking 4 points more than usual; it is a demand read, not a forecast of yields.</p>';
+      '<p class="hint">US Treasury, Fiscal Data API (auction results; TreasuryDirect fills in when Fiscal Data is behind), read once a day. The average is the previous six auctions of the same term. "Soft" means fewer bids per dollar than that average by 0.15 or more, or dealers taking 4 points more than usual; it is a demand read, not a forecast of yields.</p>';
     var terms = ['2-Year', '5-Year', '10-Year', '30-Year'];
     var c = CHART_KIT.colors();
     var series = [];
@@ -47482,7 +47483,7 @@ ${renderExportBindings()}
     if (bondsAuctionChart) bondsAuctionChart.destroy();
     var chartHost = host.querySelector('.bonds-auction-chart');
     if (series.length && chartHost){
-      bondsAuctionChart = CHART_KIT.mount(chartHost, { series: series, ranges: ['6M', '1Y', '2Y', 'All'], range: '1Y', height: 220, priceLine: false, source: 'Bid-to-cover by auction, coupon terms · Fiscal Data' });
+      bondsAuctionChart = CHART_KIT.mount(chartHost, { series: series, ranges: ['6M', '1Y', '2Y', 'All'], range: '1Y', height: 220, priceLine: false, source: 'Bid-to-cover by auction, coupon terms · US Treasury' });
     } else if (chartHost) chartHost.remove();
   }
 

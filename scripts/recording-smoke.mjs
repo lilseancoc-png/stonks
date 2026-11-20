@@ -8,6 +8,7 @@ import {
   AUCTION_TRAIL_N, COUPON_TYPES, TREASURY_AUCTIONS_KEEP, TREASURY_AUCTIONS_KEY,
   emptyTreasuryAuctions, parseTreasuryAuctionRows, parseTreasuryAuctions, summarizeTreasuryAuctions,
   termSortKey, treasuryAuctionsFetchedToday, treasuryAuctionsUrl, upsertTreasuryAuctions,
+  newestTreasuryResultDate, parseTreasuryDirectRows, treasuryDirectNeeded, treasuryDirectUrl,
 } from "../lib/treasury-auctions.mjs";
 import { chainPutCallTotals, impliedBorrowRate } from "../lib/market-structure.mjs";
 import { CREDIT_RATIO_PAIRS, buildCreditRatios } from "../lib/historical-data.mjs";
@@ -83,6 +84,31 @@ const billFlood = Array.from({ length: 300 }, (_, i) => ({ cusip: `B${i}`, date:
 const keptMix = upsertTreasuryAuctions(null, [...billFlood, ...tipsRows]).auctions;
 ok("bills never crowd coupons out", keptMix.filter((a) => a.type === "Bill").length === 80 && keptMix.filter((a) => a.type !== "Bill").length === 3);
 ok("backfill version survives a read", parseTreasuryAuctions(JSON.stringify({ ...emptyTreasuryAuctions(), backfillVersion: 1 })).backfillVersion === 1);
+
+// TreasuryDirect fallback (2026-11-20): Fiscal Data stopped posting results
+// after 2026-10-15, so the bake fills the same rows from TreasuryDirect.
+ok("TreasuryDirect url", treasuryDirectUrl(60) === "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=json&days=60&pagesize=300");
+const tdRows = parseTreasuryDirectRows([
+  { cusip: "912810uw6", auctionDate: "2026-10-08T00:00:00", type: "Bond", securityType: "Bond", securityTerm: "30-Year", issueDate: "2026-10-15T00:00:00", maturityDate: "2056-08-15T00:00:00",
+    offeringAmount: "22000000000", grandTotalParAwarded: "22000000000", bidToCoverRatio: "2.41", highYield: "4.712",
+    primaryDealersCompetitiveParAwarded: "2200000000", directBiddersCompetitiveParAwarded: "4400000000", indirectBiddersCompetitiveParAwarded: "15000000000", reopening: "Yes" },
+  { cusip: "912797AA1", auctionDate: "2026-11-17T00:00:00", type: "CMB", securityType: "Bill", securityTerm: "6-Week", offeringAmount: "80000000000", grandTotalParAwarded: "80000000000", bidToCoverRatio: "2.9", investmentRate: "4.05", highRate: "3.97" },
+  { cusip: "91282CTP1", auctionDate: "2026-11-18T00:00:00", type: "TIPS", securityType: "Note", securityTerm: "5-Year", bidToCoverRatio: "", grandTotalParAwarded: "" },
+  { cusip: "", auctionDate: "2026-11-18" },
+  { cusip: "X", auctionDate: "not a date" },
+]);
+ok("TreasuryDirect rows parse (bad rows dropped)", tdRows.length === 3);
+const td30 = tdRows[0];
+ok("TreasuryDirect bond maps to Fiscal Data fields", td30.cusip === "912810UW6" && td30.date === "2026-10-08" && td30.type === "Bond" && td30.btc === 2.41 && td30.yield === 4.712 && td30.accepted === 22e9 && td30.dealerPct === 10 && td30.directPct === 20 && td30.indirectPct === 68.18 && td30.reopening === true && td30.maturity === "2056-08-15");
+ok("TreasuryDirect CMB files as a Bill at the investment rate", tdRows[1].type === "Bill" && tdRows[1].yield === 4.05);
+ok("TreasuryDirect TIPS with no result is pending", tdRows[2].type === "TIPS" && tdRows[2].pending === true);
+const staleFiscal = { auctions: [{ cusip: "A", date: "2026-10-15", btc: 2.5 }, { cusip: "B", date: "2026-11-17", pending: true, btc: null }] };
+ok("newest result skips pending rows", newestTreasuryResultDate(staleFiscal) === "2026-10-15");
+ok("fallback needed when results are 5+ days behind", treasuryDirectNeeded(staleFiscal, "2026-11-20") && !treasuryDirectNeeded(staleFiscal, "2026-10-17"));
+ok("fallback needed with no results; not with a bad date", treasuryDirectNeeded({ auctions: [] }, "2026-11-20") && !treasuryDirectNeeded(staleFiscal, "x"));
+const filled = upsertTreasuryAuctions(upsertTreasuryAuctions(null, [{ ...tdRows[1], pending: true, btc: null, yield: null }]), tdRows, { fetchedDate: "2026-11-20" });
+ok("fallback result replaces the pending Fiscal Data row", filled.auctions.find((a) => a.cusip === "912797AA1").btc === 2.9);
+ok("fallback note survives a read", parseTreasuryAuctions(JSON.stringify({ ...emptyTreasuryAuctions(), fallback: { name: "TreasuryDirect", url: "u", usedOn: "2026-11-20", rows: 3 } })).fallback.rows === 3);
 
 // ---- Option-implied borrow --------------------------------------------------
 // Build a chain whose call/put mids satisfy parity with a known borrow rate.
