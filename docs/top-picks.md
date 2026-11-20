@@ -1582,6 +1582,14 @@ New record trades carry `marketSideVersion` (`2026-11-20-market-side`) and
 `marketside`). Off (`PICKS_MARKET_SIDE=0`) restores the earlier rules and stops
 the stamp. Tests: `node scripts/picks-smoke.mjs` ("market-side lanes").
 
+The research copy of the roster (`sharedResearch` in `picks.json`: the Volume
+page's pinned list, the Unified Signal Engine and the MCP) keeps the earlier
+rules. Its own grader pass and roster run with `marketLanes: false`
+(`laneStateOf` in `build.mjs`; `regen-picks.mjs` too), so it skips the grader
+when nothing could open under those rules. As first merged it took the lanes
+too and graded the same names a second time on every run, about $0.15 a run
+(fixed 2026-11-20).
+
 ## Owner controls, November 19, 2026
 
 Beside market mode, the Owner has quick controls that reach Top Picks, the
