@@ -160,6 +160,15 @@ Track Record rows still group. What that does at the next runs:
 
 Every broad group keeps five or more stocks (`sector-groups-smoke.mjs`).
 
+On 2026-11-20 MDB, DDOG and RKLB left the same way (80 → 79 with two adds;
+user decision). DDOG and RKLB are index members, so they stay on the wide map
+without help; MDB is not, so it joined `WIDE_EXTRAS`. DDOG left
+ROTATION_OFFENSE (11 names), and RKLX / RKLZ log entries close as retired.
+UBER and ANT (Anthropic, listed 2026-11-19, not yet an index member) joined
+`TICKERS`. Until ANT's options list, its chain fetch fails fast with "No
+expirations" (not retried) and it is left out of that build like any
+unfetched name; on the wide map it counts as missing until then.
+
 ## Tests
 
 - `node scripts/wide-tier-smoke.mjs` (offline, synthetic seeded market,

@@ -60,6 +60,10 @@ assert.equal(
   "deterministic validation failures must not retry",
 );
 assert.equal(isTransientYahooError(legacyHtml), true);
+// A fresh listing with no options yet answers the same on every retry.
+assert.equal(isTransientYahooError(new Error("No expirations for ANT")), false);
+assert.equal(isTransientYahooError(new Error("No live expirations for ANT")), false);
+assert.equal(isTransientYahooError(new Error("No spot for ANT")), true);
 
 let exhaustedAttempts = 0;
 await assert.rejects(
