@@ -89,7 +89,14 @@ export function renderEnginesJs() {
   function engCap(s){ s = String(s == null ? '' : s); return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'; }
   function engSide(s){ return s === 'put' ? '<span class="eng-side eng-put">Put</span>' : '<span class="eng-side eng-call">Call</span>'; }
   // A trade's badge: Shares for a share trade (2026-11-17), else Call / Put.
-  function engSideT(t){ return (engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side)) + (t && t.test ? ' <span class="eng-side eng-test" title="A labeled test: kept apart from the setups the engine trades">Test</span>' : '') + (t && t.trial ? ENG_TRIAL_BADGE : '') + (t && t.twinOf ? '<div class="crd-dim">shares twin of ' + escapeHtml(t.twinOf) + '</div>' : ''); }
+  function engSideT(t){ return (engIsShares(t) ? '<span class="eng-side eng-shr" title="Bought as stock, not an option">Shares</span>' : engSide(t && t.side)) + (t && t.test ? ' <span class="eng-side eng-test" title="A labeled test: kept apart from the setups the engine trades">Test</span>' : '') + (t && t.trial ? ENG_TRIAL_BADGE : '') + (t && t.twinOf ? '<div class="crd-dim">shares twin of ' + escapeHtml(t.twinOf) + '</div>' : '') + engSplitNote(t); }
+  function engSplitNote(t){
+    if (!t) return '';
+    var out = (t.splits || []).map(function(a){ var k = Number(a && a.factor); var r = k >= 1 ? (Math.round(k * 100) / 100) + '-for-1' : '1-for-' + (Math.round(100 / k) / 100); return '<div class="crd-dim" title="Entry, stop, target and strike divided by the ratio; count multiplied. The dollars and the % result did not move.">Followed a ' + escapeHtml(r) + ' split ' + escapeHtml(engDay(a && a.date)) + '</div>'; }).join('');
+    if (t.splitReview) out += '<div class="crd-dim">' + escapeHtml(t.splitReview) + '</div>';
+    if (t.splitUnconfirmed) out += '<div class="crd-dim" title="A gap of about a split ratio that no split list or history confirmed; it was marked as a real move.">Big gap on ' + escapeHtml(engDay(t.splitUnconfirmed.date)) + ' marked as a real move: check for a split</div>';
+    return out;
+  }
   // Paper trials (2026-11-19): unproven setups, scored apart from the engine.
   var ENG_TRIAL_BADGE = ' <span class="eng-side eng-trial" title="An unproven setup on paper, scored apart from the engine">Paper trial</span>';
   // Exit plan of one open trade: premium exits for an option, stock levels for shares.

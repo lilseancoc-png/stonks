@@ -519,6 +519,59 @@ A file that is missing is a fresh start. A file that is there and cannot be
 read skips the engines for that build and keeps the stored copy (an empty
 record never replaces a real one).
 
+### Stock splits (2026-11-20)
+
+An engine trade keeps its entry, stop, target and strike in the dollars of
+the day it opened, so a split would otherwise read as a loss: Sandisk's
+8-for-1 at the open on 2026-11-20 would have marked the Momentum basket's
+SNDK lot at about -87%, and an option's old strike prices near zero on the
+new tape. Before each open or shadow trade is marked, `lib/engines/split.mjs`
+compares the run's price with the trade's last mark. It never acts on the
+day of the last mark (a split takes effect at an open; a same-day move is
+real, and Yahoo's live bar for today already shows it):
+
+- Yahoo's split list comes with the daily history call (`events.splits`,
+  kept as `bars.splitEvents`, no extra request). A listed split between the
+  last mark and today confirms its ratio when the gap is within 35% of it.
+- Otherwise the gap has to be about one standard ratio (1.5, 2, 2.5, 3, 4, 5, 6, 7, 8,
+  10, 20, or the reverse). Yahoo back-adjusts its daily closes after a split,
+  so the close on the last mark's date, divided into the last mark, must give
+  the same ratio (within 10%); the stock may also have moved up to 35% since.
+- Before Yahoo adjusts, only an exact gap (within 4%) of a ratio of 3 or more
+  counts. With no dated history at all, an exact gap counts for any ratio
+  (the Top Picks rule).
+- A 40%+ move within 10% of a ratio that nothing confirms yet is held
+  unmarked (no exit fires): four runs (two sessions) for a ratio of 3 or
+  more, one run for 1.5, 2 or 2.5 (a real crash that size is not rare).
+  Then it is marked as a real move and the trade carries `splitUnconfirmed`
+  for a look. Any other gap is never held. Without the hold, the first mark
+  would move the last price to the new scale and no later run could see the
+  split.
+
+A split divides every dollar level by the ratio and multiplies the share or
+contract count by it (the OCC's adjustment; strikes keep three decimals,
+775 / 8 = 96.875, and the chain lookup matches to half a cent), so the trade's dollars and its %
+result do not move; `corpActions` on the trade and `splits` on the run log say
+so. A 3:2 or 5:2 split on an option sets `splitReview` (Webull changes the
+deliverable instead). The history test passes no history to the guard (its
+bars are split-adjusted). Owner Settings → Data & desks → "Engine trades
+follow stock splits" (`ENGINES_SPLIT_GUARD`) turns it off.
+
+The Webull paper mirror does not follow a split by itself: Webull's own
+adjustment changes the held shares or contracts, the holdings check sees the
+difference and pauses orders for review (`lib/webull-reconciliation.mjs`).
+A mirrored trade whose engine trade was rescaled after it was mirrored
+(`splitSinceLedger`: option strikes no longer match, or a stock fill before
+the split) is flagged `SPLIT_REVIEW` once, before the position check (which
+would otherwise read the old strikes as flat and settle it), and is held with
+no order, exit or settlement until it is checked by hand and the review is
+cleared; an entry with nothing filled or working is abandoned. The engine
+page shows "Followed a 8-for-1 split" on the trade (`splits` on each row),
+and a gap marked as a real move after the hold (`splitUnconfirmed`). Top
+Picks' own split rescale keeps strikes to three decimals too, so a contract
+both hold still matches.
+Test: `node scripts/engines-split-smoke.mjs` (also run by `engines-smoke.mjs`).
+
 ## Same contract on two engines
 
 When two engines, or an engine and Top Picks, pick the exact same contract
@@ -735,6 +788,7 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys the record's `qty` (1 to 10) unless Owner Settings `WEBULL_QTY` is off |
 | `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
 | `ENGINES_FILL_BASIS` | Owner Settings → Data & desks | Unset / on = new option trades book the ask going in and the bid coming out (triggers stay on the mid). `0` = the mid both ways |
+| `ENGINES_SPLIT_GUARD` | Owner Settings → Data & desks | Unset / on = open trades follow a stock split (levels divided, count multiplied; see "Stock splits"). `0` = old prices marked on the new tape |
 | `ENGINES_RISK_SIZE` | Owner Settings → Data & desks | Unset / on = each trade risks about `ENGINES_RISK_USD`, 1 to 10 contracts or up to $25,000 of stock. `0` = the rules 3 sizing |
 | `ENGINES_RISK_USD` | Owner Settings → Data & desks | The risk budget a trade, $500 to $10,000 (default $2,000) |
 | `ENGINES_SIZE_MULTIPLIER` | Owner Settings → Data & desks | Unset / on = the conviction multiplier (0.5x to 2x, parts on each trade). `0` = the flat risk size |

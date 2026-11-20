@@ -1488,6 +1488,12 @@ async function fetchHistoricalBars(symbol) {
           t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
         }));
       if (bars.length < 20) throw new Error(`Yahoo daily chart returned only ${bars.length} valid bars`);
+      // Yahoo's split list from the same call (no extra request), kept on the
+      // array for the engine split guard (lib/engines/split.mjs). It never
+      // reaches a written file: arrays serialize without it.
+      bars.splitEvents = (Array.isArray(result?.events?.splits) ? result.events.splits : [])
+        .map((e) => ({ date: e?.date ? new Date(e.date).toISOString().slice(0, 10) : null, numerator: Number(e?.numerator) || null, denominator: Number(e?.denominator) || null, splitRatio: e?.splitRatio ? String(e.splitRatio) : null }))
+        .filter((e) => e.date);
       return bars;
     },
     {
@@ -30645,20 +30651,23 @@ export function detectSplitFactor(lastSpot, spot, data) {
 export function applySplitToEntry(e, k, builtAtIso) {
   const s2 = (v) => (v == null ? v : r2((pnum(v) ?? 0) / k));
   const s4 = (v) => (v == null ? v : r4((pnum(v) ?? 0) / k));
+  // Strikes keep three decimals: the OCC's adjusted strike (775 / 8 = 96.875),
+  // the same as the engines' split guard, so a shared contract still matches.
+  const s3 = (v) => (v == null ? v : Math.round(((pnum(v) ?? 0) / k) * 1000) / 1000);
   e.entrySpot = s2(e.entrySpot); e.lastSpot = s2(e.lastSpot);
   e.takeProfit = s2(e.takeProfit); e.cut = s2(e.cut);
   e.vehicleCut = s2(e.vehicleCut);
   if (e.thesis && e.thesis.stopSpot != null) e.thesis.stopSpot = s2(e.thesis.stopSpot);
   const c = e.contract;
   if (c) {
-    c.strike = s2(c.strike); c.mid = s4(c.mid); c.thetaDay = s4(c.thetaDay);
-    if (c.shortStrike != null) c.shortStrike = s2(c.shortStrike);
-    if (c.longStrike != null) c.longStrike = s2(c.longStrike);
+    c.strike = s3(c.strike); c.mid = s4(c.mid); c.thetaDay = s4(c.thetaDay);
+    if (c.shortStrike != null) c.shortStrike = s3(c.shortStrike);
+    if (c.longStrike != null) c.longStrike = s3(c.longStrike);
     if (c.netDebit != null) c.netDebit = s4(c.netDebit);
     if (c.netCredit != null) c.netCredit = s4(c.netCredit);
     if (c.maxLoss != null) c.maxLoss = s4(c.maxLoss);
     if (c.maxProfit != null) c.maxProfit = s4(c.maxProfit);
-    if (Array.isArray(c.legs)) for (const l of c.legs) if (l && l.strike != null) l.strike = s2(l.strike);
+    if (Array.isArray(c.legs)) for (const l of c.legs) if (l && l.strike != null) l.strike = s3(l.strike);
   }
   (e.corpActions ||= []).push({ type: "split", factor: r4(k), date: builtAtIso });
   return e;
