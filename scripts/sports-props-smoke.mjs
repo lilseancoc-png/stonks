@@ -203,6 +203,14 @@ assert.equal(calls.filter((c) => c.url.includes('prop-line')).length, 3, 'NBA us
   assert.equal((await read('nba', ['reference'], hugeHeader)).reference.state, 'unavailable', 'oversized declared responses are refused');
   const hugeStream = async () => new Response(' '.repeat(32 * 1024 * 1024) + '[]');
   assert.equal((await read('nba', ['reference'], hugeStream)).reference.state, 'unavailable', 'oversized streams are refused without a content-length header');
+  // A failed read with no HTTP status names a fixed kind for the run log.
+  assert.equal((await read('nba', ['reference'], hugeStream)).reference.fail_kind, 'too_large', 'an oversized read says so');
+  const timedOut = async () => { throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); };
+  assert.equal((await read('nba', ['reference'], timedOut)).reference.fail_kind, 'timeout', 'a timed-out read says so');
+  assert.equal((await read('nba', ['reference'], async () => new Response('{bad'))).reference.fail_kind, 'bad_json', 'a broken body says so');
+  const refused = await read('nba', ['reference'], async () => new Response('{}', { status: 500 }));
+  assert.equal(refused.reference.http_status, 500);
+  assert.equal(refused.reference.fail_kind, undefined, 'an HTTP failure keeps its status and no kind');
 }
 const failed = await loadPropSources({ sport: 'nba', now, env: { PROPLINE_API_KEY: 'fixture-secret' }, fetchImpl: async () => new Response('{}', { status: 429 }) });
 assert.equal(failed.lines.state, 'rate_limited');

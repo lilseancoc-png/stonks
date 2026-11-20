@@ -28,11 +28,12 @@ for (const sport of requested ? [requested] : ['nba', 'nfl']) {
     // Feed states only ("ok", "stale", "rate_limited", "unavailable", ...),
     // plus the provider's HTTP status number for a failed sportsbook read.
     const code = (s) => (s ? ` (http ${s})` : '');
+    const kind = (k) => (k ? ` (${k})` : '');
     feeds = `${retried} lines=${sources.lines?.state || '?'}${code(sources.lines?.http_status)} injuries=${sources.injuries?.state || '?'}` + (sport === 'nba'
-      ? ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)} game_lines=${sources.reference?.game_lines_state || '?'}${code(sources.reference?.game_lines_http_status)}`
+      ? ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)}${kind(sources.reference?.fail_kind)} game_lines=${sources.reference?.game_lines_state || '?'}${code(sources.reference?.game_lines_http_status)}${kind(sources.reference?.game_lines_fail_kind)}`
       // NFL book prices (2026-11-13): state, priced lines and distinct books
       // (counts only), so the scheduled run shows whether the feed carries them.
-      : ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)} book_lines=${sources.reference?.quotes?.length || 0} books=${new Set((sources.reference?.quotes || []).map((q) => q.book)).size}`);
+      : ` reference=${sources.reference?.state || '?'}${code(sources.reference?.http_status)}${kind(sources.reference?.fail_kind)} book_lines=${sources.reference?.quotes?.length || 0} books=${new Set((sources.reference?.quotes || []).map((q) => q.book)).size}`);
     if (sport === 'nba') {
       const q = sources.reference?.quotes || [];
       feeds += ` book_lines=${q.length} books=${new Set(q.map((x) => x.book)).size}`;

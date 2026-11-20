@@ -131,6 +131,17 @@ before that day, and it counts rows by their untuned total (`tot0`), so a live
 weight change in step 4 cannot grade itself. Until the model holds 200 graded
 rows (`MIN_ROWS_FOR_ESTIMATE`) every chance is labeled "learning".
 
+The option outcome (`pTp`, `ev`) counts a row only once its whole 20-session
+window is over by the day the model is used (`optionWindowOver`,
+`sessionsBetween` on the NYSE calendar). A row is decided the day it first
+touches +25% or -50%, so counting every row decided so far over-weights the
+fast outcomes of the newest runs: in the November 2026 slide the quick
+take-profits came first and the stops days later, and rows stated near 94%
+settled near 36% (audit 2026-11-20). Until the first runs' windows close
+(about 2026-12-09 for the 2026-11-10 start) the option odds read the 50%
+prior and `ev` 0, so the expected-value gate blocks nothing. The stock moves
+(5/10/20 sessions) have fixed windows and need no cut.
+
 The scorecard (`buildScorecard`) grades the chances once the moves are in:
 
 - **Honesty:** Brier score per horizon (the average squared miss; always
