@@ -172,8 +172,12 @@ await ok("stamps, closes and sizes", () => {
   assert.equal(scaleContract({ qty: 4, mid: 5 }, 0.5).qty, 2);
   assert.equal(scaleContract({ qty: 1, mid: 5 }, 0.5).qty, 1, "at least one contract");
   assert.equal(scaleContract({ qty: 4, mid: 5 }, 1.5).qty, 6);
-  assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5).qty, 10, "Riskier tops out at 10 contracts");
-  assert.equal(scaleContract({ qty: 20, mid: 5 }, 1.5).qty, 20, "never below what it was");
+  assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5).qty, 14, "Riskier: 1.5x, under the 25-contract cap");
+  assert.equal(scaleContract({ qty: 20, mid: 5 }, 1.5).qty, 25, "Riskier tops out at the engines' cap (25 since 2026-11-20)");
+  assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5, 10).qty, 10, "a cap of 10 from Owner Settings");
+  assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5, null).qty, 14, "no cap passed: the default");
+  assert.equal(scaleContract({ qty: 30, mid: 5 }, 1.5).qty, 30, "never below what it was");
+  assert.equal(scaleContract({ qty: 20, mid: 5 }, 1.5, 10).qty, 20, "never below what it was, under a lower cap");
   assert.deepEqual(scaleContract({ structure: "shares", shares: 51, mid: 98 }, 0.5), { structure: "shares", shares: 25, mid: 98, usd: 2450 });
   assert.equal(scaleContract({ structure: "shares", shares: 51, mid: 98 }, 1.5).shares, 76);
   const skip = { skip: "no contract" };
@@ -192,11 +196,12 @@ await ok("account limits: off until set, a Vercel value wins over the saved sett
     assert.ok(def, key); assert.equal(def.kind, "number"); assert.equal(Number(def.default), 0); assert.equal(def.impact, "high"); assert.equal(def.tab, "Account limits");
   }
   // The Owner-controls settings on the tab: the kill switch and the four
-  // limits. Other settings may share the tab (the Webull stock order range,
-  // checked in webull-shares-smoke), so count these by key.
+  // limits. Other settings may share the tab (the Webull stock order range
+  // and the Top Picks contract cap, checked in webull-shares-smoke), so count
+  // these by key.
   const controlKeys = ["OWNER_CONTROLS", "ACCOUNT_LIMIT_OPEN_USD", "ACCOUNT_LIMIT_DAY_LOSS_USD", "ACCOUNT_LIMIT_NAME_USD", "ACCOUNT_LIMIT_NEW_PER_DAY"];
   for (const key of controlKeys) assert.equal(ownerSettingDef(key)?.tab, "Account limits", key);
-  assert.deepEqual(OWNER_SETTINGS.filter((d) => d.tab === "Account limits" && d.group !== "Webull paper stock orders").map((d) => d.key).sort(), [...controlKeys].sort());
+  assert.deepEqual(OWNER_SETTINGS.filter((d) => d.tab === "Account limits" && !/^Webull paper (stock|option) orders$/.test(d.group)).map((d) => d.key).sort(), [...controlKeys].sort());
 });
 
 await ok("kill switch: OWNER_CONTROLS off means no control is in force anywhere; the limits still apply", async () => {

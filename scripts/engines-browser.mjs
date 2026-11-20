@@ -132,7 +132,10 @@ try {
     // Honest paper trades (2026-11-19): their own section, one line each, and the sizing comparison.
     check((await s.page.locator('#eng-all-honest .eng-fixes li').count()) === fix4.length && fix4.length === 6, 'one line per honest-paper change');
     const honestText = await s.page.locator('#eng-all-honest').innerText();
-    check(/ask going in and the bid coming out/.test(honestText) && /1 to 10 contracts/.test(honestText) && /conviction/i.test(honestText) && /Owner Settings/.test(honestText), 'the honest-paper section says what changed and where to switch it');
+    check(/ask going in and the bid coming out/.test(honestText) && /1 to 25 contracts/.test(honestText) && /conviction/i.test(honestText) && /Owner Settings/.test(honestText), 'the honest-paper section says what changed and where to switch it');
+    // The size-bucket read (2026-11-20): does bigger size do better?
+    const cmp = view.sizing && view.sizing.compare;
+    if (cmp && (cmp.options.n || cmp.shares.n)) check(/Does bigger size do better\?/.test(honestText) && /Sized up \(over 1\.1x\)/.test(honestText) && /1 to 25 contracts \(1 to 10 before\)/.test(honestText), 'the sizing section splits closed trades by multiplier and says the range');
     check(/Fear and greed at the last run|No fear and greed reading/.test(honestText), 'the section says what fear and greed read at the last run');
     // Every open option trade opened under the new rules says how it was sized and filled.
     const sized = view.engines.flatMap((e) => e.open).filter((t) => t.size);

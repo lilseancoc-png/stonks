@@ -17,7 +17,7 @@ import {
   runWebullMirror as runActual, mergeEngineTrades, picksRiskQty, mirrorQty, buildOrder, newTrade, fillOutcome,
   ledgerToTestTrades, ledgerToFillRows, fillRowsToCsv, makeQuoteFn, isStockTrade, positionText,
   LIVE_SIZING, DEFAULT_SIZING, MIRROR_MAX_QTY, describeKindCounts, CASH_NOTE, parseCashPower, openingCash,
-  STOCK_MIN_USD, STOCK_MAX_USD, stockOrderShares, stockRangeFromSettings, stockSizeNote,
+  STOCK_MIN_USD, STOCK_MAX_USD, stockOrderShares, stockRangeFromSettings, stockSizeNote, picksCapFromSettings,
 } from "../lib/webull-mirror.mjs";
 import { ownerSettingDef, cleanValue } from "../lib/owner-settings.mjs";
 import { executionPrice } from "../lib/webull-execution-policy.mjs";
@@ -124,8 +124,15 @@ await ok("risk sizing: under a month the whole premium is at risk", () => {
   assert.equal(r.riskPerContract, PX * 100);
   assert.equal(r.qty, Math.min(MIRROR_MAX_QTY, Math.max(1, Math.floor(RISK / (PX * 100)))));
 });
-await ok("risk sizing: a cheap contract is capped at 10, a dear one is still bought once", () => {
-  assert.equal(picksRiskQty(flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 0.4 } }), 2000).qty, 10);
+await ok("risk sizing: a cheap contract is capped at the Top Picks cap (25 unless set), a dear one is still bought once", () => {
+  // $0.40 a contract, past a month: risk $25 a contract, 80 asked.
+  const cheap = flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 0.4 } });
+  const r = picksRiskQty(cheap, 2000);
+  assert.equal(r.qty, 25); assert.equal(r.cap, 25); assert.equal(r.capped, true); assert.equal(r.wantQty, 80);
+  assert.equal(picksRiskQty(cheap, 2000, 10).qty, 10, "a cap of 10 from Owner Settings");
+  assert.equal(picksRiskQty(cheap, 2000, 1).qty, 1);
+  assert.equal(picksRiskQty(cheap, 2000, 40).qty, 25, "out of range = the default");
+  assert.equal(picksRiskQty(flag("AAA"), 2000).capped, undefined, "under the cap: no capped mark");
   assert.equal(picksRiskQty(flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 45 } }), 2000).qty, 1);
   assert.equal(picksRiskQty(flag("AAA"), 0).qty, 1);
   assert.equal(picksRiskQty(flag("AAA", { contract: { structure: "long", strike: 100, mid: PX } }), 2000).riskPerContract, PX * 100, "unknown expiry = whole premium");
@@ -140,7 +147,17 @@ await ok("risk sizing: a credit spread risks its width less the credit", () => {
 await ok("mirrorQty: engine qty, cap, missing qty, switches, shares", () => {
   assert.deepEqual(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 2, qty: 3 } }), live()).qty, 3);
   const capped = mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 0.4, qty: 50 } }), live());
-  assert.equal(capped.qty, 10); assert.equal(capped.basis, "record-capped"); assert.equal(capped.recordQty, 50);
+  assert.equal(capped.qty, 25); assert.equal(capped.basis, "record-capped"); assert.equal(capped.recordQty, 50);
+  assert.equal(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 0.4, qty: 18 } }), live({ picksMaxQty: 5 })).qty, 18, "an engine trade follows its record, not the Top Picks cap");
+  const pk = mirrorQty(flag("A", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 0.4 } }), live({ picksMaxQty: 7 }));
+  assert.equal(pk.qty, 7); assert.equal(pk.maxQty, 7); assert.equal(pk.capped, true); assert.equal(pk.wantQty, 80);
+  // The saved Owner Settings cap, with a Vercel value winning.
+  assert.deepEqual(picksCapFromSettings({}, {}), { picksMaxQty: 25 });
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 12 }, {}), { picksMaxQty: 12 });
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 12 }, { WEBULL_PICKS_MAX_QTY: "4" }), { picksMaxQty: 4 });
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 99 }, { WEBULL_PICKS_MAX_QTY: " " }), { picksMaxQty: 25 });
+  const capDef = ownerSettingDef("WEBULL_PICKS_MAX_QTY");
+  assert.equal(capDef.default, 25); assert.equal(capDef.min, 1); assert.equal(capDef.max, 25); assert.equal(capDef.tab, "Account limits"); assert.equal(capDef.impact, "high");
   assert.equal(mirrorQty(eng("flow", "A"), live()).qty, 1, "an old trade without qty is one contract");
   assert.equal(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 2, qty: 3 } }), live({ quantities: false })).qty, 1);
   assert.equal(mirrorQty(flag("A"), live({ picksSizing: false })).qty, 1);
@@ -150,8 +167,8 @@ await ok("mirrorQty: engine qty, cap, missing qty, switches, shares", () => {
   assert.equal(mirrorQty(shr("technicals", "S", 33), live({ quantities: false })).qty, 33, "shares are the trade itself");
   assert.equal(mirrorQty(shr("technicals", "S", 0), live()).qty, null);
   assert.equal(mirrorQty(flag("A")).qty, 1, "no sizing passed = the old one-contract path");
-  assert.deepEqual({ ...DEFAULT_SIZING, riskUsd: 0 }, { quantities: false, picksSizing: false, shares: false, riskUsd: 0, stockMinUsd: 2000, stockMaxUsd: 25000 });
-  assert.equal(LIVE_SIZING.stockMinUsd, 2000); assert.equal(LIVE_SIZING.stockMaxUsd, 25000);
+  assert.deepEqual({ ...DEFAULT_SIZING, riskUsd: 0 }, { quantities: false, picksSizing: false, shares: false, riskUsd: 0, stockMinUsd: 2000, stockMaxUsd: 25000, picksMaxQty: 25 });
+  assert.equal(LIVE_SIZING.stockMinUsd, 2000); assert.equal(LIVE_SIZING.stockMaxUsd, 25000); assert.equal(LIVE_SIZING.picksMaxQty, 25); assert.equal(MIRROR_MAX_QTY, 25);
 });
 
 // --- 2. Stock order body and prices ----------------------------------------------------

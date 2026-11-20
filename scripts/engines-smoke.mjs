@@ -27,7 +27,7 @@ import { prepareReports, earnView, fundCore } from "../lib/engines/earn.mjs";
 import { buildMacro, fearReading } from "../lib/engines/macro.mjs";
 import { engineStats, summarize, scoreBand, tradeUsd, flatTradeUsd } from "../lib/engines/record.mjs";
 import { runBacktest, publicResult } from "../lib/engines/backtest.mjs";
-import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEngineViews, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare } from "../lib/engines/index.mjs";
+import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEngineViews, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare, SIZE_READ_MIN } from "../lib/engines/index.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { DIAL } from "../lib/owner-controls.mjs";
 import { ownerSettingDef } from "../lib/owner-settings.mjs";
@@ -764,24 +764,28 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   // fixes that reach it.
   const hasTrial = (id) => ENGINE_TRIALS.some((t) => t.engine === id);
   const rules3Of = (r, id) => (hasTrial(id) ? r.before.before : r.before);
+  // The contract cap (2026-11-20) sits on top: rules 6 on Reversion and
+  // Macro, 5 elsewhere, its note naming the new range and the old one.
   for (const id of SIGNAL_IDS) {
-    const r = ENGINES[id].rules, r3 = rules3Of(r, id);
+    const rc = ENGINES[id].rules, r = rc.before, r3 = rules3Of(r, id);
+    assert.equal(rc.n, hasTrial(id) ? 6 : 5, id); assert.equal(rc.date, "2026-11-20"); assert.match(rc.note, /^New rules \(wider size range\): each risk-sized option trade buys 1 to 25 contracts \(was 1 to 10\)/, id);
+    assert.match(rc.note, /Riskier dial/); assert.equal(rc.key, `${r.key}|cap:25`, id); assert.match(rc.switchNote, /Size range: each risk-sized option trade buys 1 to 25 contracts\.$/);
     assert.equal(r.n, hasTrial(id) ? 5 : 4, id); assert.equal(r.date, "2026-11-19"); assert.match(r.note, /^New rules \(honest paper trades\): .*ask going in.*1 to 10 contracts.*0\.5x to 2x/, id);
     assert.doesNotMatch(r.note, /\$2,000 of premium/, "the premium size is not in force while risk sizing is on");
     if (hasTrial(id)) { assert.equal(r.before.n, 4, id); assert.match(r.before.note, /paper trial/, id); assert.match(r.key, /\|trials:/, id); }
     assert.equal(r3?.n, 3, id); assert.match(r3.note, /^New rules \(the money-leak fixes\): .*\$2,000 of premium/, id);
     assert.equal(r3.before?.n, 2, id); assert.ok(/^fixes:/.test(r.key), id); assert.ok(!/size,|size$|size\|/.test(r.key.replace("riskSize", "")), id);
   }
-  const r3 = (id) => rules3Of(ENGINES[id].rules, id).note;
+  const r3 = (id) => rules3Of(ENGINES[id].rules.before, id).note;
   assert.match(r3("reversion"), /spike-in-a-downtrend fade is retired/); assert.match(r3("reversion"), /0\.3 delta/);
   assert.match(r3("technicals"), /range breakdown is retired/); assert.match(r3("technicals"), /3 ATR/);
   assert.doesNotMatch(r3("earnings"), /retired|TLT|ATR/); assert.doesNotMatch(r3("macro"), /TLT|take-profit/);
-  assert.match(ENGINES.technicals.rules.note, /shares only/); assert.match(ENGINES.reversion.rules.note, /stands aside.*7%/); assert.match(ENGINES.reversion.rules.note, /extreme-fear bounce/);
-  for (const id of ["earnings", "macro", "fundamentals", "flow"]) assert.doesNotMatch(ENGINES[id].rules.note, /shares only|stands aside|extreme-fear/, id);
+  assert.match(ENGINES.technicals.rules.before.note, /shares only/); assert.match(ENGINES.reversion.rules.before.note, /stands aside.*7%/); assert.match(ENGINES.reversion.rules.before.note, /extreme-fear bounce/);
+  for (const id of ["earnings", "macro", "fundamentals", "flow"]) assert.doesNotMatch(ENGINES[id].rules.before.note, /shares only|stands aside|extreme-fear/, id);
   // Under risk sizing the premium-size switch changes no trade: no logged change.
   const sz = engineSpecs({ size: false });
-  assert.equal(sz.earnings.rules.n, 4); assert.equal(sz.earnings.rules.before.n, 2, "size was the only rules-3 fix on Earnings");
-  assert.equal(sz.reversion.rules.n, 5); assert.equal(rules3Of(sz.reversion.rules, "reversion").n, 3); assert.doesNotMatch(rules3Of(sz.reversion.rules, "reversion").note, /\$2,000/);
+  assert.equal(sz.earnings.rules.n, 5); assert.equal(sz.earnings.rules.before.n, 4); assert.equal(sz.earnings.rules.before.before.n, 2, "size was the only rules-3 fix on Earnings");
+  assert.equal(sz.reversion.rules.n, 6); assert.equal(rules3Of(sz.reversion.rules.before, "reversion").n, 3); assert.doesNotMatch(rules3Of(sz.reversion.rules.before, "reversion").note, /\$2,000/);
   assert.equal(sz.reversion.rules.key, ENGINES.reversion.rules.key);
   // Every honest-paper change off: back to rules 3 exactly as adopted on
   // 2026-11-17, with the paper trial on top where there is one (rules 4, as
@@ -794,11 +798,11 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   }
   assert.equal(s3.reversion.rules.key, "fixes:retirePuts,bounce,size|trials:rsi2Dip"); assert.equal(s3.technicals.rules.key, "fixes:retirePuts,size,stockStop");
   const s2 = engineSpecs({ ...step4, size: false });
-  assert.equal(s2.earnings.rules.n, 2); assert.equal(s2.earnings.rules.note, ENGINES.earnings.rules.before.before.note);
+  assert.equal(s2.earnings.rules.n, 2); assert.equal(s2.earnings.rules.note, ENGINES.earnings.rules.before.before.before.note);
   // A paper trial switched off: the honest paper trades sit straight on rules 3.
   const nt = engineSpecs(undefined, { rsi2Dip: false });
-  assert.equal(nt.reversion.rules.n, 4); assert.equal(nt.reversion.rules.before.n, 3); assert.equal(nt.reversion.setups["rsi2-dip"].retired, true);
-  assert.equal(nt.macro.rules.n, 5, "the other engine's trial is untouched");
+  assert.equal(nt.reversion.rules.n, 5); assert.equal(nt.reversion.rules.before.n, 4); assert.equal(nt.reversion.rules.before.before.n, 3); assert.equal(nt.reversion.setups["rsi2-dip"].retired, true);
+  assert.equal(nt.macro.rules.n, 6, "the other engine's trial is untouched");
   const allOff = engineSpecs(Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false])));
   for (const id of SIGNAL_IDS) assert.equal(allOff[id].rules.n, hasTrial(id) ? 3 : 2, id);
 });
@@ -843,16 +847,30 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   // An engine still on its first rules (before #851) gets both notes in one change, oldest first.
   const es = newEngineState(ENGINES.technicals); es.rules = 1; delete es.rulesKey;
   const made = adoptRules(es, ENGINES.technicals, TODAY);
-  assert.equal(made.kind, "rules"); assert.equal(es.v, 2); assert.equal(es.rules, 4); assert.equal(es.rulesKey, ENGINES.technicals.rules.key);
+  assert.equal(made.kind, "rules"); assert.equal(es.v, 2); assert.equal(es.rules, 5); assert.equal(es.rulesKey, ENGINES.technicals.rules.key);
   assert.deepEqual(es.rulesFrom, { date: TODAY, v: "TEC-2" });
   const at = (w) => made.text.indexOf(w);
-  assert.ok(at("buy shares instead of calls") >= 0 && at("buy shares instead of calls") < at("money-leak fixes") && at("money-leak fixes") < at("honest paper trades"), made.text);
+  assert.ok(at("buy shares instead of calls") >= 0 && at("buy shares instead of calls") < at("money-leak fixes") && at("money-leak fixes") < at("honest paper trades") && at("honest paper trades") < at("wider size range"), made.text);
   // One already on rules 2 gets the two newer notes; one on rules 3 the newest only.
   const es2 = newEngineState(ENGINES.technicals); es2.rules = 2; delete es2.rulesKey;
-  assert.equal(adoptRules(es2, ENGINES.technicals, TODAY).text, `${ENGINES.technicals.rules.before.note} ${ENGINES.technicals.rules.note}`);
+  assert.equal(adoptRules(es2, ENGINES.technicals, TODAY).text, `${ENGINES.technicals.rules.before.before.note} ${ENGINES.technicals.rules.before.note} ${ENGINES.technicals.rules.note}`);
   assert.equal(adoptRules(es2, ENGINES.technicals, TODAY), null, "once");
   const es4 = newEngineState(ENGINES.technicals); es4.rules = 3; es4.rulesKey = "fixes:retirePuts,size,stockStop";
-  assert.equal(adoptRules(es4, ENGINES.technicals, TODAY).text, ENGINES.technicals.rules.note); assert.equal(es4.rules, 4);
+  assert.equal(adoptRules(es4, ENGINES.technicals, TODAY).text, `${ENGINES.technicals.rules.before.note} ${ENGINES.technicals.rules.note}`); assert.equal(es4.rules, 5);
+  // An engine on the honest paper trades (rules 4, as on main on 2026-11-19) gets the cap note only.
+  const es5 = newEngineState(ENGINES.technicals); es5.rules = 4; es5.rulesKey = ENGINES.technicals.rules.before.key;
+  const capMade = adoptRules(es5, ENGINES.technicals, TODAY);
+  assert.equal(capMade.text, ENGINES.technicals.rules.note); assert.equal(es5.rules, 5); assert.equal(es5.rulesKey, ENGINES.technicals.rules.key);
+  // Changing the cap in Owner Settings later is a logged change at the same rules number;
+  // back at 10 the rules stay on 5 and the note says the range.
+  const at10 = engineSpecs(undefined, undefined, null, 10), at12 = engineSpecs(undefined, undefined, null, 12);
+  assert.equal(at10.technicals.rules.n, 4); assert.equal(at10.technicals.rules.key, `${ENGINES.technicals.rules.before.key}|cap:10`);
+  assert.equal(at12.technicals.rules.n, 5); assert.match(at12.technicals.rules.note, /1 to 12 contracts \(was 1 to 10\)/);
+  const down = adoptRules(es5, at10.technicals, TODAY);
+  assert.equal(down.kind, "rules"); assert.match(down.text, /Size range: each risk-sized option trade buys 1 to 10 contracts\.$/); assert.equal(es5.rules, 5);
+  assert.match(adoptRules(es5, at12.technicals, TODAY).text, /1 to 12 contracts\.$/); assert.equal(adoptRules(es5, at12.technicals, TODAY), null, "once");
+  assert.equal(engineSpecs(undefined, undefined, null, 25), ENGINES); assert.equal(engineSpecs(undefined, undefined, null, 99), ENGINES, "out of range = the default");
+  assert.deepEqual(at10.core ?? null, null); assert.equal(at10.trend, ENGINES.trend, "core engines have no cap step");
   // A state from before the switches (rules 3, no key) just takes the key.
   const es3 = newEngineState(ENGINES.reversion); delete es3.rulesKey;
   assert.equal(adoptRules(es3, ENGINES.reversion, TODAY), null); assert.equal(es3.rulesKey, ENGINES.reversion.rules.key); assert.equal(es3.v, 1);
@@ -870,7 +888,7 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   // Every fix off on an engine: back to rules 2's setups, logged, rules number kept.
   const allOff = Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false]));
   out = stepBook(state, emptyRecord(), bookInput({}, { engines: ["reversion"], specs: engineSpecs(allOff), fixesOff: ENGINE_FIX_IDS }));
-  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 5);
+  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 6);
   // A trade opened with a fix off carries the ones that reach its engine.
   const rv = stepBook(emptyState(), emptyRecord(), bookInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], specs: engineSpecs({ bounce: false, stockStop: false }), fixesOff: ["bounce", "stockStop"] })).opened[0];
   assert.deepEqual(rv.fixesOff, ["bounce"]);
@@ -883,8 +901,9 @@ ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average,
   const st = ENGINES.reversion.setups["rsi2-dip"];
   assert.equal(st.trial, true); assert.equal(st.calls, "shares"); assert.match(st.label, /paper trial/); assert.match(st.how, /unproven/i);
   // (The honest paper trades sit on top as rules 5: the trial is rules 4.)
-  assert.equal(ENGINES.reversion.rules.n, 5); assert.equal(ENGINES.reversion.rules.before.n, 4); assert.equal(ENGINES.reversion.rules.before.date, "2026-11-19");
-  assert.match(ENGINES.reversion.rules.before.note, /paper trial/); assert.match(ENGINES.reversion.rules.key, /\|trials:rsi2Dip$/);
+  // (The contract cap of 2026-11-20 is rules 6 on top of those.)
+  assert.equal(ENGINES.reversion.rules.n, 6); assert.equal(ENGINES.reversion.rules.before.n, 5); assert.equal(ENGINES.reversion.rules.before.before.n, 4); assert.equal(ENGINES.reversion.rules.before.before.date, "2026-11-19");
+  assert.match(ENGINES.reversion.rules.before.before.note, /paper trial/); assert.match(ENGINES.reversion.rules.key, /\|trials:rsi2Dip\|cap:25$/);
   assert.equal(ownerSettingDef("ENGINES_TRIAL_RSI2_DIP")?.default, true);
   // Switches: on by default, off with its own variable or with share trades off.
   assert.equal(engineSwitches({}).trials.rsi2Dip, true);
@@ -892,7 +911,7 @@ ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average,
   assert.equal(engineSwitches({ ENGINES_SHARES: "0" }).trials.rsi2Dip, false);
   assert.equal(engineSpecs(undefined, { rsi2Dip: true }), ENGINES);
   const off = engineSpecs(undefined, { rsi2Dip: false });
-  assert.equal(off.reversion.setups["rsi2-dip"].retired, true); assert.equal(off.reversion.rules.n, 4); assert.equal(off.reversion.rules.before.n, 3);
+  assert.equal(off.reversion.setups["rsi2-dip"].retired, true); assert.equal(off.reversion.rules.n, 5); assert.equal(off.reversion.rules.before.n, 4); assert.equal(off.reversion.rules.before.before.n, 3);
   assert.match(off.reversion.rules.switchNote, /switched off/); assert.notEqual(off.reversion.rules.key, ENGINES.reversion.rules.key);
   assert.deepEqual(off.technicals, ENGINES.technicals);
   // The signal: above the 200-day with a 2-day RSI under 5; deeper scores higher.
@@ -960,14 +979,14 @@ ok("paper trial: index funds after extreme fear buy shares for 20 sessions, deci
   const st = ENGINES.macro.setups["fear-index"];
   assert.equal(st.trial, true); assert.equal(st.calls, "shares"); assert.equal(st.levels, false); assert.equal(st.exits.maxSessions, 20);
   assert.match(st.label, /paper trial/); assert.match(st.how, /unproven/i);
-  assert.equal(ENGINES.macro.rules.n, 5); assert.equal(ENGINES.macro.rules.before.n, 4); assert.equal(ENGINES.macro.rules.before.before.n, 3); assert.match(ENGINES.macro.rules.key, /\|trials:fearIndex$/);
+  assert.equal(ENGINES.macro.rules.n, 6); assert.equal(ENGINES.macro.rules.before.n, 5); assert.equal(ENGINES.macro.rules.before.before.n, 4); assert.equal(ENGINES.macro.rules.before.before.before.n, 3); assert.match(ENGINES.macro.rules.key, /\|trials:fearIndex\|cap:25$/);
   assert.equal(ownerSettingDef("ENGINES_TRIAL_FEAR_INDEX")?.default, true);
   assert.equal(engineSwitches({}).trials.fearIndex, true);
   assert.equal(engineSwitches({ ENGINES_TRIAL_FEAR_INDEX: "off" }).trials.fearIndex, false);
   assert.equal(engineSwitches({ ENGINES_SHARES: "0" }).trials.fearIndex, false);
   const off = engineSpecs(undefined, { fearIndex: false });
-  assert.equal(off.macro.setups["fear-index"].retired, true); assert.equal(off.macro.rules.n, 4); assert.equal(off.macro.rules.before.n, 3);
-  assert.equal(off.reversion.rules.n, 5, "the other trial stays on"); assert.deepEqual(off.reversion.setups, ENGINES.reversion.setups);
+  assert.equal(off.macro.setups["fear-index"].retired, true); assert.equal(off.macro.rules.n, 5); assert.equal(off.macro.rules.before.n, 4); assert.equal(off.macro.rules.before.before.n, 3);
+  assert.equal(off.reversion.rules.n, 6, "the other trial stays on"); assert.deepEqual(off.reversion.setups, ENGINES.reversion.setups);
   // The reading: the last two closes before today, never today's, never stale.
   assert.deepEqual(fearReading([["2026-11-17", 30], ["2026-11-18", 22], ["2026-11-19", 10]], "2026-11-19"), { date: "2026-11-18", score: 22, prevDate: "2026-11-17", prev: 30 });
   assert.deepEqual(fearReading([{ date: "2026-11-18", score: 22 }, { date: "2026-11-17", score: 30 }], "2026-11-19")?.prev, 30, "objects in any order");
@@ -1101,24 +1120,34 @@ ok("honest: the exit fill is the chain's bid, else the mid less half the entry s
   assert.equal(flatPositionUsd({ mid: 2, entryFill: 2.1, qty: 6, flatQty: 3 }), 630); assert.equal(flatPositionUsd({ mid: 2, qty: 4 }), 800);
   assert.equal(flatPositionUsd({ structure: "shares", shares: 40, flatShares: 20, mid: 50 }), 1000);
 });
-ok("honest: risk sizing, 1 to 10 contracts; whole premium within 30 days, premium x stop x 1.25 past it", () => {
+ok("honest: risk sizing, 1 to the cap (25 since 2026-11-20); whole premium within 30 days, premium x stop x 1.25 past it", () => {
   const c = (over) => ({ mid: 2, ask: 2.1, dte: 21, ...over });
   // 21 days: the whole premium is at risk. At the ask: $210 a contract, 9 for $2,000.
   let z = sizeOption(c(), { sizing: { ...RISK, conviction: false }, exits: { stop: -60 }, fillBasis: true });
   assert.equal(z.qty, 9); assert.equal(z.flatQty, 9); assert.equal(z.size.risk1, 210); assert.match(z.size.basis, /whole premium/);
   assert.equal(sizeOption(c(), { sizing: { ...RISK, conviction: false }, exits: { stop: -60 } }).qty, 10, "on the mid: $200 a contract");
   assert.equal(sizeOption(c({ dte: 30 }), { sizing: RISK, exits: { stop: -40 } }).size.basis.startsWith("whole"), true, "30 days is still under a month");
-  // 45 days, -40% stop: risk $100 x 0.4 x 1.25 = $50 a contract, capped at 10.
+  // 45 days, -40% stop: risk $100 x 0.4 x 1.25 = $50 a contract: 40 asked, capped at 25.
   z = sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: RISK, exits: { stop: -40 } });
-  assert.equal(z.size.risk1, 50); assert.equal(z.qty, 10); assert.equal(z.flatQty, 10);
+  assert.equal(z.size.risk1, 50); assert.equal(z.qty, 25); assert.equal(z.flatQty, 25); assert.equal(z.size.cap, 25); assert.equal(z.size.capped, true); assert.equal(z.size.wantQty, 40);
+  assert.match(z.size.why, /the 25-contract cap set it; the budget asked for 40/);
+  // An Owner Settings cap: 10 (the old one) and 1.
+  z = sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 10 }, exits: { stop: -40 } });
+  assert.equal(z.qty, 10); assert.equal(z.size.cap, 10); assert.equal(z.size.capped, true);
+  assert.equal(sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 1 }, exits: { stop: -40 } }).qty, 1);
+  assert.equal(sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 60 }, exits: { stop: -40 } }).qty, 25, "out of range = the default cap");
+  // Under the old cap of 10 these three convictions all bought 10; with 25 they differ.
+  const cv = (m) => sizeOption(c({ mid: 1.2, ask: 1.2, dte: 21 }), { sizing: RISK, exits: {}, conviction: { mult: m, parts: [] } }).qty;
+  assert.deepEqual([cv(0.85), cv(1), cv(1.25)], [14, 16, 20]);
+  assert.deepEqual([0.85, 1, 1.25].map((m) => sizeOption(c({ mid: 1.2, ask: 1.2, dte: 21 }), { sizing: { ...RISK, maxQty: 10 }, exits: {}, conviction: { mult: m, parts: [] } }).qty), [10, 10, 10]);
   z = sizeOption(c({ mid: 10, ask: 10, dte: 45 }), { sizing: RISK, exits: { stop: -40 } });
-  assert.equal(z.size.risk1, 500); assert.equal(z.qty, 4);
+  assert.equal(z.size.risk1, 500); assert.equal(z.qty, 4); assert.equal(z.size.capped, false); assert.doesNotMatch(z.size.why, /cap/);
   // No stop on a long-dated option: the whole premium.
   assert.equal(sizeOption(c({ mid: 10, ask: 10, dte: 45 }), { sizing: RISK, exits: {} }).size.risk1, 1000);
   // A contract dearer than twice the budget is not bought; one that costs more than the budget still buys one.
   assert.equal(sizeOption(c({ mid: 41, ask: 41 }), { sizing: RISK, exits: {} }).dear, true);
   assert.equal(sizeOption(c({ mid: 30, ask: 30 }), { sizing: RISK, exits: {} }).qty, 1);
-  // The conviction multiplier scales the risk, inside 1 to 10.
+  // The conviction multiplier scales the risk, inside 1 to the cap.
   assert.equal(sizeOption(c({ mid: 5, ask: 5 }), { sizing: RISK, exits: {}, conviction: { mult: 2, parts: [] } }).qty, 8);
   assert.equal(sizeOption(c({ mid: 5, ask: 5 }), { sizing: RISK, exits: {}, conviction: { mult: 0.5, parts: [] } }).qty, 2);
   assert.equal(sizeOption(c({ mid: 5, ask: 5 }), { sizing: RISK, exits: {}, conviction: { mult: 0.1, parts: [] } }).qty, 1, "never under one");
@@ -1295,15 +1324,15 @@ ok("honest: rules 4 is adopted once on a running engine, and every new trade say
   // Reversion as it runs on main after #870 (rules 4, the paper trial): one change to rules 5.
   const es = newEngineState(ENGINES.reversion); es.rules = 4; es.rulesKey = "fixes:retirePuts,bounce,size|trials:rsi2Dip";
   const made = adoptRules(es, ENGINES.reversion, TODAY);
-  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.equal(es.rules, 5);
+  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\).*New rules \(wider size range\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.equal(es.rules, 6);
   assert.equal(adoptRules(es, ENGINES.reversion, TODAY), null);
   // An engine still on rules 3 gets both notes in one change, the trial first.
   const es3b = newEngineState(ENGINES.reversion); es3b.rules = 3; es3b.rulesKey = "fixes:retirePuts,bounce,size";
   const both = adoptRules(es3b, ENGINES.reversion, TODAY);
-  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 5);
+  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 6);
   // Earnings (no trial): rules 3 to 4.
   const ee = newEngineState(ENGINES.earnings); ee.rules = 3; ee.rulesKey = "fixes:size";
-  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 4);
+  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 5);
   // Shares on the conviction size with the flat size kept.
   const sh = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true })).opened[0];
   assert.ok(isSharesTrade(sh)); assert.ok(Number.isInteger(sh.contract.flatShares)); assert.equal(sh.contract.size.mode, "risk"); assert.match(sh.contract.size.why, /a share/);
@@ -1312,6 +1341,45 @@ ok("honest: rules 4 is adopted once on a running engine, and every new trade say
   const z = sizingCompare(done, []);
   assert.equal(z.shares.n, 1); assert.equal(z.shares.usd, 200); assert.equal(z.shares.flatUsd, 100); assert.equal(z.shares.bigger, 1);
   assert.equal(flatTradeUsd(done[0]), 100);
+});
+
+ok("contract cap: an Owner Settings number from 1 to 25, and a size-bucket read of whether bigger trades do better", () => {
+  // The switch: 25 unless set; a whole number from 1 to 25, else the default.
+  assert.equal(BOOK.riskMaxQty, 25); assert.equal(BOOK.riskMaxQtyBefore, 10);
+  assert.equal(engineSwitches({}).sizing.maxQty, 25); assert.equal(engineSwitches({}).maxQty, 25);
+  assert.equal(engineSwitches({ ENGINES_MAX_QTY: "12" }).sizing.maxQty, 12); assert.equal(engineSwitches({ ENGINES_MAX_QTY: " 1 " }).sizing.maxQty, 1);
+  for (const bad of ["0", "26", "2.5", "x", ""]) assert.equal(engineSwitches({ ENGINES_MAX_QTY: bad }).sizing.maxQty, 25, bad);
+  assert.equal(engineSwitches({ ENGINES_RISK_SIZE: "0" }).sizing.maxQty, undefined, "not risk sizing: no cap in play");
+  const def = ownerSettingDef("ENGINES_MAX_QTY");
+  assert.equal(def.default, 25); assert.equal(def.min, 1); assert.equal(def.max, 25); assert.equal(def.impact, "high");
+  // A live trade records the cap, the count asked for and whether the cap set it.
+  const t = stepBook(emptyState(), emptyRecord(), honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"] })).opened.find((x) => !isSharesTrade(x));
+  assert.ok(t, "a washout opens an option trade"); { assert.equal(t.contract.size.cap, 25); assert.equal(typeof t.contract.size.capped, "boolean"); assert.ok(Number.isInteger(t.contract.size.wantQty)); }
+  // A lower cap from Owner Settings holds the trade under it.
+  const dialRun = stepBook(emptyState(), emptyRecord(), honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], sizing: { ...RISK, maxQty: 3 } })).opened.find((x) => !isSharesTrade(x));
+  assert.ok(dialRun); assert.ok(contractsOf(dialRun.contract) <= 3); assert.equal(dialRun.contract.size.cap, 3);
+  // The buckets: closed risk-sized trades by the multiplier and by contracts.
+  const tr = (mult, qty, pnl, extra = {}) => ({ engine: "reversion", outcome: pnl > 0 ? "win" : "loss", optionPnlPct: pnl, status: "take-profit",
+    contract: { structure: "long", mid: 1, qty, flatQty: Math.max(1, Math.round(qty / mult)), size: { mode: "risk", mult, capped: qty === 25 } }, ...extra });
+  const rows = [];
+  for (let i = 0; i < SIZE_READ_MIN; i++) { rows.push(tr(1.4, 20, 12)); rows.push(tr(0.7, 4, -6)); }
+  rows.push(tr(1, 10, 5)); rows.push(tr(1.9, 25, 30)); rows.push(tr(1, 1, -50, { test: true }));
+  const z = sizingCompare(rows, []);
+  const b = z.buckets, band = (k) => b.options.bands.find((x) => x.key === k);
+  assert.equal(band("up").n, SIZE_READ_MIN + 1); assert.equal(band("down").n, SIZE_READ_MIN); assert.equal(band("flat").n, 1, "the labeled test is left out");
+  assert.equal(band("down").winRate, 0); assert.equal(band("down").avg, -6); assert.equal(band("flat").avg, 5);
+  assert.equal(b.options.read.state, "helps"); assert.ok(b.options.read.gap > 18);
+  assert.deepEqual(b.byQty.map((x) => [x.label, x.n]), [["1-2", 0], ["3-5", SIZE_READ_MIN], ["6-10", 1], ["11-17", 0], ["18-25", SIZE_READ_MIN + 1]]);
+  assert.equal(b.capped.options, 1); assert.equal(b.capped.recorded, rows.length - 1);
+  // Too few on one side: no verdict.
+  const few = sizingCompare(rows.slice(0, 6), []).buckets.options.read;
+  assert.equal(few.state, "too-few"); assert.equal(few.need, SIZE_READ_MIN);
+  // A worse sized-up group reads as hurting.
+  const flip = sizingCompare(rows.slice(0, 2 * SIZE_READ_MIN).map((r) => ({ ...r, optionPnlPct: -r.optionPnlPct })), []).buckets.options.read;
+  assert.equal(flip.state, "hurts");
+  // The page row carries the cap read.
+  const view = buildEnginesView({ record: { open: [], closed: rows.slice(0, 3) }, state: emptyState(), ctx: CTX, builtAtIso: NOW_AM, sizing: engineSwitches({}).sizing });
+  assert.equal(view.sizing.maxQty, 25); assert.equal(view.sizing.maxQtyBefore, 10); assert.ok(view.sizing.compare.buckets);
 });
 
 // ---- same-contract labels --------------------------------------------------
