@@ -285,3 +285,33 @@ jobs:
           TOP_PICKS_WATCHDOG: ${{ vars.TOP_PICKS_WATCHDOG || 'on' }}
           WATCHDOG_REF: ${{ github.event.repository.default_branch }}
         run: node scripts/top-picks-watchdog.mjs
+
+  # Owner Sports on-time check (lib/sports-on-time.mjs). GitHub's cron starts
+  # the sports workflows hours late or not at all (2026-11-18 to 2026-11-20:
+  # 2-3 props scans a day of 15 planned, the 13:20 UTC data refresh near
+  # 21:40 UTC). This hourly scan is dispatched on time by cron-job.org, so it
+  # dispatches whichever sports workflow is overdue. Runs on holidays too
+  # (sports don't follow the NYSE calendar). GitHub API only; no AI, no market
+  # data, no private store. SPORTS_ON_TIME=off (repo variable) turns it off.
+  sports-on-time:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            scripts/sports-on-time.mjs
+            lib/sports-on-time.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Dispatch overdue sports jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPORTS_ON_TIME: ${{ vars.SPORTS_ON_TIME || 'on' }}
+          SPORTS_ON_TIME_REF: ${{ github.event.repository.default_branch }}
+        run: node scripts/sports-on-time.mjs

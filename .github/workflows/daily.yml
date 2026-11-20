@@ -202,6 +202,34 @@ jobs:
             echo "Unsupported scheduled dispatch at $LABEL; no-op. Use force=true for an intentional full build."
           fi
 
+  # Owner Sports on-time check (lib/sports-on-time.mjs; the same job runs in
+  # the hourly flow scan). Every Daily dispatch (08:30 to 19:00 ET, on time
+  # from cron-job.org) dispatches whichever sports workflow GitHub's cron has
+  # left overdue; the 19:00 ET transcript run covers the first evening hour.
+  # GitHub API only; no AI. SPORTS_ON_TIME=off (repo variable) turns it off.
+  sports-on-time:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            scripts/sports-on-time.mjs
+            lib/sports-on-time.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Dispatch overdue sports jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPORTS_ON_TIME: ${{ vars.SPORTS_ON_TIME || 'on' }}
+          SPORTS_ON_TIME_REF: ${{ github.event.repository.default_branch }}
+        run: node scripts/sports-on-time.mjs
+
   premarket-brief:
     needs: route
     if: ${{ needs.route.outputs.mode == 'brief' }}

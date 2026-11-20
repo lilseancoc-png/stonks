@@ -29620,6 +29620,18 @@ async function fetchThesisWebResearch(ai, r, side) {
   }
   const text = response?.text ? String(response.text).trim().slice(0, 2400) : "";
   if (!text) return null;
+  // An answer with no Google Search behind it (no queries, no sources) is the
+  // research model writing from memory, not "live" research. The grader's
+  // prompt calls this block fresher than the headlines, so an unsearched
+  // answer would be weighed as news. Drop it: the grade then runs ungrounded,
+  // the same path as a failed research pass. No extra AI call.
+  const meta = response?.candidates?.[0]?.groundingMetadata || {};
+  const searched = (Array.isArray(meta.webSearchQueries) && meta.webSearchQueries.length > 0)
+    || (Array.isArray(meta.groundingChunks) && meta.groundingChunks.length > 0);
+  if (!searched) {
+    console.log(`Top Picks web research: ${r.sym} ${side} answer had no search behind it; graded without web research.`);
+    return null;
+  }
   // Grounding attribution — kept on the thesis payload so a grounded verdict
   // stays auditable (which pages the grader actually read).
   const chunks = response?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];

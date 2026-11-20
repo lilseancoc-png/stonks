@@ -131,6 +131,16 @@ job only 3 to 5 times a day and the NBA collector 2 to 4 times a day (GitHub
 drops scheduled runs when it is busy), so the real counts were far lower;
 dispatching both from cron-job.org at the same times, as the market
 workflows are, would make the closing captures land on time. Since
+2026-11-20 the hourly flow scan and every Daily dispatch (both on time from
+cron-job.org) run `scripts/sports-on-time.mjs`: it reads each sports
+workflow's newest runs and dispatches the props scan or the research capture
+when its hour is in the plan and nothing started in the last 40 minutes, and
+the data refresh when its 13:20 or 22:30 UTC slot (20 minutes' grace) has no
+run yet (`lib/sports-on-time.mjs`). That covers 13:30 to 00:00 UTC on
+weekdays; evenings and weekends still rely on the crons. It fills missed
+slots only, so PropLine use stays within the planned counts above (at most
+about twice that if a late cron run lands right after a dispatch).
+`SPORTS_ON_TIME=off` (repo variable) turns it off. Since
 2026-11-17 a failed or busy research capture no longer stops the props
 record: the run warns with the failure's label (`research=<step>/<kind>`)
 and records the props anyway.
