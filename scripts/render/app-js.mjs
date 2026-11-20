@@ -37635,6 +37635,9 @@ ${renderExportBindings()}
     // Unusual volume vote rules (measured intraday curve + session-so-far
     // read), stamped on new trades; empty while both volume switches are off.
     { key:'volume', get:function(e){ return (e && typeof e.volumeReadVersion === 'string' && e.volumeReadVersion) || ''; } },
+    // Market-side lanes (bar 5 with the market, 8 against; the grader runs
+    // every run; macro block only against the market), stamped from 2026-11-20.
+    { key:'marketside', get:function(e){ return (e && typeof e.marketSideVersion === 'string' && e.marketSideVersion) || ''; } },
     // Owner risk dial (lib/owner-controls.mjs, from 2026-11-19): Safer is the
     // only setting that changes Top Picks (one new trade a run), so only it
     // splits the record. Riskier is stamped for the scorecard, no divider.
@@ -37679,6 +37682,8 @@ ${renderExportBindings()}
       '2026-11-17-curve': { note:'Intraday volume curve measured from recent sessions (session-so-far vote off)' },
       '2026-11-17-read': { note:'Unusual volume vote reads the session so far (fixed intraday curve)' }
     },
+    // No fixed date: the divider dates from the first trade under the rule.
+    marketside: { '2026-11-20-market-side': { note:'Market-side lanes: a score of 5 opens on the side the market favors and 8 against it; the AI grader runs every run; the macro block applies only against the market' } },
     // No fixed dates: each mode's divider dates from its first trade.
     dial: { 'safer': { note:'Risk dial Safer (your controls): one new trade a run until Friday’s close' } },
     grader: { 'off': { note:'AI final grader off (AI_THESIS=0): deterministic grades and entries only' }, 'keyless': { note:'AI final grader had no key: deterministic grades and entries only' }, 'live': { note:'AI final grader back on' } }
@@ -46107,6 +46112,7 @@ ${renderExportBindings()}
     }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
     if (rm && rm.edgeBarDemoted && rm.edgeBarDemoted.length) noteBits.push('<b>' + rm.edgeBarDemoted.length + '</b> strong pick' + (rm.edgeBarDemoted.length === 1 ? '' : 's') + ' held to watch — the record is losing, so opening a pick needs a score of ' + (rm.actionableBar || 8) + '+');
+    if (rm && rm.marketSide && rm.marketSide.side) noteBits.push('Market favors ' + (rm.marketSide.side === 'put' ? 'puts' : 'calls') + ': a ' + (rm.marketSide.side === 'put' ? 'put' : 'call') + ' opens from a score of ' + rm.marketSide.withBar + ', a ' + (rm.marketSide.side === 'put' ? 'call' : 'put') + ' needs ' + rm.marketSide.againstBar + (rm.marketLaneOpened && rm.marketLaneOpened.length ? ' (<b>' + rm.marketLaneOpened.length + '</b> opened under the lower bar)' : ''));
     if (rm && rm.entryDemoted && rm.entryDemoted.length) noteBits.push('<b>' + rm.entryDemoted.length + '</b> strong pick' + (rm.entryDemoted.length === 1 ? '' : 's') + ' waiting for entry — in Ideas · Watch with the trigger price (not a buy right now)');
     if (rm && rm.safetyGated && rm.safetyGated.length){
       var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });

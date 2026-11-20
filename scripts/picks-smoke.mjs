@@ -1357,6 +1357,7 @@ ok("factor-trend: a healthy factor ships more calls than the weak one", healthyP
     return p && p.group === "watch" && p.entry?.now === false && p.entry?.signal === "wait-mode" && /No new calls/.test(p.entry?.headline || "");
   }));
   ok("market mode: Pause opens nothing", pause.filter((p) => p.group === "actionable").length === 0 && baseCalls.every((s) => pause.rosterMeta.marketModeHeld.includes(s)));
+  globalThis.__laneProbe = { universe };
   const scoredRows = scoreAllTickers(universe, [], null, null, null, null, {}).scored.map((r) => ({ r, side: r.total >= 0 ? "call" : "put" }));
   const slotsPaused = prioritizeAiSlots(scoredRows, { rfr: 0.045, marketMode: "pause" });
   const slotsNoCalls = prioritizeAiSlots(scoredRows, { rfr: 0.045, marketMode: "no-calls" });
@@ -2914,6 +2915,69 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("timing gate: plain wait -> timing-checks", timingWaitGate({ timing: { state: "wait" } }) === "timing-checks");
   ok("timing gate: macro defer -> event-wait", timingWaitGate(r) === "event-wait");
   ok("ai gate: every new gate has a label", ["event-wait", "earnings-wait", "ai-skipped"].every((g) => !!labels[g]));
+}
+
+// Market-side lanes (2026-11-20): bar 5 with the market, 8 against; the
+// macro-conflict block only against the market; the grader runs on lane names.
+{
+  const { marketSideOfState, marketLaneFor, marketLaneBar, marketLaneCandidateBar, PICKS_MARKET_SIDE, PICKS_MARKET_SIDE_VERSION } = await import("./build.mjs");
+  const { noPicksFactory } = await import("../lib/no-picks.mjs");
+  const stock = { sym: "NVDA", data: {} };
+  ok("market side: on by default with a version", PICKS_MARKET_SIDE === true && PICKS_MARKET_SIDE_VERSION === "2026-11-20-market-side");
+  ok("market side: puts in risk-off and severe, calls in risk-on, none when neutral",
+    marketSideOfState("severe-risk-off") === "put" && marketSideOfState("risk-off") === "put" && marketSideOfState("severe") === "put"
+      && marketSideOfState("risk-on") === "call" && marketSideOfState("neutral") === null && marketSideOfState(null) === null);
+  ok("market lane: with / against / none",
+    marketLaneFor(stock, "put", "severe-risk-off") === "with" && marketLaneFor(stock, "call", "severe-risk-off") === "against"
+      && marketLaneFor(stock, "call", "risk-on") === "with" && marketLaneFor(stock, "put", "neutral") === null
+      && marketLaneFor(stock, "put", "severe-risk-off", false) === null);
+  ok("market lane: gold, bond and volatility funds have no lane",
+    marketLaneFor({ sym: "GLD", data: {} }, "put", "risk-off") === null && marketLaneFor({ sym: "TLT", data: {} }, "call", "risk-on") === null);
+  ok("market lane bar: 5 with (even under a raised 8), 8 against, base otherwise",
+    marketLaneBar("with", 7) === 5 && marketLaneBar("with", 8) === 5 && marketLaneBar("against", 7) === 8 && marketLaneBar("against", 9) === 9 && marketLaneBar(null, 7) === 7);
+  ok("market lane candidate bar: lowers a raised trade bar only with the market",
+    marketLaneCandidateBar("with", 6) === 5 && marketLaneCandidateBar("with", 4) === 4 && marketLaneCandidateBar("against", 6) === 6);
+  const g = { pillarsAligned: 2, aiGraded: true, aiActive: true, entryConfirmed: true, strongBar: 7 };
+  ok("classify: a 5 with the market and a moderate thesis opens",
+    classifyPick(-5, "moderate", false, { ...g, marketLane: "with" }).group === "actionable"
+      && classifyPick(-5, "moderate", false, g).group === "watch");
+  ok("classify: the lane opens under a raised losing-streak bar",
+    classifyPick(-5.5, "strong", false, { ...g, strongBar: 8, marketLane: "with" }).group === "actionable");
+  ok("classify: lane names still need a thesis, confluence, the AI grade and a buy-now entry",
+    classifyPick(-6, "weak", false, { ...g, marketLane: "with" }).group === "watch"
+      && classifyPick(-6, "strong", false, { ...g, pillarsAligned: 1, marketLane: "with" }).demotion === "confluence"
+      && classifyPick(-6, "strong", false, { ...g, aiGraded: false, marketLane: "with" }).demotion === "ai-ungraded"
+      && classifyPick(-6, "strong", false, { ...g, entryConfirmed: false, marketLane: "with" }).demotion === "entry-wait"
+      && classifyPick(-4.9, "strong", false, { ...g, marketLane: "with" }).group === "watch");
+  ok("classify: against the market a 7.5 waits (market-against), an 8 opens",
+    classifyPick(7.5, "strong", false, { ...g, marketLane: "against" }).demotion === "market-against"
+      && classifyPick(8, "strong", false, { ...g, marketLane: "against" }).group === "actionable");
+  {
+    // End to end: the same 5.5 call opens in a risk-on tape and waits in a
+    // neutral one; in severe risk-off a call needs 8 (market-against).
+    const { universe } = globalThis.__laneProbe;
+    const pre = (st) => {
+      const sc = scoreAllTickers(universe, [], null, null, { macroRegime: { state: st } }, null, {});
+      return { ...sc, scored: sc.scored.map((r) => r.sym === "NVDA" ? { ...r, total: 5.5, preRegimeTotal: 5.5 } : r.sym === "AMD" ? { ...r, total: 7.5, preRegimeTotal: 7.5 } : r) };
+    };
+    const run = (st) => buildTopPicks(universe, [], null, null, { macroRegime: { state: st } }, null, 0.045, { preScored: pre(st) });
+    const on = run("risk-on"), flat = run("neutral");
+    const pick = (rows, sym) => rows.find((p) => p.symbol === sym && p.side === "call");
+    ok("lanes e2e: a 5.5 call opens with a risk-on market and is stamped",
+      pick(on, "NVDA")?.group === "actionable" && pick(on, "NVDA")?.marketLane === "with" && pick(on, "NVDA")?.actionableBar === 5
+        && on.rosterMeta.marketSide?.side === "call" && on.rosterMeta.marketLaneOpened.some((x) => x.sym === "NVDA"));
+    ok("lanes e2e: the same 5.5 call waits in a neutral market (bar 7, no lane)",
+      pick(flat, "NVDA")?.group !== "actionable" && pick(flat, "NVDA")?.marketLane === undefined && flat.rosterMeta.marketSide === null
+        && flat.rosterMeta.turnedAway.some((t) => t.sym === "NVDA" && t.gate === "below-strong"));
+  }
+  const fights = { sym: "NVDA", data: {}, macroFit: { points: 0.8 } };
+  ok("macro-conflict: blocks a put against the market or with no market side, not with it",
+    structuralVeto(fights, "put", "severe-risk-off") === null
+      && structuralVeto(fights, "put", "risk-on") === "macro-conflict"
+      && structuralVeto(fights, "put", "neutral") === "macro-conflict"
+      && structuralVeto(fights, "put") === "macro-conflict");
+  ok("gate labels: market-against has a label and a next step",
+    !!noPicksFactory().GATE_LABEL["market-against"] && !!noPicksFactory().GATE_NEXT["market-against"]);
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);

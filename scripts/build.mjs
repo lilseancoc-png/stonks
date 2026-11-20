@@ -18619,6 +18619,7 @@ import {
   PICKS_TIMING_PULLBACK_MAX_SESSIONS, PICKS_TIMING_STRUCTURE_MAX_ATR, PICKS_TIMING_MIN_RR,
   PICKS_TIMING_EARNINGS_HARD_DAYS, PICKS_TIMING_EARNINGS_DEFER_DAYS, PICKS_TIMING_EVENT_HARD_DAYS,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS, PICKS_IVRANK_MIN_N, PICKS_MACRO_GLOBAL,
+  PICKS_MARKET_SIDE, PICKS_MARKET_SIDE_BAR, PICKS_MARKET_AGAINST_BAR, PICKS_MARKET_SIDE_VERSION,
 } from "../lib/top-picks-config.mjs";
 export {
   PICKS_MAX_AI_THESES, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TACTICAL_SIZE_MULT,
@@ -18626,6 +18627,7 @@ export {
   PICKS_SINGLES_DEFAULT, PICKS_SINGLE_MAX_COST, PICKS_STRUCTURE_POLICY_VERSION,
   PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS, PICKS_FLOW_SIGNED,
   PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC,
+  PICKS_MARKET_SIDE, PICKS_MARKET_SIDE_BAR, PICKS_MARKET_AGAINST_BAR, PICKS_MARKET_SIDE_VERSION,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
 export { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION };
@@ -22888,7 +22890,9 @@ export function openPickPrecheck(r, side, tactical, ctx = {}) {
   // The Owner's Stop new trades or Avoid list (lib/owner-controls.mjs).
   if (ctx.ownerControls && (ctx.ownerControls.stop || ctx.ownerControls.avoid?.has(r.sym))) return "owner-control";
   if (r.marketAdjustment && !r.marketAdjustment.eligible) return "market-unavailable";
-  if (Math.abs(pnum(r.total) ?? 0) < (ctx.strongBar ?? PICKS_TIER_STRONG)) return "below-bar";
+  // Market-side lanes (PICKS_MARKET_SIDE): bar 5 with the market, 8 against.
+  const laneBar = marketLaneBar(marketLaneFor(r, side, ctx.marketState ?? null), ctx.strongBar ?? PICKS_TIER_STRONG);
+  if (Math.abs(pnum(r.total) ?? 0) < laneBar) return "below-bar";
   if (pillarsAlignedFor(r, side) < 2) return "confluence";
   const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
   if (entryPromotionBlocked(entry, r.timing)) return "timing";
@@ -22934,6 +22938,13 @@ export function prioritizeAiSlots(cands, ctx = {}) {
   // first for the AI slots. No bar is lowered; rank order is kept otherwise.
   const w = ctx.ownerControls?.watch;
   if (w && w.size) ready.sort((a, b) => (w.has(b.r.sym) ? 1 : 0) - (w.has(a.r.sym) ? 1 : 0));
+  // Market-side lanes: within each group, names on the side the market
+  // favors take the grader slots first (stable sort keeps rank order).
+  if (ctx.marketState && marketSideOfState(ctx.marketState)) {
+    const withFirst = (a, b) => (marketLaneFor(b.r, b.side, ctx.marketState) === "with" ? 1 : 0) - (marketLaneFor(a.r, a.side, ctx.marketState) === "with" ? 1 : 0);
+    rest.sort(withFirst);
+    if (!(w && w.size)) ready.sort(withFirst);
+  }
   return { ordered: ready.concat(rest), ready: ready.length };
 }
 
@@ -22963,16 +22974,54 @@ export function aiUngradedGate(r, side, aiSkipped, blocks) {
   return AI_SKIP_GATE[block] || "ai-skipped";
 }
 
+// MARKET-SIDE LANES (2026-11-20, PICKS_MARKET_SIDE). The side the market tape
+// favors: calls in a risk-on tape, puts in risk-off or severe risk-off, none
+// when neutral. Gold, bond and volatility funds have no market side (their
+// trade is not the stock market's direction), so they keep the old rules.
+const MARKET_SIDE_SKIP_KINDS = new Set(["gold", "bondProxy", "volLong"]);
+export function marketSideOfState(state) {
+  if (state === "risk-on") return "call";
+  if (state === "risk-off" || state === "severe-risk-off" || state === "severe") return "put";
+  return null;
+}
+// "with" (the trade is on the market's side), "against", or null (lanes off,
+// neutral tape, or a fund with no market side).
+export function marketLaneFor(r, side, state, enabled = PICKS_MARKET_SIDE) {
+  if (!enabled || !r || (side !== "call" && side !== "put")) return null;
+  const mSide = marketSideOfState(state);
+  if (!mSide) return null;
+  if (MARKET_SIDE_SKIP_KINDS.has(macroKindOf(r.sym, r.data))) return null;
+  return side === mSide ? "with" : "against";
+}
+// The score an open pick needs in its lane. With the market: the lower lane
+// bar (never above the base bar in force). Against: at least the against bar.
+// No lane: the base bar unchanged.
+export function marketLaneBar(lane, baseBar) {
+  const base = pnum(baseBar) ?? PICKS_TIER_STRONG;
+  if (lane === "with") return Math.min(base, PICKS_MARKET_SIDE_BAR);
+  if (lane === "against") return Math.max(base, PICKS_MARKET_AGAINST_BAR);
+  return base;
+}
+// The candidate bar: a name on the market's side reaches the roster from the
+// lane bar even while a losing streak has raised the trade bar.
+export function marketLaneCandidateBar(lane, minConv) {
+  const base = pnum(minConv) ?? PICKS_MIN_CONVICTION;
+  return lane === "with" ? Math.min(base, PICKS_MARKET_SIDE_BAR) : base;
+}
+
 // ============================================================================
 // buildTopPicks — the actionable roster.
 // ============================================================================
 // Vetoes that hold whatever the grade or the AI grader says. buildTopPicks and
 // the AI pre-screen in generateAiTheses share this, so a vetoed name can never
 // take one of the PICKS_MAX_AI_THESES grader slots and then be dropped.
-export function structuralVeto(r, side) {
+export function structuralVeto(r, side, marketState = null) {
   if (side === "call" && r?.forcedLiquidation?.vetoLong) return "collateral-stress";
   if (r?.pendingBuyout?.block) return "pending-buyout";
-  if (macroConflict(r, side)) return "macro-conflict";
+  // Market-side lanes: the macro block only stops trades against the market.
+  // A put in a falling market (or a call in a rising one) is not blocked by
+  // its stock's macro fit; the grade, the AI grader and timing still decide.
+  if (macroConflict(r, side) && marketLaneFor(r, side, marketState) !== "with") return "macro-conflict";
   if (side === "put" && crowdSqueeze(r)) return "crowd-squeeze";
   // Self-improving loop, step 4 (lib/self-loop/tune.mjs): with the Owner's OK
   // and self-tuning live, a name whose stated option value after costs is
@@ -23267,14 +23316,19 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
+  const marketState = macroBackdrop?.macroRegime?.state || null;
+  const marketSide = PICKS_MARKET_SIDE ? marketSideOfState(marketState) : null;
+  meta.marketSide = marketSide ? { version: PICKS_MARKET_SIDE_VERSION, state: marketState, side: marketSide, withBar: marketLaneBar("with", strongBar), againstBar: marketLaneBar("against", strongBar) } : null;
+  meta.marketLaneOpened = [];
   for (const r of scored) {
-    const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= minConv;
-    const actionable = preClearsBar && (r.marketAdjustment || Math.abs(r.total) >= minConv) && r.side;
+    const laneMin = marketLaneCandidateBar(marketLaneFor(r, r.side || (r.total >= 0 ? "call" : "put"), marketState), minConv);
+    const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= laneMin;
+    const actionable = preClearsBar && (r.marketAdjustment || Math.abs(r.total) >= laneMin) && r.side;
     const tactical = (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid";
     // Disclosed terms near a collateral maintenance threshold add a downside
     // veto to new bullish ideas. They never manufacture a bearish entry.
     // A confirmed takeover target is kept off either side.
-    const veto = (actionable || tactical) ? structuralVeto(r, actionable ? r.side : "put") : null;
+    const veto = (actionable || tactical) ? structuralVeto(r, actionable ? r.side : "put", marketState) : null;
     if (veto === "collateral-stress") {
       meta.collateralGated.push(r.sym);
       traceGate(r, r.side, veto);
@@ -23475,17 +23529,19 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         : `Held back — ${r.sym} is on the owner's avoid list. Lift it in the controls to allow new trades.`;
     }
     const shockPut = !tactical && side === "put" && eventPlay?.kind === "shock" && shockLane.active;
-    let { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed, shockLane: shockPut, minConv });
+    const marketLane = tactical ? null : marketLaneFor(r, side, marketState);
+    let { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed, shockLane: shockPut, minConv, marketLane });
     if (demotion === "edge-bar") meta.edgeBarDemoted.push(r.sym);
     else if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
     else if (demotion === "ai-ungraded") meta.aiUngraded.push(r.sym);
     else if (demotion === "entry-wait") meta.entryDemoted.push(r.sym);
     if (!tactical && group !== "actionable") {
       const gate = demotion === "edge-bar" ? "losing-streak-bar"
+        : demotion === "market-against" ? "market-against"
         : demotion === "confluence" ? "confluence"
         : demotion === "ai-ungraded" ? (marketMode && marketModeBlocks(marketMode.mode, side) ? "market-mode" : ownerCtl && (ownerCtl.stop || ownerCtl.avoid?.has(r.sym)) ? "owner-control" : aiUngradedGate(r, side, meta.aiGraderSkipped, opts.aiSkipBlocks))
         : demotion === "entry-wait" ? (modeHeld ? "market-mode" : ctlHeld ? "owner-control" : eventCap ? "event-cap" : !entryBlocked && aiVerdict === "wait" ? "ai-wait" : timingWaitGate(r))
-        : Math.abs(pnum(r.total) ?? 0) < PICKS_TIER_STRONG ? "below-strong"
+        : Math.abs(pnum(r.total) ?? 0) < marketLaneBar(marketLane, PICKS_TIER_STRONG) ? "below-strong"
         : thesisQuality.aiGraded ? "ai-not-strong" : "thesis-not-strong";
       traceGate(r, side, gate);
     }
@@ -23557,9 +23613,13 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       entryPlan = buildEntryPlan(side, spot, r.data, contract, r.total);
     }
     const pg = peerGroupOf(r.sym, r.data);
-    picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group, aiThesis, entry }));
+    const pickObj = buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group, aiThesis, entry });
+    if (marketLane) { pickObj.marketLane = marketLane; pickObj.actionableBar = marketLaneBar(marketLane, strongBar); }
+    picks.push(pickObj);
     if (group === "actionable") {
       actN++; traceGate(r, side, "picked");
+      // Opened only because of the market-side lane (below the plain strong bar).
+      if (marketLane === "with" && Math.abs(pnum(r.total) ?? 0) < strongBar) meta.marketLaneOpened.push({ sym: r.sym, side, total: r2(pnum(r.total) ?? 0) });
       if (eventPlay) { eventPlayCountAdd(eventPlay, eventCounts); meta.eventPlays.push({ sym: r.sym, side, kind: eventPlay.kind, label: eventPlay.label, date: eventPlay.date }); }
     } else watchN++;
   }
@@ -23610,8 +23670,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       const side=r.side, old={...r,total:r.legacyTotal,timing:r.legacyTiming,regimeOverlay:r.legacyRegimeOverlay,marketAdjustment:null};
       const labelAdjustment=topPicksMarket.score({...opts.marketAssessment,confirmation:0},{conviction:r.stockConviction,optionAdjusted:r.preRegimeTotal,side,exposure:r.marketAdjustment.exposure,tradeFloor:PICKS_MIN_CONVICTION,strongBar:PICKS_TIER_STRONG});
       const label={...r,total:labelAdjustment.tradeScore};
-      const excluded=openSym.has(r.sym)||!!structuralVeto(r,side);
-      const clears=row=>!excluded&&regimePrimaryGateClears(row,macroBackdrop)&&Math.abs(row.preRegimeTotal??row.total)>=PICKS_TIER_STRONG&&!openPickPrecheck(row,side,false,{strongBar,rfr,eventRisk:macroBackdrop?.eventRisk,factorHealth});
+      const excluded=openSym.has(r.sym)||!!structuralVeto(r,side,marketState);
+      const laneBar=marketLaneBar(marketLaneFor(r,side,marketState),PICKS_TIER_STRONG);
+      const clears=row=>!excluded&&regimePrimaryGateClears(row,macroBackdrop)&&Math.abs(row.preRegimeTotal??row.total)>=laneBar&&!openPickPrecheck(row,side,false,{strongBar,rfr,eventRisk:macroBackdrop?.eventRisk,factorHealth,marketState});
       const pick=finalPicks.find(p=>p.symbol===r.sym&&p.side===side);
       const earningsInWindow=(()=>{const d=etDaysUntil(r.data?.fundamentals?.nextEarningsDate);return d!=null&&d>=0&&d<=PICKS_STRATEGY_EARNINGS_DAYS;})();
       const strategy=selectStrategy(old,side,{eventRisk:macroBackdrop?.eventRisk,earningsInWindow,thesisTier:'strong',ivAsOfDate:r.ivAsOfDate});
@@ -23621,7 +23682,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         marketAsOf:opts.marketAssessment.asOf,policyVersion:topPicksMarket.VERSION,trajectory:opts.marketAssessment.trajectory,
         selected:selected.has(r.sym+':'+side),aiReviewed:!!opts.aiThesisMap?.[r.sym+':'+side],contract,rate:rfr,
         policies:{legacy:{score:old.total,eligible:clears(old)},labels:{score:label.total,eligible:clears(label)},combined:{score:r.total,eligible:clears(r)}},
-        reason:excluded?'Existing position or structural veto':!r.marketAdjustment.eligible?'Market evidence unavailable':Math.abs(r.total)<strongBar?'Market-adjusted score below bar':openPickPrecheck(r,side,false,{strongBar,rfr,eventRisk:macroBackdrop?.eventRisk,factorHealth})||'Independent prerequisites clear'};
+        reason:excluded?'Existing position or structural veto':!r.marketAdjustment.eligible?'Market evidence unavailable':Math.abs(r.total)<marketLaneBar(marketLaneFor(r,side,marketState),strongBar)?'Market-adjusted score below bar':openPickPrecheck(r,side,false,{strongBar,rfr,eventRisk:macroBackdrop?.eventRisk,factorHealth,marketState})||'Independent prerequisites clear'};
     });
   }
 
@@ -24336,9 +24397,27 @@ export function classifyPick(total, thesisTier, tactical, gates = null) {
       return { classification: "actionable", group: "actionable", demotion: null };
     }
   }
+  // Market-side lane (PICKS_MARKET_SIDE, 2026-11-20): on the side the market
+  // favors a name opens from bar 5 with a strong or moderate thesis (like the
+  // shock lane); every other gate still binds.
+  if (gates && gates.marketLane === "with") {
+    const bar = marketLaneBar("with", gates.strongBar);
+    if (Math.abs(pnum(total) ?? 0) >= bar && (thesisTier === "strong" || thesisTier === "moderate")) {
+      if (gates.pillarsAligned != null && gates.pillarsAligned < 2) return { classification: "moderate", group: "watch", demotion: "confluence" };
+      if (gates.aiActive && !gates.aiGraded) return { classification: "moderate", group: "watch", demotion: "ai-ungraded" };
+      if (gates.entryConfirmed === false) return { classification: "waitEntry", group: "watch", demotion: "entry-wait" };
+      return { classification: "actionable", group: "actionable", demotion: null };
+    }
+  }
   const gradeStrong = Math.abs(pnum(total) ?? 0) >= PICKS_TIER_STRONG;
   if (thesisTier === "weak") return { classification: gradeStrong ? "highGradeWeakThesis" : "idea", group: "watch", demotion: null };
   if (gradeStrong && thesisTier === "strong") {
+    // Against the market the bar is 8 (market-side lanes).
+    // (A name already under a raised losing-streak bar keeps that label.)
+    const t = Math.abs(pnum(total) ?? 0);
+    if (gates && gates.marketLane === "against" && t < marketLaneBar("against", gates.strongBar)) {
+      return { classification: "moderate", group: "watch", demotion: t < (pnum(gates.strongBar) ?? PICKS_TIER_STRONG) ? "edge-bar" : "market-against" };
+    }
     // Losing record: the edge gate raises the open-pick score above Strong.
     if (gates && gates.strongBar != null && Math.abs(pnum(total) ?? 0) < gates.strongBar) {
       return { classification: "moderate", group: "watch", demotion: "edge-bar" };
@@ -29571,13 +29650,15 @@ export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
   const openSym = new Set((opts.openPositions || []).map((o) => o && o.symbol).filter(Boolean));
   const reentry = opts.reentryCooldown !== false;
+  const marketState = macroBackdrop?.macroRegime?.state || null;
   const cands = [];
   for (const r of scored) {
     if (!r || !r.data) continue;
     if (!regimePrimaryGateClears(r, macroBackdrop)) continue;
     let side = null, tactical = false;
-    const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= minConv;
-    if (preClearsBar && Math.abs(r.total) >= minConv && r.side) side = r.side;
+    const laneMin = marketLaneCandidateBar(marketLaneFor(r, r.side || (r.total >= 0 ? "call" : "put"), marketState), minConv);
+    const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= laneMin;
+    if (preClearsBar && Math.abs(r.total) >= laneMin && r.side) side = r.side;
     else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") { side = "put"; tactical = true; }
     if (!side) continue;
     if (opts.rosterKeys instanceof Set && !opts.rosterKeys.has(`${r.sym}:${side}`)) continue;
@@ -29587,7 +29668,7 @@ export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
     if (r.timing?.state === "avoid" && !tactical) continue;
     // Collateral-stress and buyout-target vetoes (buildTopPicks drops these
     // before the roster walk), so they don't spend a grader slot.
-    if (structuralVeto(r, side)) continue;
+    if (structuralVeto(r, side, marketState)) continue;
     cands.push({ r, side, tactical });
   }
   return cands;
@@ -29676,13 +29757,18 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     factorHealth: computeFactorTrendHealth(scored),
     marketMode: opts.marketMode?.mode || null,
     ownerControls: opts.ownerControls || null,
+    marketState: macroBackdrop?.macroRegime?.state || null,
   });
   const gated = ordered.slice(0, PICKS_MAX_AI_THESES);
   // NOTHING CAN OPEN (2026-10-27, owner decision): when no candidate clears the
   // non-AI open-pick checks (e.g. every name is in a hard FOMC/CPI wait), a
   // fresh grade can't change the open book, so skip the new grader calls.
   // Still-valid cached grades are reused for the watch cards.
-  const skipNew = ready === 0 && PICKS_AI_SKIP_WHEN_NONE_READY;
+  // Market-side lanes (2026-11-20): when the market has a side and a name on
+  // it is in the slots, the grader always runs, so those names get graded.
+  const marketState = macroBackdrop?.macroRegime?.state || null;
+  const laneGrade = gated.some((c) => !c.tactical && marketLaneFor(c.r, c.side, marketState) === "with");
+  const skipNew = ready === 0 && PICKS_AI_SKIP_WHEN_NONE_READY && !laneGrade;
   // blocks: the non-AI check that stopped each candidate, so "Why no picks
   // today" can name the real rule instead of "No AI review slot".
   const skipped = skipNew ? { reason: "none-ready", candidates: cands.length, blocks: Object.fromEntries(ordered.map(c => [`${c.r.sym}:${c.side}`, c.precheck || null])) } : null;
@@ -31021,6 +31107,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Unusual volume vote rules (measured curve + session read, since
       // 2026-11-17); unset while both volume switches are off.
       ...(VOLUME_READ_VERSION ? { volumeReadVersion: VOLUME_READ_VERSION } : {}),
+      // Market-side lanes (since 2026-11-20): the rule version and which lane
+      // the trade opened in ("with" / "against" the market), so the Track
+      // Record draws a divider and can split by lane. Unset with PICKS_MARKET_SIDE=0.
+      ...(PICKS_MARKET_SIDE_VERSION ? { marketSideVersion: PICKS_MARKET_SIDE_VERSION } : {}),
+      ...(PICKS_MARKET_SIDE_VERSION && p.marketLane ? { marketLane: p.marketLane } : {}),
       // The Owner's market mode when the trade opened (since 2026-11-07).
       ...(picksPayload?.rosterMeta?.marketMode?.mode ? { marketMode: picksPayload.rosterMeta.marketMode.mode } : {}),
       // Owner controls that touched this trade (risk dial, watch, catalyst).

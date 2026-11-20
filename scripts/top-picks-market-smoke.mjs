@@ -157,6 +157,15 @@ check('live worsening holds new entries; an old response and quote recovery cann
  assert.equal(topPicksMarket.revalidate(held,assess(),{now:ms,live:true}).picks[0].entry.now,false);
  assert.equal(topPicksMarket.revalidate(payload,assess(),{now:ms+30*3600000}).picks[0].entry.now,false);
 });
+check('a market-side lane pick is re-checked against its own bar',()=>{
+ const adj=topPicksMarket.score(assess(),{conviction:6});
+ assert(adj.tradeScore>=5&&adj.tradeScore<7,'fixture score '+adj.tradeScore);
+ const lane={...pick,stockConviction:6,optionAdjustedConviction:6,tradeScore:adj.tradeScore,total:adj.tradeScore,marketAdjustment:adj};
+ const reviewed=p=>topPicksMarket.revalidate({...payload,picks:[p]},assess(),{now:ms,live:true}).picks[0];
+ assert.equal(reviewed({...lane,marketLane:'with',actionableBar:5}).marketApproval.held,false);
+ assert.equal(reviewed(lane).marketApproval.held,true,'without its own bar the roster bar of 7 holds it');
+ assert.equal(reviewed({...pick,marketLane:'against',actionableBar:12}).marketApproval.held,true);
+});
 check('live rallies review bearish exposure and current evidence is checked at request time',()=>{
  const rally={spy:{pctChange1d:3,asOf:now},qqq:{pctChange1d:3.5,asOf:now},vix:{value:14,pctChange1d:-20,asOf:now}};
  const a=topPicksMarket.liveReview(assess(),rally,now);assert.equal(a.state,'risk-on');assert(a.exceptionalShock);
