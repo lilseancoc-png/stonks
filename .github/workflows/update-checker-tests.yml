@@ -43,6 +43,10 @@ jobs:
         # Called by path: they have no npm scripts on purpose (a package.json
         # change trips verify:risk-cost).
         run: |
+          node scripts/vercel-bundle-check.mjs
+          node scripts/vercel-bundle-check-smoke.mjs
+          node scripts/update-checker-endpoints-smoke.mjs
+          node scripts/top-picks-real-prices-smoke.mjs
           node scripts/engines-smoke.mjs
           node scripts/engines-mirror-smoke.mjs
           npm run test:prediction

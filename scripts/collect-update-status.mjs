@@ -3,8 +3,9 @@
 import { readFile,appendFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { MONITORED_WORKFLOWS, UPDATE_STATUS_KEY, summarizeWorkflowRun, mergeWorkflowReports, inspectPublishedFeatures, isOutputIssue, completed, checkFeatureCadence, assessWorkflows } from '../lib/update-checker.mjs';
+import { probeEndpoints } from '../lib/update-checker-endpoints.mjs';
 import { DIAGNOSTICS_VERSION, inspectWorkflowLog, readBoundedText, scanPublishedArtifacts } from '../lib/update-checker-diagnostics.mjs';
-export async function collectUpdateStatus({repo,token,fetchImpl=fetch,now=()=>new Date().toISOString(),store,dryRun=false,currentRunId=null}) {
+export async function collectUpdateStatus({repo,token,fetchImpl=fetch,now=()=>new Date().toISOString(),store,dryRun=false,currentRunId=null,probe=false}) {
   if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo || '') || !token)throw new Error('GitHub repository and token required');
   const headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
   async function response(path){const res=await fetchImpl('https://api.github.com/repos/'+repo+path,{headers,signal:AbortSignal.timeout(25000)});if(!res.ok)throw Object.assign(new Error('GitHub metadata request failed: '+res.status),{status:res.status});return res;}
@@ -37,6 +38,10 @@ export async function collectUpdateStatus({repo,token,fetchImpl=fetch,now=()=>ne
   const commit=await get('/commits/main'),statuses=await get('/commits/'+commit.sha+'/status');
   const vercel=statuses.statuses.find(s=>/^vercel(?:$|[ /-])/i.test(s.context));
   report.deployment={sha:commit.sha,state:vercel?.state || 'unknown',createdAt:vercel?.created_at || commit.commit?.committer?.date || now(),checkedAt:now()};
+  // Ask the live site a few signed-out questions (no AI, no provider call):
+  // a deployed function that crashes on load answers 500 here even when
+  // every workflow and stored file looks fine.
+  if(probe){try{report.endpoints=await probeEndpoints({fetchImpl,now});}catch{report.endpoints=null;}}
   if(dryRun)return report;
   const cache=new Map();
   try{report.artifacts=await scanPublishedArtifacts(store,cache,Date.parse(now()));}
@@ -59,7 +64,7 @@ if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){
     if(event.workflow_run?.head_branch!=='main' || event.workflow_run?.head_repository?.full_name!==process.env.GITHUB_REPOSITORY)throw new Error('Untrusted workflow event');
   }
   const {store}=await import('../lib/datastore.mjs');
-  const report=await collectUpdateStatus({repo:process.env.GITHUB_REPOSITORY,token:process.env.GH_TOKEN,store,dryRun:process.argv.includes('--dry-run'),currentRunId:process.env.GITHUB_RUN_ID});
+  const report=await collectUpdateStatus({repo:process.env.GITHUB_REPOSITORY,token:process.env.GH_TOKEN,store,dryRun:process.argv.includes('--dry-run'),currentRunId:process.env.GITHUB_RUN_ID,probe:!process.argv.includes('--no-probe')});
   if(process.argv.includes('--dry-run'))console.log(JSON.stringify(report,null,2));
   if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'### Update Checker\n\nStatus: '+assessWorkflows(report).status+'\n\n'+report.runs.length+' workflow observations; '+(report.features?.length ?? 0)+' features; '+(report.artifacts?.checked ?? 0)+' published artifacts.\n');
   console.log('Update Checker saved: '+report.runs.length+' runs, '+(report.features?.length ?? 0)+' features, '+(report.artifacts?.checked ?? 0)+' stored artifacts; feature issues '+(report.featureSummary?.issues ?? 'not scanned')+', artifact issues '+(report.artifacts?.issueCount ?? 'not scanned')+'.');
