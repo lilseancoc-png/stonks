@@ -729,6 +729,62 @@ Tests: `node scripts/engines-smoke.mjs` (brake math and prior, brake in
 and the paired read), `node scripts/engines-browser.mjs` (Scorecard and
 Experiments tabs).
 
+### Logic audit fixes (2026-11-21)
+
+Owner, 2026-11-21: "Build all 6 fixes", after the engine logic audit (Claude
+Doc "Engine logic audit, Nov 21": how each engine enters, exits, structures
+and records a trade, checked against main after #902). Five of the fixes
+change how trades open or close, so each has its own Owner Settings switch,
+on by default, and together they are one dated rules step (`ENGINE_FIXES`
+step 9, `|audit:` in the rules key, `AUDIT_PACK`) on top of the VIX and rates
+pack: rules 9 on Technicals and Fundamentals, 10 on Earnings, Flow and
+Reversion, 12 on Macro, and **rules 2 on Downside puts** (its first rules are
+`firstRules`, `ownRules` in `config.mjs` layers the step on them). The core
+engines take none of it. Rules only: no AI call, no new download.
+
+- **Too-dear check on the full budget** (`ENGINES_FIX_DEAR_FULL`, Downside
+  puts). Downside trades at half the risk budget and at half again in extreme
+  fear, and `sizeOption` skipped any contract over twice the budget it was
+  handed, so a put over $1,000 (or $2,000) never opened (PLTR and UNH were
+  skipped on 2026-11-20). The book now passes `dearBudget` (the full budget);
+  the half budgets still set the count, so a $1,500 put in extreme fear buys
+  one contract. A put over $4,000 is still skipped.
+- **Allocator on advise leaves the size alone** (`ENGINES_FIX_ALLOC_ADVISE`,
+  every signal engine and Downside). With `ENGINES_ALLOCATOR` on advise (the
+  default) the Allocator's read still entered `convictionRead` (0.75x to
+  1.15x), from a prior built on modeled option prices that the loser brake's
+  real-price record disagrees with (Reversion's washout bounce sized up by
+  one, down by the other). Now its part is in the size only when the
+  Allocator is `on`; the read is still stamped on every trade (`alloc`).
+- **Name-held cut counts same-side trades only** (`ENGINES_FIX_HELD_SAME_SIDE`).
+  The 0.75x "already open" part counted the core engines' fund holdings and
+  trades on the other side, so a QQQ call was cut because Trend owns QQQ.
+  Now it counts open signal-engine trades on the same side (core engines
+  left out) and Top Picks trades on the same side (`flagSides`; a bearish
+  pick is a put).
+- **A signal turned away for room can open later** (`ENGINES_FIX_SLOT_RETRY`).
+  A signal rejected only for "no free slot" or the run limit was shadowed and
+  marked seen (`s`), so a later run could never take it, which mattered most
+  for signals whose key keeps the same date all week (the earnings run-in).
+  It is now marked `w`: tracked once as a shadow trade, never shadowed again,
+  and free to open for real at a later run while the signal holds (then
+  marked `t`, and its shadow copy is dropped so the close is not counted
+  twice by learning, the Allocator or the brake). The history test steps once a day, so live this can open a
+  few more trades at 15:30 than the history test shows.
+- **Earnings run-in closes at the first run of its last day**
+  (`ENGINES_FIX_RUNIN_EARLY`, Earnings). `exitBy` closed only at the late
+  (15:30) run, so a missed or late afternoon run held the trade through the
+  report. New run-in trades carry `exitEarly` and close at whichever run
+  comes first that day; trades already open keep the old rule.
+- **Without a switch** (a guard and two labels, no trade changes on today's
+  defaults): the too-dear swap to shares now honors `ENGINES_SHARES=0` and an
+  engine or setup set to options only; a closed option trade whose last mark
+  was the model price (no usable quote) says so on the page (`exitModel`,
+  "on a model price") and is counted in the summary (`modelExits`).
+
+`scripts/engines-backtest.mjs` takes `--off dearFull,allocAdvise,heldSameSide,slotRetry,runInEarly`
+to run the history test without them.
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -1168,6 +1224,11 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_LOSER_BRAKE` | Owner Settings → Data & desks | Unset / on = a signal setup with 30+ closes (history test plus live) and t under -1 sizes new trades at 0.5x, never under 0.25x with the tape step, always at least one contract or share. `0` = full size |
 | `ENGINES_TEC_NO_SCORE` | Owner Settings → Data & desks | Unset / on = Technicals' size leaves the setup score out. `0` = the score part is back |
 | `ENGINES_VARIANTS` | Owner Settings → Data & desks | Unset / on = the variant shadows run beside their engines on paper (never mirrored, never in the record). `0` = none run; their books are kept |
+| `ENGINES_FIX_DEAR_FULL` | Owner Settings → Data & desks | Unset / on = Downside's too-dear check reads the full risk budget (one put up to $4,000 opens; the half budgets set the count). `0` = it reads the halved budget |
+| `ENGINES_FIX_ALLOC_ADVISE` | Owner Settings → Data & desks | Unset / on = on advise the Allocator's read is recorded but does not move the conviction size. `0` = it moves the size on advise too |
+| `ENGINES_FIX_HELD_SAME_SIDE` | Owner Settings → Data & desks | Unset / on = the "already open" size cut counts only same-side signal-engine and Top Picks trades. `0` = every holding counts, core engines and the other side too |
+| `ENGINES_FIX_SLOT_RETRY` | Owner Settings → Data & desks | Unset / on = a signal turned away for a slot or the run limit is shadowed once and can open at a later run. `0` = it is marked done |
+| `ENGINES_FIX_RUNIN_EARLY` | Owner Settings → Data & desks | Unset / on = new earnings run-in trades close at the first run (11:00 or 15:30) of their last day. `0` = 15:30 only |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
 | `ACCOUNT_LIMIT_OPEN_USD`, `_DAY_LOSS_USD`, `_NAME_USD`, `_NEW_PER_DAY` | Owner Settings → Account limits | All 0 = off. Caps on open option premium, a daily loss stop, money per stock across engines and new trades a day; a trade a limit holds back is not opened and not shadowed. A limit never closes a trade |
 

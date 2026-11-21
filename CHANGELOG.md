@@ -51,6 +51,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Changed
 - Size a losing engine setup at half instead of retiring it: 30+ closes (history test on real option prices plus live) and t under -1, never under a quarter with the tape step, always at least one contract or share (`ENGINES_LOSER_BRAKE`). Technicals now sizes without the setup score (`ENGINES_TEC_NO_SCORE`). Both are one dated rules step on the signal engines.
 
+### Fixed
+- Fix six strategy-engine logic gaps found in the engine logic audit, five of them each behind its own Owner Settings switch (Data & desks → Strategy engines) and together one dated rules step: Downside puts' too-dear check reads the full $2,000 budget instead of the halved one, so a put up to $4,000 can open in extreme fear (`ENGINES_FIX_DEAR_FULL`); on advise the Allocator no longer moves trade sizes (`ENGINES_FIX_ALLOC_ADVISE`); the "already held" size cut counts only same-side signal and Top Picks trades, not Trend/Momentum/rotation fund holdings (`ENGINES_FIX_HELD_SAME_SIDE`); a signal turned away only for a full engine can still open at a later run (`ENGINES_FIX_SLOT_RETRY`); the earnings run-in closes at the first run of its last day, 11:00 too (`ENGINES_FIX_RUNIN_EARLY`). The too-dear swap to shares now honors the share switches, and an option close on a model price says so. On the bench's calibrated 2007-2026 history test: the same 4,071 trades, +$834,732 against +$826,122 with the switches off (sizing only). No AI call; changes no Top Pick.
+
 ## 2026-11-20
 
 ### Added
