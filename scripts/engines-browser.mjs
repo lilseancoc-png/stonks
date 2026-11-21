@@ -79,7 +79,7 @@ try {
     const s = await openTab(browser, server.base, { width: 1440, height: 1000, theme: 'light', tab: 'engines' });
     await s.page.locator('#eng-all-cmp').waitFor({ timeout: 15000 });
     await settle(s.page, 900);
-    check((await s.page.locator('#eng-bar [data-eng]').count()) === ENGINE_IDS.length + 2, 'the page has All engines, one tab per engine and the Allocator');
+    check((await s.page.locator('#eng-bar [data-eng]').count()) === ENGINE_IDS.length + 4, 'the page has All engines, one tab per engine, the Allocator, the Scorecard and Experiments');
     check((await s.page.locator('#eng-bar [data-eng="flagship"]').count()) === 0, 'Top Picks is not a tab here');
     check(await s.page.locator('#eng-bar [data-eng="all"]').evaluate((b) => b.classList.contains('is-on')), 'All engines is the default view');
     check(await s.page.locator('#page-pane-picks').isHidden(), 'the Top Picks page is not shown');
@@ -321,6 +321,26 @@ try {
     await clean(s, 'Allocator');
     await s.page.screenshot({ path: resolve(output, 'allocator-1440.png'), fullPage: true });
 
+    // The scorecard pack (2026-11-21): Scorecard and Experiments tabs.
+    await pick(s, 'scorecard');
+    await s.page.locator('#eng-sc-main').waitFor({ timeout: 15000 });
+    text = await paneText(s);
+    check(/engine=scorecard/.test(s.page.url()), 'the Scorecard has its own address');
+    check(view.scorecard && Array.isArray(view.scorecard.rows) && (await s.page.locator('#eng-sc-main tbody tr').count()) === view.scorecard.rows.length + 1, 'the Scorecard lists every engine plus the book (' + (view.scorecard && view.scorecard.rows.length) + ')');
+    check(/Weekly Sharpe/i.test(text) && /Book without it/i.test(text) && /By the market tape at entry/i.test(text) && /Options, shares and paper trials apart/i.test(text), 'the Scorecard shows Sharpe, the book without each engine, the tape split and the parts apart');
+    check(/Loser brake/i.test(text) && (await s.page.locator('#eng-sc-brake tbody tr').count()) === (view.brake.rows || []).length && view.brake.rows.some((r) => r.on), 'the Scorecard shows the loser brake table with braked setups from the history prior');
+    check(/History reference/i.test(text) && /real option prices/.test(text), 'the Scorecard shows the history reference');
+    await clean(s, 'Scorecard');
+    await s.page.screenshot({ path: resolve(output, 'scorecard-1440.png'), fullPage: true });
+    await pick(s, 'experiments');
+    await s.page.locator('.eng-vars').waitFor({ timeout: 15000 });
+    text = await paneText(s);
+    check(/engine=experiments/.test(s.page.url()), 'Experiments has its own address');
+    check((await s.page.locator('.eng-var').count()) === view.variants.rows.length && view.variants.rows.length >= 8, 'Experiments lists every variant (' + view.variants.rows.length + ')');
+    check(/never sent to Webull/.test(text) && /What it tests/.test(text) && /Worth adopting if/.test(text), 'each variant states its change, what it tests and when it is worth adopting');
+    await clean(s, 'Experiments');
+    await s.page.screenshot({ path: resolve(output, 'experiments-1440.png'), fullPage: true });
+
     await pick(s, 'fundamentals'); await sub(s, 'now');
     check(/3 calls and 5 puts at most/.test(await s.page.locator('.eng-rules').first().innerText()) && /\(puts 1 to 10\)/.test(await s.page.locator('.eng-rules').first().innerText()), 'Fundamentals rules read 3 calls and 5 puts, puts capped at 10 contracts');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-now-1440.png'), fullPage: true });
@@ -498,6 +518,12 @@ try {
     await pick(s, 'downside'); await sub(s, 'now'); await settle(s.page, 300);
     await clean(s, 'downside now, phone');
     await s.page.screenshot({ path: resolve(output, 'downside-now-390-dark.png'), fullPage: true });
+    await pick(s, 'scorecard'); await settle(s.page, 300);
+    await clean(s, 'Scorecard, phone');
+    await s.page.screenshot({ path: resolve(output, 'scorecard-390-dark.png'), fullPage: true });
+    await pick(s, 'experiments'); await settle(s.page, 300);
+    await clean(s, 'Experiments, phone');
+    await s.page.screenshot({ path: resolve(output, 'experiments-390-dark.png'), fullPage: true });
     await pick(s, 'allocator'); await settle(s.page, 300);
     await clean(s, 'Allocator, phone');
     await s.page.screenshot({ path: resolve(output, 'allocator-390-dark.png'), fullPage: true });

@@ -23,6 +23,10 @@ export const ENGINE_TABS = Object.freeze([
   // The Allocator (2026-11-17) has no trades of its own: its tab shows which
   // signal-engine setups it lets trade in today's market and at what size.
   { id: 'allocator', name: 'Allocator', tag: '' },
+  // The scorecard pack (2026-11-21): every engine scored on its own, the
+  // loser brake's table, and the variant shadows.
+  { id: 'scorecard', name: 'Scorecard', tag: '' },
+  { id: 'experiments', name: 'Experiments', tag: '' },
 ]);
 
 // The page's own tabs: "All engines" first, then one per engine. Top Picks
@@ -1038,6 +1042,97 @@ function engEvidenceNote(t){
       slpSection('eng-all-runs', 'Run log', runs);
   }
 
+  // ---- Scorecard pack (2026-11-21, docs/engines.md "Scorecard pack") --------
+  // The per-engine scorecard from the live record, the loser brake's table and
+  // the variant shadows (Experiments). All three are measurement only on this
+  // page; the brake is the one part that sizes a trade, and only down.
+  function engTagOf(id){ for (var i = 0; i < ENG_TABS.length; i++) if (ENG_TABS[i].id === id) return ENG_TABS[i].tag || ENG_TABS[i].name; return String(id || ''); }
+  function engTape(s){ var m = { 'risk-on': 'Risk-on', neutral: 'Neutral', mixed: 'Mixed', 'risk-off': 'Risk-off', 'severe-risk-off': 'Severe risk-off', severe: 'Severe risk-off', unknown: 'Not stamped' }; return m[s] || engCap(s); }
+  function engScBlock(b){ return b && b.n ? b.n + ' · ' + engPnl(b.avg) + ' · ' + engRate(b.winRate) + ' won · <span class="' + slpSign(b.usd) + '">' + engUsd(b.usd) + '</span>' : '<span class="crd-dim">none</span>'; }
+  function engScorecardHtml(d){
+    var sc = d.scorecard;
+    if (!sc || sc.error) return '<p class="hint">The scorecard could not be built' + (sc && sc.error ? ' (' + escapeHtml(sc.error) + ')' : '') + '.</p>';
+    var rule = sc.rule || {};
+    var rows = (sc.rows || []).map(function(r){
+      var sh = r.sharpe != null ? slpNum(r.sharpe, 2) : '<span class="crd-dim" title="A weekly Sharpe ratio needs ' + (rule.sharpeWeeks || 20) + ' weeks of record">in ' + (r.sharpeIn || 0) + ' wk</span>';
+      var w = r.without, wo = w ? '<span class="' + slpSign(w.usd) + '">' + engUsd(w.usd) + '</span><div class="crd-dim">worst ' + engUsd(w.worstUsd) + (w.sharpe != null ? ' · Sharpe ' + slpNum(w.sharpe, 2) : '') + '</div>' : '<span class="crd-dim">no closes</span>';
+      return '<tr><td class="eng-cmp-name"><button type="button" class="eng-link" data-eng-go="' + escapeHtml(r.id) + '" data-eng-sub="record"><b>' + escapeHtml(r.name) + '</b></button><div class="crd-dim">' + escapeHtml(r.tag || '') + (r.core ? ' · core' : '') + '</div></td>' +
+        '<td class="num">' + (r.n || 0) + '</td><td class="num">' + engPnl(r.avg) + '</td><td class="num">' + engRate(r.winRate) + '</td>' +
+        '<td class="num ' + slpSign(r.usd) + '">' + engUsd(r.usd) + '</td><td class="num">' + engUsd(r.usdPerTrade) + '</td><td class="num">' + (r.n ? engUsd(r.worstUsd) : '—') + '</td><td class="num">' + sh + '</td><td class="num">' + wo + '</td></tr>';
+    }).join('');
+    var b = sc.book || {};
+    var bookRow = '<tr class="eng-total-row"><td class="eng-cmp-name"><b>The book</b><div class="crd-dim">every engine together</div></td><td class="num">' + (b.n || 0) + '</td><td class="num">' + engPnl(b.avg) + '</td><td class="num">' + engRate(b.winRate) + '</td><td class="num ' + slpSign(b.usd) + '">' + engUsd(b.usd) + '</td><td class="num">' + engUsd(b.usdPerTrade) + '</td><td class="num">' + (b.n ? engUsd(b.worstUsd) : '—') + '</td><td class="num">' + (b.sharpe != null ? slpNum(b.sharpe, 2) : '<span class="crd-dim">in ' + (b.sharpeIn || 0) + ' wk</span>') + '</td><td class="num crd-dim">—</td></tr>';
+    var main = slpTable([['Engine'], ['Closed', 1], ['Return a trade', 1, '% of the entry premium or share price, every closed trade counted the same'], ['Win rate', 1], ['Dollars', 1, 'Realized dollars, each trade at its size'], ['A trade', 1, 'Realized dollars per closed trade'], ['Worst drop', 1, 'Largest fall of the running closed dollars'], ['Weekly Sharpe', 1, 'Weekly closed dollars: mean over spread, times the square root of 52. Shown after ' + (rule.sharpeWeeks || 20) + ' weeks'], ['Book without it', 1, 'The whole book with this engine left out: dollars, worst drop and Sharpe']], rows + bookRow);
+
+    var parts = (sc.rows || []).filter(function(r){ return r.n; }).map(function(r){
+      var p = r.parts || {};
+      return '<tr><td>' + escapeHtml(r.name) + '</td><td class="l">' + engScBlock(p.options) + '</td><td class="l">' + engScBlock(p.shares) + '</td><td class="l">' + engScBlock(p.trials) + '</td></tr>';
+    }).join('');
+    var partsHtml = parts ? slpTable([['Engine'], ['Options', 'l'], ['Shares', 'l'], ['Paper trials', 'l']], parts) : '<p class="hint">No engine has a closed trade yet.</p>';
+
+    var states = [];
+    (sc.rows || []).forEach(function(r){ (r.byTape || []).forEach(function(x){ if (states.indexOf(x.state) < 0) states.push(x.state); }); });
+    var order = ['risk-on', 'neutral', 'mixed', 'risk-off', 'severe-risk-off', 'unknown'];
+    states.sort(function(a, c){ var i = order.indexOf(a), j = order.indexOf(c); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
+    var tapeRows = (sc.rows || []).filter(function(r){ return r.n; }).map(function(r){
+      return '<tr><td>' + escapeHtml(r.name) + '</td>' + states.map(function(s){ var x = null; (r.byTape || []).forEach(function(y){ if (y.state === s) x = y; }); return '<td class="num">' + (x && x.n ? x.n + ' · ' + engPnl(x.avg) + '<div class="crd-dim ' + slpSign(x.usd) + '">' + engUsd(x.usd) + '</div>' : '—') + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    var tapeHtml = tapeRows ? slpTable([['Engine']].concat(states.map(function(s){ return [engTape(s), 1]; })), tapeRows) + '<p class="evb-note">The Top Picks market tape stamped on each trade when it opened. Trades, return a trade and dollars.</p>' : '<p class="hint">No engine has a closed trade yet.</p>';
+
+    var cr = sc.correlation || {}, corr;
+    if (!cr.ready) corr = '<p class="hint">Weekly correlation between engines shows once the book has ' + (cr.needWeeks || 12) + ' weeks of record (' + (cr.weeks || 0) + ' so far), for engines with ' + (rule.corrMinActive || 4) + ' or more weeks with a close.</p>';
+    else if ((cr.ids || []).length < 2) corr = '<p class="hint">Fewer than two engines have ' + (rule.corrMinActive || 4) + ' weeks with a close yet.</p>';
+    else corr = slpTable([['']].concat(cr.ids.map(function(id){ return [engTagOf(id), 1]; })), cr.ids.map(function(a, i){ return '<tr><td>' + escapeHtml(engTagOf(a)) + '</td>' + cr.matrix[i].map(function(v, j){ return '<td class="num' + (i !== j && v != null && v >= 0.5 ? ' sig-neg' : '') + '">' + (i === j ? '—' : v == null ? '—' : slpNum(v, 2)) + '</td>'; }).join('') + '</tr>'; }).join('')) + '<p class="evb-note">Weekly closed dollars over ' + cr.weeks + ' weeks. Two engines at 0.5 or more move together, so they count as less than two separate bets.</p>';
+
+    var ref = sc.reference, hb = ref && ref.book;
+    var hrows = (sc.rows || []).map(function(r){ return (r.history || []).map(function(s){
+      return '<tr><td>' + escapeHtml(s.label || s.key) + '</td><td class="num">' + (s.n || 0) + '</td><td class="num">' + slpNum(s.perYr, 0) + '</td><td class="num">' + engPnl(s.avg, 2) + '</td><td class="num">' + engRate(s.winRate) + '</td><td class="num">' + slpNum(s.t, 1) + '</td><td class="num">' + slpNum(s.sharpe, 2) + '</td><td class="num">' + engUsd(s.worstUsd) + '</td><td class="num">' + (s.halves ? engPnl(s.halves[0], 2) + ' / ' + engPnl(s.halves[1], 2) : '—') + '</td></tr>';
+    }).join(''); }).join('');
+    var histHtml = ref ? '<p class="evb-note">The same sleeves in the ' + escapeHtml(String(ref.from || '').slice(0, 4)) + ' to ' + escapeHtml(String(ref.to || '').slice(0, 4)) + ' history test on real option prices (Cboe implied volatility where an index exists). ' + (hb ? 'The whole book: Sharpe ' + slpNum(hb.sharpe, 2) + (hb.halves ? ' (' + slpNum(hb.halves[0], 2) + ' and ' + slpNum(hb.halves[1], 2) + ' by half)' : '') + ', about ' + slpNum(hb.effectiveBets, 1) + ' separate bets across ' + (hb.sleeves || 0) + ' sleeves. ' : '') + 'Aggregates only.</p>' + (hrows ? slpTable([['Sleeve'], ['Trades', 1], ['A year', 1], ['Return a trade', 1], ['Win rate', 1], ['t value', 1], ['Sharpe', 1], ['Worst drop', 1], ['First / second half', 1, 'Return a trade in each half of the test']], hrows) : '') : '<p class="hint">The history reference file is not in this build.</p>';
+
+    return '<p class="evb-lead">How each engine is doing on its own, from its closed trades. The numbers are the live record only: closed trades, realized dollars on the day each trade closed. Measurement only; nothing here sizes or opens a trade.</p>' +
+      slpSection('eng-sc-main', 'Each engine' + (sc.from ? ' (since ' + escapeHtml(engDay(sc.from)) + ')' : ''), main) +
+      slpSection('eng-sc-parts', 'Options, shares and paper trials apart', partsHtml + '<p class="evb-note">Trades, return a trade, win rate and dollars. They are different units, so they are kept apart.</p>') +
+      slpSection('eng-sc-tape', 'By the market tape at entry', tapeHtml) +
+      slpSection('eng-sc-corr', 'Do the engines move together?', corr) +
+      slpSection('eng-sc-brake', 'Loser brake', engBrakeHtml(d)) +
+      slpSection('eng-sc-hist', 'History reference', histHtml);
+  }
+  function engBrakeHtml(d){
+    var bk = d.brake;
+    if (!bk || bk.error) return '<p class="hint">The brake table could not be built' + (bk && bk.error ? ' (' + escapeHtml(bk.error) + ')' : '') + '.</p>';
+    var R = bk.rule || {};
+    var rows = (bk.rows || []).map(function(r){
+      return '<tr><td>' + escapeHtml(engName(r.engine)) + '</td><td class="l">' + escapeHtml(r.setup) + ' · ' + escapeHtml(r.side) + ' · ' + escapeHtml(r.instrument) + '</td><td class="num">' + r.n + '<div class="crd-dim">' + r.priorN + ' in the test, ' + r.liveN + ' live</div></td><td class="num">' + engPnl(r.avg, 1) + '</td><td class="num">' + slpNum(r.t, 2) + '</td><td>' + (r.on ? engPill(bk.enabled ? 'Braked ' + r.mult + 'x' : 'Would brake (off)', bk.enabled ? 'evb-s-collect' : 'evb-s-unclear') : engPill('Normal size', 'evb-s-pass')) + '</td></tr>';
+    }).join('');
+    return '<p class="evb-note">' + (bk.enabled ? engPill('On', 'evb-s-pass') : engPill('Off', 'evb-s-fail')) + ' A setup that keeps losing trades at ' + (R.mult || 0.5) + 'x instead of being retired, so it keeps gathering live data: ' + (R.minN || 30) + ' or more closes and a t value under ' + (R.t != null ? R.t : -1) + ' (its average over its standard error), counting the ' + (bk.priorFrom ? escapeHtml(String(bk.priorFrom.from || '').slice(0, 4)) + ' to ' + escapeHtml(String(bk.priorFrom.to || '').slice(0, 4)) + ' ' : '') + 'history test on real option prices and every live and shadow close since. With the market tape step a trade is never under ' + (R.floor || 0.25) + 'x, and it always keeps at least one contract or one share. A setup back above the line returns to normal size at the next run. Switch: Owner Settings (Data &amp; desks → Strategy engines).</p>' +
+      (rows ? slpTable([['Engine'], ['Setup', 'l'], ['Closes', 1], ['Average', 1], ['t value', 1], ['Size']], rows) : '<p class="hint">No setup has ' + 10 + ' or more closes yet.</p>');
+  }
+  var ENG_VAR_STATE = { collecting: ['Collecting', 'evb-s-collect'], ahead: ['Ahead', 'evb-s-pass'], behind: ['Behind', 'evb-s-fail'], 'no-difference': ['No clear difference', 'evb-s-unclear'], ended: ['Ended', 'evb-s-unclear'], off: ['Off', 'evb-s-fail'], starting: ['Starting', 'evb-s-unclear'] };
+  function engExperimentsHtml(d){
+    var vv = d.variants;
+    if (!vv || vv.error) return '<p class="hint">The experiments could not be built' + (vv && vv.error ? ' (' + escapeHtml(vv.error) + ')' : '') + '.</p>';
+    var R = vv.rule || {};
+    var cards = (vv.rows || []).map(function(r){
+      var st = ENG_VAR_STATE[r.status] || ['—', 'evb-s-unclear'];
+      var p = r.pairs || {}, par = r.parent || {}, vr = r.variant || {};
+      var read = r.kind === 'sizing'
+        ? '<li><b>Live trades in scope:</b> ' + (par.n || 0) + ' closed · ' + engUsd(par.usd) + ' at today’s size, ' + engUsd(vr.usd) + ' at ' + r.sizeX + 'x</li>' + (r.book ? '<li><b>The whole book:</b> worst drop ' + engUsd(r.book.worstUsd) + ', ' + engUsd(r.book.worstUsdVariant) + ' with the change' + (r.book.sharpe != null ? ' · Sharpe ' + slpNum(r.book.sharpe, 2) + ', ' + slpNum(r.book.sharpeVariant, 2) + ' with the change' : ' · Sharpe after 20 weeks (' + (r.book.weeks || 0) + ' so far)') + '</li>' : '')
+        : (r.pairs ? '<li><b>Paired closes:</b> ' + (p.n || 0) + ' of ' + (r.need || R.minPaired || 30) + ' (' + (p.both || 0) + ' both traded, ' + (p.parentOnly || 0) + ' only the live engine, ' + (p.variantOnly || 0) + ' only the variant' + (p.waiting ? ', ' + p.waiting + ' still open' : '') + ')</li>' +
+          '<li><b>Variant minus live:</b> ' + (p.n ? '<span class="' + slpSign(p.totalUsd) + '">' + engUsd(p.totalUsd) + '</span> in all, ' + engUsd(p.meanUsd) + ' a pair, t ' + slpNum(p.t, 2) : 'nothing paired yet') + '</li>' +
+          '<li><b>Live engine in scope:</b> ' + (par.n || 0) + ' closed, ' + (par.open || 0) + ' open · ' + engPnl(par.avg) + ' · ' + engUsd(par.usd) + ' &nbsp; <b>Variant:</b> ' + (vr.n || 0) + ' closed, ' + (vr.open || 0) + ' open · ' + engPnl(vr.avg) + ' · ' + engUsd(vr.usd) + '</li>' : '');
+      var trades = (r.trades || []).length ? '<details class="eng-var-trades"><summary>Its newest trades (' + r.trades.length + ')</summary>' + slpTable([['Stock'], ['Setup', 'l'], ['Opened'], ['Closed'], ['Result', 1], ['Dollars', 1]], r.trades.map(function(t){ return '<tr><td><b>' + escapeHtml(t.symbol) + '</b> ' + escapeHtml(t.side) + ' ' + escapeHtml(t.instrument) + '</td><td class="l">' + escapeHtml(t.setup || '') + '</td><td>' + escapeHtml(engDay(t.entryDate)) + '</td><td>' + (t.exitDate ? escapeHtml(engDay(t.exitDate)) : 'open') + '</td><td class="num">' + engPnl(t.optionPnlPct) + '</td><td class="num ' + slpSign(t.usd) + '">' + engUsd(t.usd) + '</td></tr>'; }).join('')) + '</details>' : '';
+      return '<article class="eng-var"><header class="eng-var-head"><b>' + escapeHtml(r.id) + '</b> <span class="crd-dim">' + escapeHtml(r.engineName || engName(r.engine)) + ' · ' + (r.kind === 'sizing' ? 'size' : 'rules') + '</span> ' + engPill(st[0], st[1]) + '</header>' +
+        '<ul class="eng-notes"><li><b>Change:</b> ' + escapeHtml(r.change || '') + '</li><li><b>What it tests:</b> ' + escapeHtml(r.hypothesis || '') + '</li><li><b>Worth adopting if:</b> ' + escapeHtml(r.promoteIf || '') + '</li>' + read +
+        '<li class="crd-dim">' + escapeHtml(r.label || '') + ' · started ' + escapeHtml(engDay(r.started)) + (r.ends ? ', ends ' + escapeHtml(engDay(r.ends)) : '') + '</li></ul>' + trades + '</article>';
+    }).join('');
+    var runs = (vv.runs || []).length ? slpTable([['Run'], ['Variants', 1], ['Opened', 1], ['Closed', 1], ['Errors', 'l']], vv.runs.map(function(x){ return '<tr><td>' + escapeHtml(rglEt(x.iso)) + '</td><td class="num">' + (x.ran || 0) + '</td><td class="num">' + (x.opened || 0) + '</td><td class="num">' + (x.closed || 0) + '</td><td class="l">' + ((x.errors || []).length ? '<span class="sig-neg">' + x.errors.map(escapeHtml).join('; ') + '</span>' : '') + '</td></tr>'; }).join('')) : '<p class="hint">No variant run logged yet.</p>';
+    return '<p class="evb-lead">' + (vv.enabled ? engPill('Running', 'evb-s-pass') : engPill('Off', 'evb-s-fail')) + ' Each variant is a copy of one engine with one thing changed, run on paper beside it at every Top Picks run on the same data. A variant is never sent to Webull, never learns, and never touches the live record, the Allocator or Top Picks. It is compared with the live engine signal by signal: a trade only one of them took counts as $0 for the other.</p>' +
+      '<p class="evb-note">At most ' + (R.perEngine || 3) + ' variants per engine and about ' + (R.total || 20) + ' in all. A verdict needs ' + (R.minPaired || 30) + ' paired closes and a t value of ' + (R.holmT || 2.4) + ' or more (raised because several are tested at once); each runs ' + (R.months || 6) + ' months, or up to 12 when its signals are rare. Adopting one is the Owner’s call and is a new rules version, never a reset. Switch: Owner Settings (Data &amp; desks → Strategy engines).</p>' +
+      '<div class="eng-vars">' + (cards || '<p class="hint">No variant is registered.</p>') + '</div>' +
+      slpSection('eng-var-runs', 'Variant runs', runs);
+  }
+
   // ---- Shell ----------------------------------------------------------------
   function engOneHtml(d, e){
     var sub = engState.sub;
@@ -1080,6 +1175,8 @@ function engEvidenceNote(t){
     }
     var html;
     if (engState.sel === 'allocator') html = '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">Paper engines</span><h2 class="card-title">Allocator</h2><p class="picks-intro">Which signal-engine setups may trade in today’s market, and at what size.</p></div></header><div class="eng-body">' + engAllocHtml(d) + '</div>';
+    else if (engState.sel === 'scorecard') html = '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">Paper engines</span><h2 class="card-title">Scorecard</h2><p class="picks-intro">Each engine measured on its own, and the loser brake.</p></div></header>' + engScorecardHtml(d);
+    else if (engState.sel === 'experiments') html = '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">Paper engines</span><h2 class="card-title">Experiments</h2><p class="picks-intro">Copies of an engine with one thing changed, run on paper beside it.</p></div></header>' + engExperimentsHtml(d);
     else if (engState.sel === 'all') html = '<header class="card-header eng-head"><div class="picks-heading"><span class="picks-kicker">Paper engines</span><h2 class="card-title">All engines</h2><p class="picks-intro">Seven signal engines and three core engines on paper beside Top Picks, each on its own record. Top Picks has its own pages.</p></div></header><div class="eng-body">' + engAllHtml(d) + '</div>';
     else { var e = engFind(d, engState.sel); html = e ? engOneHtml(d, e) : '<p class="hint eng-empty">This engine is not in the latest file.</p>'; }
     pane.innerHTML = html + '<p class="evb-note eng-foot">Paper only. Written by the ' + escapeHtml(rglEt(d.runIso)) + ' run' + (d.builtAtIso && d.builtAtIso !== d.runIso ? ', carried by the ' + escapeHtml(rglEt(d.builtAtIso)) + ' build' : '') + '. Engines version ' + escapeHtml(String(d.version || '')) + '. Research, not advice: an option can lose its whole premium.</p>';

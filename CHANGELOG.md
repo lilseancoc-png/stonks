@@ -42,6 +42,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-21
+
+### Added
+- Add the strategy engines' scorecard pack: a Scorecard tab (each engine's return a trade, win rate, dollars, worst drop, weekly Sharpe after 20 weeks, results by market tape, options / shares / trials apart, weekly correlation after 12 weeks, the book without each engine, and the 2007-2026 real-price reference) and an Experiments tab of variant shadows (a copy of one engine with one thing changed, run on paper beside it on the same data and compared signal by signal; never mirrored, never in the record; nine to start). Owner Settings `ENGINES_VARIANTS`.
+
+### Changed
+- Size a losing engine setup at half instead of retiring it: 30+ closes (history test on real option prices plus live) and t under -1, never under a quarter with the tape step, always at least one contract or share (`ENGINES_LOSER_BRAKE`). Technicals now sizes without the setup score (`ENGINES_TEC_NO_SCORE`). Both are one dated rules step on the signal engines.
+
 ## 2026-11-20
 
 ### Added
