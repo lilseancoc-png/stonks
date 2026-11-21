@@ -55,7 +55,8 @@ import { buildLabelSeries, LABEL_RULES_VERSION } from "../lib/regime-lab/labels.
 import { FOMC_DECISIONS } from "../lib/historical-events.mjs";
 import { runBacktest, publicResult, WINDOWS, BACKTEST_VERSION } from "../lib/engines/backtest.mjs";
 import { firstFridays } from "../lib/engines/macro.mjs";
-import { ENGINES, ENGINES_VERSION, MACRO_ETFS, BOOK, ENGINE_FIXES, engineSpecs, INSTRUMENT_CHOICES, normalizeMaxQty } from "../lib/engines/config.mjs";
+import { ENGINES, ENGINES_VERSION, MACRO_ETFS, BOOK, ENGINE_FIXES, ENGINE_TRIALS, engineSpecs, INSTRUMENT_CHOICES, normalizeMaxQty } from "../lib/engines/config.mjs";
+import { HEDGE } from "../lib/engines/hedge.mjs";
 import { allocPriorFrom } from "../lib/engines/allocator.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -83,6 +84,10 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
   const isEtf = (s) => SECTORS[s] === "ETF" || MACRO_ETFS.includes(s);
   const series = {};
   for (const s of universe) series[s] = rowsOf(bars[s]);
+  // The sector funds the Momentum basket can hold (the VIX and rates pack,
+  // 2026-11-21): read by the core engines only.
+  const auxSeries = {};
+  for (const s of HEDGE.sectorFunds) if (bars[s] && !series[s]) auxSeries[s] = rowsOf(bars[s]);
   // Market-type labels: the Regime Lab's grid, read through each close.
   const members = {};
   for (const s of TICKERS) if (bars[s] && SECTORS[s] !== "ETF") members[s] = rowsOf(bars[s]);
@@ -103,7 +108,7 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
     reports = {};
     for (const [sym, row] of Object.entries(store?.tickers || {})) if (series[sym] && Array.isArray(row?.events) && row.events.length) { reports[sym] = row.events; reportNames++; }
   }
-  return { H, series, isEtf, labels, macroEvents, reports, reportNames, vix: vixRows, vix3m: vix3Rows, universe, labelRules: LABEL_RULES_VERSION, cal: inputs.cal };
+  return { H, series, auxSeries, isEtf, labels, macroEvents, reports, reportNames, vix: vixRows, vix3m: vix3Rows, universe, labelRules: LABEL_RULES_VERSION, cal: inputs.cal };
 }
 
 // Four passes over the same history:
@@ -127,7 +132,7 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
 // neither opens anything in the test.
 export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {}, keepOnTrades = false } = {}) {
   const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum", "rotation"];
-  const base = { series: R.series, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids,
+  const base = { series: R.series, auxSeries: R.auxSeries || null, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids,
     groupOf: (s) => { try { return sectorGroupOf(s) || null; } catch { return null; } }, ...settings };
   const raw = runBacktest({ ...base, learn: false, raw: true, keepTrades: true });
   const off = runBacktest({ ...base, learn: false });
@@ -221,8 +226,11 @@ export function parseSettings(flags) {
   }
   const inst = {};
   if (typeof flags.inst === "string") for (const kv of flags.inst.split(",")) { const [k, v] = kv.split("=").map((x) => x.trim()); if (ENGINES[k] && INSTRUMENT_CHOICES.includes(v)) inst[k] = v; }
-  if (off.length || Object.keys(inst).length || (settings.sizing?.maxQty ?? BOOK.riskMaxQty) !== BOOK.riskMaxQty) {
-    settings.specs = engineSpecs(Object.fromEntries(off.map((id) => [id, false])), undefined, inst, settings.sizing?.maxQty);
+  // --trials-off vixRollover,...: paper trials left out of the run.
+  const trialsOff = typeof flags["trials-off"] === "string" ? flags["trials-off"].split(",").map((x) => x.trim()).filter((x) => ENGINE_TRIALS.some((t) => t.id === x)) : [];
+  if (trialsOff.length) changed.push(`paper trials off: ${trialsOff.join(", ")}`);
+  if (off.length || trialsOff.length || Object.keys(inst).length || (settings.sizing?.maxQty ?? BOOK.riskMaxQty) !== BOOK.riskMaxQty) {
+    settings.specs = engineSpecs(Object.fromEntries(off.map((id) => [id, false])), trialsOff.length ? Object.fromEntries(trialsOff.map((id) => [id, false])) : undefined, inst, settings.sizing?.maxQty);
     if (off.length) changed.push(`fixes off: ${off.join(", ")}`);
     if (Object.keys(inst).length) changed.push(`instrument: ${Object.entries(inst).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   }
