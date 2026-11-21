@@ -2534,11 +2534,15 @@ ok("variants: paired books on the same input, own trade IDs, never in the live r
   const views = { AAA: V("AAA", pullF()), BBB: V("BBB", pullF({ rsi2Min3: 9 })) };
   const state = emptyState(), record = emptyRecord();
   const input = honestInput(views, { engines: ["technicals"], shares: true, brake: { enabled: true, prior: null } });
+  // A signal the parent took before the variant started stays the parent's.
+  (state.engines.technicals ||= newEngineState(ENGINES.technicals)).seen["OLD|pullback|2026-11-10"] = "t";
+  const seedFrom = { technicals: { seen: { ...state.engines.technicals.seen }, cooldown: { ...state.engines.technicals.cooldown } } };
   stepBook(state, record, input);
   const parentBar = state.engines.technicals.bar;
   const before = JSON.stringify(record), learnBefore = JSON.stringify(state.engines.technicals);
   const tec = VARIANTS.filter((v) => v.engine === "technicals").map((v) => ({ ...v, started: TODAY }));
-  const sum = runVariants(state, input, { today: TODAY, nowIso: NOW_AM, list: tec });
+  const sum = runVariants(state, input, { today: TODAY, nowIso: NOW_AM, list: tec, seedFrom });
+  assert.equal(state.variants.books["TEC-stop2.5"].state.engines.technicals.seen["OLD|pullback|2026-11-10"], "t", "a new book starts with the parent's earlier seen signals");
   assert.equal(sum.ran, 2); assert.deepEqual(sum.errors, []);
   assert.equal(JSON.stringify(record), before, "the live record is untouched");
   assert.equal(JSON.stringify(state.engines.technicals), learnBefore, "the parent's learning state is untouched");
@@ -2584,6 +2588,12 @@ ok("variants: the paired read counts a signal one book skipped as $0, waits for 
   const r = pairedRead(v, par, vt, since);
   // a: +200, b: +200 (parent lost $200, variant skipped), d: +100; c waits for the parent; "old" is before the start.
   assert.equal(r.n, 3); assert.equal(r.both, 1); assert.equal(r.parentOnly, 1); assert.equal(r.variantOnly, 1); assert.equal(r.waiting, 1); assert.equal(r.totalUsd, 500);
+  // A variant that changes how a trade is made is read on signals both took.
+  const same = pairedRead({ ...v, match: "same" }, par, vt, since);
+  assert.equal(same.n, 1); assert.equal(same.both, 1); assert.equal(same.parentOnly, 1); assert.equal(same.variantOnly, 1); assert.equal(same.totalUsd, 200);
+  // A side-limited variant leaves the other side out.
+  assert.equal(pairedRead({ ...v, side: "put" }, par, vt, since).n, 0);
+  assert.ok(VARIANTS.filter((x) => x.match === "same").length >= 4 && VARIANTS.find((x) => x.id === "ERN-runin-shares").side === "call");
   // A sizing variant is recomputed from the record.
   const sz = VARIANTS.find((x) => x.id === "REV-rsi2-7500");
   const rec = { closed: [SC("reversion", "2026-11-24", 2, { trial: true, shares: true, usd: 5000, setup: "rsi2-dip", entryDate: "2026-11-21T16:00:00Z" }), SC("reversion", "2026-11-24", -1, { trial: true, shares: true, usd: 5000, setup: "rsi2-dip", entryDate: "2026-11-19T16:00:00Z" })], open: [] };

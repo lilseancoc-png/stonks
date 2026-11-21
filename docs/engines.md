@@ -597,7 +597,17 @@ no new download. The rules part is one dated step on every signal engine
   off, trade IDs prefixed `<variant>~`, never mirrored to Webull, never in
   the live record, the Allocator, learning or Top Picks. They are compared
   with the live engine signal by signal (a trade only one side took counts
-  as $0 for the other; a pair waits while either side is open). Sizing
+  as $0 for the other; a pair waits while either side is open). A variant
+  that changes how a trade is made, not which trades are made (options or
+  shares, the contract window, the stop; `match: "same"` on `TEC-stop2.5`,
+  `REV-bounce-shares`, `MAC-fall60`, `FUN-top-shares`, `ERN-runin-shares`),
+  is read only on signals both books took, so a free slot in the variant's
+  younger book or an expiry the run did not load is not read as the change;
+  `side: "call"` keeps a shares variant's comparison to calls (its puts stay
+  options). A new book starts with its parent's seen signals and cooldowns
+  as they were before that run's live step, so it opens only on signals that
+  arrive after it started. Closed variant trades drop their reasons, signal
+  facts, marks and size notes to keep `engines-state.json` small. Sizing
   variants are recomputed from the live record (the sleeve at another size,
   with the whole book's Sharpe and worst drop beside it). A verdict needs 30
   paired closes and t 2.4 or more (raised for testing several at once); each
