@@ -35,6 +35,9 @@ import { newTrade } from "../lib/webull-mirror.mjs";
 import { OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
 import { bsPrice } from "../lib/greeks.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
+import { BRAKE, brakeRead, brakeMult, brakeObserve, brakeSeed, brakeView, brakePrior, emptyBrake } from "../lib/engines/brake.mjs";
+import { buildScorecard, SCORECARD, weekOf, weeksBetween, sharpeOf, worstDrop } from "../lib/engines/scorecard.mjs";
+import { VARIANTS, VARIANT_LIMITS, validateVariants, variantSpec, runVariants, pairedRead, variantsView, variantEnds } from "../lib/engines/variants.mjs";
 
 let passed = 0;
 const ok = (name, fn) => { try { fn(); passed++; } catch (err) { console.error(`FAIL ${name}\n  ${err?.stack || err}`); process.exitCode = 1; } };
@@ -103,7 +106,11 @@ const V = (sym, f, extra = {}) => ({ sym, isEtf: false, spot: f.c, f, ...extra }
 // which sit on top of everything else: the older checks read what is under them.
 // The signal engines with the fix history (Downside puts, 2026-11-20, starts on its own rules 1).
 const FIXED_IDS = SIGNAL_IDS.filter((id) => !ENGINES[id].ownRules);
-const peel = (r) => { while (r && r.before && /\|(live|trials2):[^|]*$|\|down:[^|]*(\|putcap:\d+)?$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
+// The scorecard pack (2026-11-21) is the newest rules layer: `uncard` steps
+// under it, `DR(id)` is the downtrend pack's rules as they stood before it.
+const uncard = (r) => (r && r.before && /\|card:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r);
+const DR = (id, specs = ENGINES) => uncard(specs[id].rules);
+const peel = (r) => { while (r && r.before && /\|(live|trials2|card):[^|]*$|\|down:[^|]*(\|putcap:\d+)?$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
 ok("ten engines (seven signal, three core), unique tags, every setup has a label", () => {
   assert.deepEqual(ENGINE_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside", "trend", "momentum", "rotation"]);
   assert.deepEqual(SIGNAL_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside"]);
@@ -732,7 +739,7 @@ ok("shares: learning counts a share result 5x and says so; the page splits them 
 // ---- the money-leak fixes (2026-11-17) ---------------------------------------
 const WASHOUT = (over = {}) => baseF({ c: 90, pc: 93, sma20: 97, sma200: 85, sd20: 3, z20: -2.3, rsi2: 4, move5Atr: -3, downStreak: 4, rangePos: 0.6, l: 89, ...over });
 ok("fixes: the Owner Settings switches, all on by default", () => {
-  assert.deepEqual(ENGINE_FIX_IDS, ["retirePuts", "bounce", "size", "stockStop", "fillBasis", "riskSize", "conviction", "tecShares", "crashStand", "fearBounce", "convNoScore", "runInShares", "funPuts", "newsGate", "tapeSize"]);
+  assert.deepEqual(ENGINE_FIX_IDS, ["retirePuts", "bounce", "size", "stockStop", "fillBasis", "riskSize", "conviction", "tecShares", "crashStand", "fearBounce", "convNoScore", "runInShares", "funPuts", "newsGate", "tapeSize", "loserBrake", "tecNoScore"]);
   const sw = engineSwitches({});
   assert.deepEqual(sw.fixes, Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, true])));
   assert.equal(BOOK.optionUsd, 2000); assert.equal(sw.optionUsd, 2000);
@@ -866,8 +873,9 @@ ok("fixes: the washout bounce buys a ~0.3-delta call about 21 days out with a -6
 });
 ok("fixes: the record splits where a rule changes, including a switch flipped in Owner Settings", () => {
   // The chain as it stood before the downtrend pack (its three switches off and no put cap of its own): that layer adds no rules number then.
-  const OFF3 = { funPuts: false, newsGate: false, tapeSize: false }, PRE = engineSpecs(OFF3, undefined, null, 25, 25);
-  assert.equal(PRE.technicals.rules.n, 5); assert.match(PRE.technicals.rules.key, /\|down:$/);
+  // The scorecard pack (2026-11-21) is switched off too: it adds no rules number then.
+  const OFF3 = { funPuts: false, newsGate: false, tapeSize: false, loserBrake: false, tecNoScore: false }, PRE = engineSpecs(OFF3, undefined, null, 25, 25);
+  assert.equal(PRE.technicals.rules.n, 5); assert.match(PRE.technicals.rules.key, /\|down:\|card:$/);
   // An engine still on its first rules (before #851) gets both notes in one change, oldest first.
   const es = newEngineState(PRE.technicals); es.rules = 1; delete es.rulesKey;
   const made = adoptRules(es, PRE.technicals, TODAY);
@@ -888,10 +896,10 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   // Changing the cap in Owner Settings later is a logged change at the same rules number;
   // back at 10 the rules stay on 5 and the note says the range.
   const at10 = engineSpecs(OFF3, undefined, null, 10, 25), at12 = engineSpecs(OFF3, undefined, null, 12, 25);
-  assert.equal(at10.technicals.rules.n, 4); assert.equal(at10.technicals.rules.key, `${PRE.technicals.rules.before.key}|cap:10|down:`);
+  assert.equal(at10.technicals.rules.n, 4); assert.equal(at10.technicals.rules.key, `${PRE.technicals.rules.before.key}|cap:10|down:|card:`);
   assert.equal(at12.technicals.rules.n, 5); assert.match(at12.technicals.rules.note, /1 to 12 contracts \(was 1 to 10\)/);
   const down = adoptRules(es5, at10.technicals, TODAY);
-  assert.equal(down.kind, "rules"); assert.match(down.text, /Size range: each risk-sized option trade buys 1 to 10 contracts\. News gate.*switched off\.$/); assert.equal(es5.rules, 5);
+  assert.equal(down.kind, "rules"); assert.match(down.text, /Size range: each risk-sized option trade buys 1 to 10 contracts\. News gate.*switched off\..*Loser brake.*switched off\.$/); assert.equal(es5.rules, 5);
   assert.match(adoptRules(es5, at12.technicals, TODAY).text, /1 to 12 contracts\. News gate/); assert.equal(adoptRules(es5, at12.technicals, TODAY), null, "once");
   assert.equal(engineSpecs(undefined, undefined, null, 25), ENGINES); assert.equal(engineSpecs(undefined, undefined, null, 99), ENGINES, "out of range = the default");
   assert.deepEqual(at10.core ?? null, null); assert.equal(at10.trend, ENGINES.trend, "core engines have no cap step");
@@ -912,7 +920,7 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   // Every fix off on an engine: back to rules 2's setups, logged, rules number kept.
   const allOff = Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false]));
   out = stepBook(state, emptyRecord(), bookInput({}, { engines: ["reversion"], specs: engineSpecs(allOff), fixesOff: ENGINE_FIX_IDS }));
-  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 8);
+  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 9);
   // A trade opened with a fix off carries the ones that reach its engine.
   const rv = stepBook(emptyState(), emptyRecord(), bookInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], specs: engineSpecs({ bounce: false, stockStop: false }), fixesOff: ["bounce", "stockStop"] })).opened[0];
   assert.deepEqual(rv.fixesOff, ["bounce"]);
@@ -927,7 +935,7 @@ ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average,
   // (The honest paper trades sit on top as rules 5: the trial is rules 4.)
   // (The contract cap of 2026-11-20 is rules 6 on top of those.)
   const revR = peel(ENGINES.reversion.rules);
-  assert.equal(ENGINES.reversion.rules.n, 8, "the downtrend pack is rules 8 on top (the live data pack 7)");
+  assert.equal(ENGINES.reversion.rules.n, 9, "the scorecard pack is rules 9 on top (the downtrend pack 8, the live data pack 7)");
   assert.equal(revR.n, 6); assert.equal(revR.before.n, 5); assert.equal(revR.before.before.n, 4); assert.equal(revR.before.before.date, "2026-11-19");
   assert.match(revR.before.before.note, /paper trial/); assert.match(revR.key, /\|trials:rsi2Dip\|cap:25$/);
   assert.equal(ownerSettingDef("ENGINES_TRIAL_RSI2_DIP")?.default, true);
@@ -1006,7 +1014,7 @@ ok("paper trial: index funds after extreme fear buy shares for 20 sessions, deci
   assert.equal(st.trial, true); assert.equal(st.calls, "shares"); assert.equal(st.levels, false); assert.equal(st.exits.maxSessions, 20);
   assert.match(st.label, /paper trial/); assert.match(st.how, /unproven/i);
   const macR = peel(ENGINES.macro.rules);
-  assert.equal(ENGINES.macro.rules.n, 8); assert.equal(macR.n, 6); assert.equal(macR.before.n, 5); assert.equal(macR.before.before.n, 4); assert.equal(macR.before.before.before.n, 3); assert.match(macR.key, /\|trials:fearIndex\|cap:25$/);
+  assert.equal(ENGINES.macro.rules.n, 9); assert.equal(macR.n, 6); assert.equal(macR.before.n, 5); assert.equal(macR.before.before.n, 4); assert.equal(macR.before.before.before.n, 3); assert.match(macR.key, /\|trials:fearIndex\|cap:25$/);
   assert.equal(ownerSettingDef("ENGINES_TRIAL_FEAR_INDEX")?.default, true);
   assert.equal(engineSwitches({}).trials.fearIndex, true);
   assert.equal(engineSwitches({ ENGINES_TRIAL_FEAR_INDEX: "off" }).trials.fearIndex, false);
@@ -1352,15 +1360,15 @@ ok("honest: rules 4 is adopted once on a running engine, and every new trade say
   // Reversion as it runs on main after #870 (rules 4, the paper trial): one change to rules 5.
   const es = newEngineState(ENGINES.reversion); es.rules = 4; es.rulesKey = "fixes:retirePuts,bounce,size|trials:rsi2Dip";
   const made = adoptRules(es, ENGINES.reversion, TODAY);
-  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\).*New rules \(wider size range\).*New rules \(live data pack\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.match(made.text, /New rules \(downtrend pack\)/); assert.equal(es.rules, 8);
+  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\).*New rules \(wider size range\).*New rules \(live data pack\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.match(made.text, /New rules \(downtrend pack\).*New rules \(scorecard pack\)/); assert.equal(es.rules, 9);
   assert.equal(adoptRules(es, ENGINES.reversion, TODAY), null);
   // An engine still on rules 3 gets both notes in one change, the trial first.
   const es3b = newEngineState(ENGINES.reversion); es3b.rules = 3; es3b.rulesKey = "fixes:retirePuts,bounce,size";
   const both = adoptRules(es3b, ENGINES.reversion, TODAY);
-  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 8);
+  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 9);
   // Earnings (no trial): rules 3 to 4.
   const ee = newEngineState(ENGINES.earnings); ee.rules = 3; ee.rulesKey = "fixes:size";
-  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 7);
+  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 8);
   // Shares on the conviction size with the flat size kept.
   const sh = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true })).opened[0];
   assert.ok(isSharesTrade(sh)); assert.ok(Number.isInteger(sh.contract.flatShares)); assert.equal(sh.contract.size.mode, "risk"); assert.match(sh.contract.size.why, /a share/);
@@ -1624,6 +1632,14 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
   assert.deepEqual(view.engines.map((e) => e.id), ENGINE_IDS);
   assert.equal(view.engines.reduce((a, e) => a + e.open.length, 0), rec.open.length);
   assert.equal(view.compare.length, 10);
+  // The scorecard pack (2026-11-21): the page blocks build without an error,
+  // and the variant books live in the state file only, under their own IDs.
+  assert.ok(view.scorecard && !view.scorecard.error && view.scorecard.rows.length === 10, JSON.stringify(view.scorecard).slice(0, 200));
+  assert.ok(view.brake && !view.brake.error && Array.isArray(view.brake.rows));
+  assert.ok(view.variants && !view.variants.error && view.variants.rows.length === VARIANTS.length);
+  assert.ok(st.variants && Object.keys(st.variants.books).length >= 1 && st.variantRuns.length >= 1, JSON.stringify(st.variantRuns || null));
+  for (const b of Object.values(st.variants.books)) for (const t of [...b.record.open, ...b.record.closed]) { assert.match(t.tradeId, /~/); assert.ok(!ids.includes(t.tradeId)); }
+  assert.ok(st.brake && st.brake.table, "the brake table is kept");
   // The core engines: a monthly target from the October month-end, held as share lots.
   for (const id of CORE_IDS) {
     const e = view.engines.find((x) => x.id === id);
@@ -1932,8 +1948,8 @@ ok("views: the Webull earnings backup fills only names the main source has no re
 // ---- live data pack (2026-11-20) ----------------------------------------------
 ok("live pack: registry, switches and rules steps", () => {
   // Under the downtrend pack (2026-11-20), which sits on top of every signal engine.
-  const LP = (id) => { const r = ENGINES[id].rules; return /\|down:/.test(r.key) ? r.before : r; };
-  for (const id of FIXED_IDS) assert.match(ENGINES[id].rules.note, /^New rules \(downtrend pack\)/, id);
+  const LP = (id) => { const r = DR(id); return /\|down:/.test(r.key) ? r.before : r; };
+  for (const id of FIXED_IDS) assert.match(DR(id).note, /^New rules \(downtrend pack\)/, id);
   // Two Flow paper trials on top of the cap step (rules 6 on Flow), dated today.
   assert.equal(LP("flow").n, 6); assert.equal(LP("flow").date, "2026-11-20");
   assert.match(LP("flow").note, /^New rules: paper trials are added, labeled unproven: .*large orders.*flagged call volume/);
@@ -1947,7 +1963,7 @@ ok("live pack: registry, switches and rules steps", () => {
   for (const id of ["reversion", "macro", "earnings"]) { assert.match(LP(id).note, /^New rules \(live data pack\)/, id); assert.equal(LP(id).date, "2026-11-20", id); }
   assert.match(LP("reversion").note, /80-84 scores lost 5\.2%/); assert.match(LP("macro").note, /75-79 scores lost 4\.1%/); assert.match(LP("earnings").note, /run-in's up side buys shares/);
   assert.equal(LP("technicals").n, 5); assert.equal(LP("fundamentals").n, 5);
-  assert.equal(ENGINES.reversion.convScore, false); assert.equal(ENGINES.macro.convScore, false); assert.equal(ENGINES.technicals.convScore, undefined);
+  assert.equal(ENGINES.reversion.convScore, false); assert.equal(ENGINES.macro.convScore, false); assert.equal(ENGINES.technicals.convScore, false, "Technicals too since the scorecard pack (2026-11-21)");
   assert.equal(ENGINES.earnings.setups["run-in"].ivShares, true);
   // Every new switch is on by default, read by name, and in Owner Settings.
   for (const [env, path] of [["ENGINES_TRIAL_BIG_ORDER", ["trials", "bigOrder"]], ["ENGINES_TRIAL_OPTION_SURGE", ["trials", "optionSurge"]], ["ENGINES_CONV_NO_SCORE", ["fixes", "convNoScore"]], ["ENGINES_RUNIN_BY_IV", ["fixes", "runInShares"]]]) {
@@ -1966,7 +1982,7 @@ ok("live pack: registry, switches and rules steps", () => {
   assert.match(off.reversion.rules.switchNote, /leaves out the setup score.*switched off/);
   const es = newEngineState(ENGINES.flow); es.rules = 5; es.rulesKey = peel(ENGINES.flow.rules).key;
   const made = adoptRules(es, ENGINES.flow, "2026-11-20");
-  assert.equal(made.kind, "rules"); assert.equal(es.rules, 7); assert.match(made.text, /^New rules: paper trials are added.* New rules \(downtrend pack\)/);
+  assert.equal(made.kind, "rules"); assert.equal(es.rules, 8); assert.match(made.text, /^New rules: paper trials are added.* New rules \(downtrend pack\).* New rules \(scorecard pack\)/);
   assert.equal(adoptRules(es, ENGINES.flow, "2026-11-20"), null, "once");
   assert.match(adoptRules(es, off.flow, "2026-11-21").text, /switched off and opens nothing new/);
 });
@@ -2037,8 +2053,14 @@ ok("live pack: conviction leaves the score out on Reversion and Macro only", () 
   const rv = stepBook(emptyState(), emptyRecord(), honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"] })).opened.find((t) => t.setup === "oversold-bounce");
   assert.ok(rv); const sp = (rv.contract.size.parts || []).find((p) => p.key === "score");
   assert.equal(sp?.x, 1); assert.match(sp.why, /left out/);
+  // Technicals leaves it out too since the scorecard pack (2026-11-21,
+  // ENGINES_TEC_NO_SCORE, a switch of its own): off puts its score back.
   const tc = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true })).opened[0];
-  assert.notEqual((tc.contract.size.parts || []).find((p) => p.key === "score")?.why, sp.why, "Technicals keeps its score part");
+  assert.equal((tc.contract.size.parts || []).find((p) => p.key === "score")?.why, sp.why, "Technicals leaves its score out");
+  const tcOld = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true, specs: engineSpecs({ tecNoScore: false }) })).opened[0];
+  assert.match((tcOld.contract.size.parts || []).find((p) => p.key === "score")?.why || "", /^score \d+ against a bar/, "ENGINES_TEC_NO_SCORE off: Technicals keeps its score part");
+  const tcRev = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true, specs: engineSpecs({ convNoScore: false }) })).opened[0];
+  assert.equal((tcRev.contract.size.parts || []).find((p) => p.key === "score")?.why, sp.why, "the Reversion/Macro switch does not move Technicals");
   const back = stepBook(emptyState(), emptyRecord(), honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], specs: engineSpecs({ convNoScore: false }) })).opened.find((t) => t.setup === "oversold-bounce");
   assert.match((back.contract.size.parts || []).find((p) => p.key === "score")?.why || "", /^score \d+ against a bar/);
 });
@@ -2183,11 +2205,11 @@ ok("downtrend pack: switches, Owner Settings, rules step and the put cap setting
   for (const env of ["ENGINES_FUN_PUTS5", "ENGINES_NEWS_GATE", "ENGINES_TAPE_SIZE"]) assert.equal(ownerSettingDef(env)?.default, true, env);
   // Rules: the newest step on every signal engine, naming the put cap; core engines untouched.
   for (const id of FIXED_IDS) {
-    const r = ENGINES[id].rules;
+    const r = DR(id);
     assert.equal(r.date, "2026-11-20", id); assert.match(r.note, /^New rules \(downtrend pack\): .*news volume.*market tape.*each risk-sized put buys 1 to 10 contracts \(calls keep the 25-contract cap\)/, id);
     assert.match(r.key, /\|down:(funPuts,)?newsGate,tapeSize\|putcap:10$/, id);
   }
-  assert.match(ENGINES.fundamentals.rules.note, /five worst-ranked/); assert.doesNotMatch(ENGINES.reversion.rules.note, /five worst-ranked/);
+  assert.match(DR("fundamentals").note, /five worst-ranked/); assert.doesNotMatch(DR("reversion").note, /five worst-ranked/);
   for (const id of CORE_IDS) assert.equal(ENGINES[id].rules?.key?.includes("|down:") || false, false, id);
   // Each switch off moves the key (a logged change); a put cap equal to the calls' cap is no cap of its own.
   const off = engineSpecs({ newsGate: false, tapeSize: false, funPuts: false });
@@ -2196,11 +2218,11 @@ ok("downtrend pack: switches, Owner Settings, rules step and the put cap setting
   assert.match(off.reversion.rules.switchNote, /News gate.*switched off/);
   assert.equal(engineSpecs(undefined, undefined, null, 25, 10), ENGINES);
   const p4 = engineSpecs(undefined, undefined, null, 25, 4);
-  assert.match(p4.macro.rules.note, /1 to 4 contracts/); assert.match(p4.macro.rules.key, /\|putcap:4$/);
+  assert.match(DR("macro", p4).note, /1 to 4 contracts/); assert.match(DR("macro", p4).key, /\|putcap:4$/);
   const same = engineSpecs({ newsGate: false, tapeSize: false }, undefined, null, 8, 10);
   assert.equal(same.reversion.rules.n, ENGINES.reversion.rules.n - 1, "cap 8 under a put cap of 10: no separate put cap, no step");
   // Risk sizing off: no put cap in the rules.
-  assert.doesNotMatch(engineSpecs({ riskSize: false }).macro.rules.note, /put buys/);
+  assert.doesNotMatch(DR("macro", engineSpecs({ riskSize: false })).note, /put buys/);
 });
 ok("downtrend pack: a put buys at most 10 contracts (calls keep 25), the Riskier dial stops there too", () => {
   // A cheap put on the Fundamentals rank: the budget asks for more than 10.
@@ -2353,6 +2375,231 @@ ok("Downside puts in the book: half the risk budget (a quarter in extreme fear),
   assert.equal(run({}, { off: new Set(["downside"]) }).opened.length, 0);
 });
 
+// ---------------------------------------------------------------------------
+// The scorecard pack (2026-11-21): the loser brake, Technicals' conviction
+// without the score, the per-engine scorecard and the variant shadows.
+// ---------------------------------------------------------------------------
+const SCORE_DOC = JSON.parse(fs.readFileSync(new URL("../research/engines/scorecard/latest.json", import.meta.url), "utf8"));
+ok("scorecard pack: switches, Owner Settings and the rules step", () => {
+  const sw = engineSwitches({});
+  assert.equal(sw.fixes.loserBrake, true); assert.equal(sw.fixes.tecNoScore, true); assert.equal(sw.variants, true);
+  assert.equal(engineSwitches({ ENGINES_LOSER_BRAKE: "0" }).fixes.loserBrake, false);
+  assert.equal(engineSwitches({ ENGINES_TEC_NO_SCORE: "off" }).fixes.tecNoScore, false);
+  assert.equal(engineSwitches({ ENGINES_VARIANTS: "0" }).variants, false);
+  for (const env of ["ENGINES_LOSER_BRAKE", "ENGINES_TEC_NO_SCORE", "ENGINES_VARIANTS"]) {
+    const def = ownerSettingDef(env); assert.ok(def && def.kind === "switch" && def.default === true && def.group === "Strategy engines" && def.scope === "build", env);
+  }
+  // The newest rules step on every signal engine the fixes reach, dated 2026-11-21.
+  for (const id of FIXED_IDS) {
+    const r = ENGINES[id].rules;
+    assert.equal(r.date, "2026-11-21", id); assert.match(r.note, /^New rules \(scorecard pack\): the loser brake/, id); assert.match(r.key, /\|card:loserBrake(,tecNoScore)?$/, id);
+    assert.equal(r.n, (r.before.n || 1) + 1, id);
+  }
+  assert.match(ENGINES.technicals.rules.note, /60-64 scores lost 0\.84%/); assert.doesNotMatch(ENGINES.reversion.rules.note, /60-64/);
+  for (const id of [...CORE_IDS, "downside"]) assert.ok(!String(ENGINES[id].rules?.key || "").includes("|card:"), id);
+  // Off: no rules number, the key moves (a logged change), the flags come back.
+  const off = engineSpecs({ loserBrake: false, tecNoScore: false });
+  assert.equal(off.technicals.convScore, true); assert.equal(off.reversion.loserBrake, false); assert.equal(off.reversion.convScore, false, "Reversion keeps its own switch");
+  for (const id of FIXED_IDS) { assert.equal(off[id].rules.n, ENGINES[id].rules.n - 1, id); assert.match(off[id].rules.switchNote, /Loser brake.*switched off/, id); }
+});
+ok("loser brake: half size at 30+ closes and t under -1, never under a quarter, only ever down", () => {
+  assert.deepEqual({ ...BRAKE }, { minN: 30, t: -1, mult: 0.5, floor: 0.25 });
+  const key = "reversion|oversold-bounce|call|o";
+  // 40 closes averaging -5% with a spread of about 10: t about -3.
+  const rows = { [key]: [40, -200, 40 * (25 + 100)] };
+  const r = brakeRead(null, rows, key);
+  assert.equal(r.n, 40); assert.equal(r.avg, -5); assert.ok(r.t < -2.5 && r.t > -3.5, String(r.t)); assert.equal(r.on, true);
+  assert.equal(brakeMult(r), 0.5); assert.equal(brakeMult(r, 0.6), 0.5); assert.equal(brakeMult(r, 0.4), 0.63, "with the 0.4x tape: 0.25 / 0.4"); assert.equal(brakeMult(r, 0.2), 1, "never over 1");
+  // Too few closes, or a t value at or over -1: no brake.
+  assert.equal(brakeRead(null, { [key]: [29, -145, 29 * 125] }, key).on, false);
+  assert.equal(brakeRead(null, { [key]: [200, -20, 200 * 400] }, key).on, false, "t about -0.7");
+  assert.equal(brakeMult(brakeRead(null, {}, key)), 1);
+  // Live closes add to the prior; trials, core engines and Owner closes are left out.
+  const st = {};
+  brakeObserve(st, { engine: "reversion", setup: "oversold-bounce", side: "call", contract: { structure: "long" }, optionPnlPct: 10, outcome: "win", exitDate: "2026-11-20T20:30:00Z" });
+  brakeObserve(st, { engine: "reversion", setup: "rsi2-dip", side: "call", contract: { structure: "shares" }, optionPnlPct: -3, outcome: "loss", trial: true });
+  brakeObserve(st, { engine: "momentum", setup: "top-10", side: "call", contract: { structure: "shares" }, optionPnlPct: -3, outcome: "loss" });
+  brakeObserve(st, { engine: "reversion", setup: "capitulation", side: "call", contract: { structure: "shares" }, optionPnlPct: -3, outcome: "loss", status: "owner-avoid" });
+  assert.deepEqual(Object.keys(st.brake.table), [key]); assert.deepEqual(st.brake.table[key], [1, 10, 100]);
+  assert.equal(brakeRead(st, rows, key).n, 41); assert.equal(brakeRead(st, rows, key).liveN, 1); assert.equal(brakeRead(st, rows, key).priorN, 40);
+  // The first run seeds the live table from the record and the shadow books, once.
+  const s2 = emptyState(); s2.engines.reversion = { shadow: { closed: [{ engine: "reversion", setup: "oversold-bounce", side: "call", contract: { strike: 1 }, optionPnlPct: -20 }] } };
+  const rec = { closed: [{ engine: "reversion", setup: "oversold-bounce", side: "call", contract: { structure: "long" }, optionPnlPct: 5, outcome: "win" }] };
+  assert.equal(brakeSeed(s2, rec), true); assert.deepEqual(s2.brake.table[key], [2, -15, 425]); assert.equal(brakeSeed(s2, rec), false);
+});
+ok("loser brake: the committed real-price prior brakes the bounce calls, the fear-bounce calls and the yields-rising puts", () => {
+  const prior = brakePrior(SCORE_DOC);
+  assert.ok(prior && Object.keys(prior).length >= 10);
+  for (const [k, row] of Object.entries(prior)) { assert.ok(Array.isArray(row) && row.length === 3 && row[0] > 0, k); assert.ok(!/\|(rsi2-dip|fear-index)\|/.test(k), "no paper trial in the prior"); assert.ok(!/^(trend|momentum|rotation)\|/.test(k), "no core engine"); }
+  const v = brakeView({}, prior);
+  assert.deepEqual(v.rows.filter((r) => r.on).map((r) => r.key).sort(), ["macro|rates-rise|put|o", "reversion|fear-bounce|call|o", "reversion|oversold-bounce|call|o"]);
+  assert.ok(v.rows.filter((r) => r.on).every((r) => r.mult === 0.5));
+  assert.equal(v.rows.find((r) => r.key === "technicals|pullback|call|s").on, false);
+  assert.equal(brakeView({}, prior, { enabled: false }).rows.find((r) => r.on).mult, 1, "switched off: shown at 1x");
+  // The file holds aggregates only (the repo is public): no trade, symbol or date per trade.
+  const txt = JSON.stringify(SCORE_DOC);
+  assert.doesNotMatch(txt, /"(sym|symbol|tradeId|en|ex|path)":/);
+});
+ok("loser brake: a braked setup opens at half its size, its shares twin and the other engines are untouched", () => {
+  const key = "reversion|oversold-bounce|call|o";
+  const prior = { [key]: [100, -600, 100 * (36 + 400)] };
+  const run = (brake, specs) => stepBook(emptyState(), emptyRecord(), honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], brake, ...(specs ? { specs } : {}) })).opened.find((t) => t.setup === "oversold-bounce");
+  const plain = run(null), held = run({ enabled: true, prior }), off = run({ enabled: false, prior }), specOff = run({ enabled: true, prior }, engineSpecs({ loserBrake: false }));
+  assert.ok(plain && held, "the braked setup still opens (never off)");
+  assert.ok(contractsOf(plain.contract) >= 2, String(contractsOf(plain.contract)));
+  assert.equal(contractsOf(held.contract), Math.max(1, Math.round(contractsOf(plain.contract) * 0.5)));
+  assert.equal(held.brake.mult, 0.5); assert.equal(held.brake.n, 100); assert.match(held.contract.size.why, /loser brake 0\.5x \(t -\d/); assert.equal(held.contract.size.brakeMult, 0.5);
+  assert.equal(contractsOf(off.contract), contractsOf(plain.contract)); assert.equal(off.brake, undefined);
+  assert.equal(contractsOf(specOff.contract), contractsOf(plain.contract), "ENGINES_LOSER_BRAKE off reaches the spec too");
+  // Shares on Technicals read their own row.
+  const tkey = "technicals|pullback|call|s";
+  const tec = (brake) => stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true, brake })).opened[0];
+  const t0 = tec(null), t1 = tec({ enabled: true, prior: { [tkey]: [60, -120, 60 * 30] } }), t2 = tec({ enabled: true, prior });
+  assert.equal(t1.contract.shares, Math.max(1, Math.floor(t0.contract.shares * 0.5))); assert.equal(t2.contract.shares, t0.contract.shares, "another setup's record does not brake it");
+  // A one-contract trade stays one contract.
+  assert.equal(scaleOne(), 1);
+  function scaleOne() { const c = held.contract; return Math.max(1, Math.round(1 * 0.5)); }
+  // The live table counts what closes: real and shadow, through stepBook.
+  const st = emptyState(), rec = emptyRecord();
+  stepBook(st, rec, honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], brake: { enabled: true, prior: null } }));
+  for (const t of rec.open) { t.optionPnlPct = -50; t.markPnlPct = -70; }
+  stepBook(st, rec, honestInput({ CCC: V("CCC", WASHOUT({ date: "2026-11-16" })) }, { engines: ["reversion"], nowIso: "2026-11-17T16:00:00.000Z", brake: { enabled: true, prior: null } }));
+  if (rec.closed.length) assert.ok(Object.values(st.brake?.table || {}).reduce((a, r) => a + r[0], 0) >= rec.closed.filter((t) => t.outcome !== "void").length);
+});
+ok("Technicals conviction without the score; the history test still reads the score where the switch is off", () => {
+  assert.equal(ENGINES.technicals.convScore, false);
+  const r = convictionRead({ score: 78, bar: 60, scorePart: ENGINES.technicals.convScore !== false });
+  assert.equal(r.parts[0].x, 1); assert.match(r.parts[0].why, /left out/);
+  assert.equal(engineSpecs({ tecNoScore: false }).technicals.convScore, true);
+});
+// A closed trade for the scorecard tests.
+const SC = (engine, exitDate, pct, { usd = 2000, shares = false, trial = false, macroState = "neutral", setup = "s", side = "call", signalKey = null, entryDate = null, tradeId = null } = {}) => ({
+  tradeId: tradeId || `${engine}-${exitDate}-${pct}-${Math.random()}`, engine, setup, side, symbol: "X", trial, macroState, signalKey: signalKey || `${engine}|${exitDate}|${pct}`,
+  entryDate: entryDate || `${exitDate}T15:00:00Z`, exitDate: `${exitDate}T20:30:00Z`, status: pct > 0 ? "take-profit" : "stop", outcome: pct > 0 ? "win" : pct < 0 ? "loss" : "flat", optionPnlPct: pct,
+  contract: shares ? { structure: "shares", shares: usd / 100, mid: 100 } : { structure: "long", optionType: side, strike: 100, expiry: 1, mid: usd / 100, qty: 1 } });
+ok("scorecard: per engine and per tape, worst drop, Sharpe after 20 weeks, correlation after 12, the book without each engine", () => {
+  assert.equal(weekOf("2026-11-21"), "2026-11-16"); assert.equal(weekOf("2026-11-16"), "2026-11-16"); assert.equal(weeksBetween("2026-11-16", "2026-11-30").length, 3);
+  assert.equal(worstDrop([100, -50, -80, 40]), -130); assert.equal(sharpeOf([1, 1, 1]), null);
+  // Five weeks: no Sharpe, no correlation yet.
+  const few = { closed: [SC("technicals", "2026-11-17", 10, { shares: true, macroState: "risk-off" }), SC("technicals", "2026-11-24", -5, { shares: true }), SC("macro", "2026-11-18", -20, { macroState: "risk-off" }), SC("reversion", "2026-11-19", 4, { trial: true, shares: true })], builtAtIso: "2026-12-15T20:30:00Z" };
+  const a = buildScorecard(few, { today: "2026-12-15", history: SCORE_DOC });
+  const tec = a.rows.find((r) => r.id === "technicals");
+  assert.equal(a.rows.length, ENGINE_IDS.length); assert.equal(tec.n, 2); assert.equal(tec.avg, 2.5); assert.equal(tec.winRate, 0.5); assert.equal(tec.usd, 100); assert.equal(tec.worstUsd, -100);
+  assert.equal(tec.sharpe, null); assert.ok(tec.sharpeIn > 0); assert.equal(tec.parts.shares.n, 2); assert.equal(tec.parts.options.n, 0);
+  assert.deepEqual(tec.byTape.map((x) => x.state).sort(), ["neutral", "risk-off"]);
+  assert.ok(tec.history.length >= 1 && tec.history[0].label === "Technicals, shares");
+  assert.equal(a.rows.find((r) => r.id === "reversion").parts.trials.n, 1);
+  assert.equal(a.correlation.ready, false); assert.equal(a.book.sharpe, null);
+  assert.equal(a.rows.find((r) => r.id === "macro").without.usd, 100 + 80);
+  assert.equal(a.rows.find((r) => r.id === "flow").without, null, "no closes: no without-read");
+  // 30 weeks: Sharpe and correlation.
+  const many = [];
+  for (let w = 0; w < 30; w++) {
+    const d = new Date(Date.parse("2026-01-05T12:00:00Z") + w * 7 * 86400000).toISOString().slice(0, 10);
+    many.push(SC("technicals", d, w % 3 ? 4 : -3, { shares: true }), SC("momentum", d, w % 3 ? 3 : -2, { shares: true }), SC("macro", d, w % 3 ? -2 : 6));
+  }
+  const b = buildScorecard({ closed: many }, { today: "2026-08-03", history: null });
+  const t2 = b.rows.find((r) => r.id === "technicals");
+  assert.ok(t2.weeks >= 30 && Number.isFinite(t2.sharpe) && t2.sharpeIn === 0);
+  assert.ok(b.correlation.ready); assert.deepEqual(b.correlation.ids, ["macro", "technicals", "momentum"]);
+  const ix = (id) => b.correlation.ids.indexOf(id);
+  assert.equal(b.correlation.matrix[ix("technicals")][ix("momentum")], 1); assert.ok(b.correlation.matrix[ix("technicals")][ix("macro")] < -0.9);
+  assert.ok(Number.isFinite(b.book.sharpe)); assert.ok(Number.isFinite(b.rows.find((r) => r.id === "macro").without.sharpe));
+  // Void and left-coverage closes are not counted.
+  const v = buildScorecard({ closed: [{ ...SC("flow", "2026-11-17", 5), outcome: "void" }, { ...SC("flow", "2026-11-17", 5), status: "left-coverage" }] }, { today: "2026-11-20" });
+  assert.equal(v.rows.find((r) => r.id === "flow").n, 0);
+});
+ok("variants: the registry stays inside its limits, each changes one thing with a stated hypothesis", () => {
+  assert.deepEqual(validateVariants(), []);
+  assert.deepEqual({ ...VARIANT_LIMITS }, { perEngine: 3, total: 20, minPaired: 30, holmT: 2.4, months: 6, closedKept: 300 });
+  assert.deepEqual(VARIANTS.map((v) => v.id), ["TEC-bar65", "TEC-stop2.5", "REV-bounce-shares", "REV-rsi2-7500", "MAC-riskoff-aside", "MAC-fall60", "FUN-top-shares", "ERN-runin-shares", "DWN-budget75"]);
+  const four = [...VARIANTS, { ...VARIANTS[0], id: "TEC-x" }, { ...VARIANTS[1], id: "TEC-y" }];
+  assert.ok(validateVariants(four).some((e) => /technicals: 4 variants/.test(e)));
+  assert.ok(validateVariants([{ id: "A", engine: "trend", kind: "behavior", change: "x", hypothesis: "y", promoteIf: "z", patch: {} }]).some((e) => /not a signal engine/.test(e)));
+  assert.ok(validateVariants([{ id: "B", engine: "macro", kind: "behavior", change: "x", promoteIf: "z", patch: {} }]).some((e) => /hypothesis/.test(e)));
+  // One change each.
+  const s1 = variantSpec(ENGINES.technicals, VARIANTS.find((v) => v.id === "TEC-stop2.5"));
+  assert.equal(s1.sharesStopAtr, 2.5); assert.deepEqual(s1.setups, ENGINES.technicals.setups); assert.deepEqual(s1.contract, ENGINES.technicals.contract);
+  const s2 = variantSpec(ENGINES.reversion, VARIANTS.find((v) => v.id === "REV-bounce-shares"));
+  assert.equal(s2.setups["oversold-bounce"].instrument, "shares"); assert.deepEqual(s2.setups["oversold-bounce"].contract, ENGINES.reversion.setups["oversold-bounce"].contract);
+  assert.equal(instrumentFor(s2, "oversold-bounce", "call"), "shares"); assert.equal(instrumentFor(ENGINES.reversion, "oversold-bounce", "call"), "option");
+  const s3 = variantSpec(ENGINES.macro, VARIANTS.find((v) => v.id === "MAC-fall60"));
+  assert.deepEqual(contractFor(s3, "rates-fall"), { ...ENGINES.macro.contract, dteMin: 50, dteIdeal: 60, dteMax: 80 }); assert.deepEqual(contractFor(s3, "rates-rise"), { ...ENGINES.macro.contract });
+  const s4 = variantSpec(ENGINES.fundamentals, VARIANTS.find((v) => v.id === "FUN-top-shares"));
+  assert.equal(s4.setups["rank-top"].exits.maxSessions, 60); assert.equal(s4.setups["rank-bottom"], ENGINES.fundamentals.setups["rank-bottom"]);
+  assert.equal(variantSpec(ENGINES.downside, VARIANTS.find((v) => v.id === "DWN-budget75")).budgetX, 0.75);
+  assert.equal(variantEnds(VARIANTS[0]), "2027-05-23");
+});
+ok("variants: paired books on the same input, own trade IDs, never in the live record, no learning", () => {
+  const views = { AAA: V("AAA", pullF()), BBB: V("BBB", pullF({ rsi2Min3: 9 })) };
+  const state = emptyState(), record = emptyRecord();
+  const input = honestInput(views, { engines: ["technicals"], shares: true, brake: { enabled: true, prior: null } });
+  // A signal the parent took before the variant started stays the parent's.
+  (state.engines.technicals ||= newEngineState(ENGINES.technicals)).seen["OLD|pullback|2026-11-10"] = "t";
+  const seedFrom = { technicals: { seen: { ...state.engines.technicals.seen }, cooldown: { ...state.engines.technicals.cooldown } } };
+  stepBook(state, record, input);
+  const parentBar = state.engines.technicals.bar;
+  const before = JSON.stringify(record), learnBefore = JSON.stringify(state.engines.technicals);
+  const tec = VARIANTS.filter((v) => v.engine === "technicals").map((v) => ({ ...v, started: TODAY }));
+  const sum = runVariants(state, input, { today: TODAY, nowIso: NOW_AM, list: tec, seedFrom });
+  assert.equal(state.variants.books["TEC-stop2.5"].state.engines.technicals.seen["OLD|pullback|2026-11-10"], "t", "a new book starts with the parent's earlier seen signals");
+  assert.equal(sum.ran, 2); assert.deepEqual(sum.errors, []);
+  assert.equal(JSON.stringify(record), before, "the live record is untouched");
+  assert.equal(JSON.stringify(state.engines.technicals), learnBefore, "the parent's learning state is untouched");
+  const stop = state.variants.books["TEC-stop2.5"], bar = state.variants.books["TEC-bar65"];
+  assert.ok(stop.record.open.length >= 1);
+  for (const t of stop.record.open) { assert.match(t.tradeId, /^TEC-stop2\.5~TEC:/); assert.equal(t.variant, "TEC-stop2.5"); }
+  // Same signals as the parent; only the stop moved.
+  const p = record.open.find((t) => t.symbol === stop.record.open[0].symbol);
+  assert.equal(stop.record.open[0].signalKey, p.signalKey);
+  assert.ok(stop.record.open[0].stopLevel > p.stopLevel, `${stop.record.open[0].stopLevel} > ${p.stopLevel}`);
+  // The bar variant took only signals scoring 65+.
+  assert.ok(bar.record.open.every((t) => t.score >= 65)); assert.equal(state.engines.technicals.bar, parentBar);
+  // Only the variant's own parts are kept in its state.
+  assert.deepEqual(Object.keys(stop.state.engines.technicals).sort(), ["cooldown", "seen", "shadow"]);
+  // The afternoon run: nothing opened twice.
+  const again = runVariants(state, honestInput(views, { engines: ["technicals"], shares: true, nowIso: NOW_PM, late: true }), { today: TODAY, nowIso: NOW_PM, list: tec });
+  assert.equal(again.opened, 0);
+  // A later run where the stock falls through every stop: the variant books
+  // close their trades (learning logs are scratch, so a close never throws).
+  const crash = { AAA: V("AAA", pullF({ c: 80, l: 79, lo5: 79 })), BBB: V("BBB", pullF({ rsi2Min3: 9, c: 80, l: 79, lo5: 79 })) };
+  const DAY2 = "2026-11-17";
+  const third = runVariants(state, honestInput(crash, { engines: ["technicals"], shares: true, nowIso: DAY2 + "T16:00:00.000Z", today: DAY2 }), { today: DAY2, nowIso: DAY2 + "T16:00:00.000Z", list: tec });
+  assert.deepEqual(third.errors, []); assert.ok(third.closed >= 1, JSON.stringify(third));
+  const closedIds = stop.record.closed.map((t) => t.tradeId);
+  assert.equal(new Set(closedIds).size, closedIds.length, "no trade closed twice");
+  // The page read.
+  const view = variantsView(state, record, { today: TODAY, list: tec });
+  assert.equal(view.rows.length, 2); assert.ok(view.rows.every((r) => r.status === "collecting" && r.pairs.waiting >= 0 && r.hypothesis));
+  // Switched off: shown as off, books kept.
+  assert.ok(variantsView(state, record, { today: TODAY, enabled: false, list: tec }).rows.every((r) => r.status === "off"));
+  // The risk-off gate opens nothing and tracks no shadow trade.
+  const mac = { ...VARIANTS.find((v) => v.id === "MAC-riskoff-aside"), started: TODAY };
+  const ms = emptyState(); ms.engines.macro = newEngineState(ENGINES.macro);
+  runVariants(ms, honestInput({}, { engines: ["macro"], ctx: { ...CTX, macroState: "severe-risk-off" } }), { today: TODAY, nowIso: NOW_AM, list: [mac] });
+  assert.equal(ms.variants.books["MAC-riskoff-aside"].record.open.length, 0);
+});
+ok("variants: the paired read counts a signal one book skipped as $0, waits for open trades, and needs 30 pairs and t 2.4", () => {
+  const v = { id: "T", engine: "technicals", scope: null, started: "2026-11-21", kind: "behavior" };
+  const since = "2026-11-21T00:00:00Z";
+  const par = [SC("technicals", "2026-11-24", 10, { signalKey: "a", entryDate: "2026-11-21T16:00:00Z" }), SC("technicals", "2026-11-24", -10, { signalKey: "b", entryDate: "2026-11-21T16:00:00Z" }),
+    { ...SC("technicals", "2026-11-24", 0, { signalKey: "c", entryDate: "2026-11-21T16:00:00Z" }), exitDate: null }, SC("technicals", "2026-11-10", 50, { signalKey: "old", entryDate: "2026-11-02T16:00:00Z" })];
+  const vt = [SC("technicals", "2026-11-25", 20, { signalKey: "a", entryDate: "2026-11-21T16:00:00Z" }), SC("technicals", "2026-11-25", 5, { signalKey: "d", entryDate: "2026-11-21T16:00:00Z" }), SC("technicals", "2026-11-25", 5, { signalKey: "c", entryDate: "2026-11-21T16:00:00Z" })];
+  const r = pairedRead(v, par, vt, since);
+  // a: +200, b: +200 (parent lost $200, variant skipped), d: +100; c waits for the parent; "old" is before the start.
+  assert.equal(r.n, 3); assert.equal(r.both, 1); assert.equal(r.parentOnly, 1); assert.equal(r.variantOnly, 1); assert.equal(r.waiting, 1); assert.equal(r.totalUsd, 500);
+  // A variant that changes how a trade is made is read on signals both took.
+  const same = pairedRead({ ...v, match: "same" }, par, vt, since);
+  assert.equal(same.n, 1); assert.equal(same.both, 1); assert.equal(same.parentOnly, 1); assert.equal(same.variantOnly, 1); assert.equal(same.totalUsd, 200);
+  // A side-limited variant leaves the other side out.
+  assert.equal(pairedRead({ ...v, side: "put" }, par, vt, since).n, 0);
+  assert.ok(VARIANTS.filter((x) => x.match === "same").length >= 4 && VARIANTS.find((x) => x.id === "ERN-runin-shares").side === "call");
+  // A sizing variant is recomputed from the record.
+  const sz = VARIANTS.find((x) => x.id === "REV-rsi2-7500");
+  const rec = { closed: [SC("reversion", "2026-11-24", 2, { trial: true, shares: true, usd: 5000, setup: "rsi2-dip", entryDate: "2026-11-21T16:00:00Z" }), SC("reversion", "2026-11-24", -1, { trial: true, shares: true, usd: 5000, setup: "rsi2-dip", entryDate: "2026-11-19T16:00:00Z" })], open: [] };
+  const row = variantsView({}, rec, { today: "2026-11-24", list: [sz] }).rows[0];
+  assert.equal(row.kind, "sizing"); assert.equal(row.parent.n, 1, "only trades opened since it started"); assert.equal(row.parent.usd, 100); assert.equal(row.variant.usd, 150); assert.equal(row.status, "collecting");
+});
 // The stock split guard (2026-11-20) keeps its checks in its own file; CI
 // runs them through this one.
 {

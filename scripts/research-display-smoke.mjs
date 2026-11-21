@@ -45,7 +45,10 @@ export function verifyResearchDisplay(appJs) {
   assert.equal(scenarioEventPhase({date:'2026-12-04',window:'08:30 ET'},Date.parse('2026-12-04T13:00:00Z')),'upcoming');
 
   const section = (start,end) => appJs.slice(appJs.indexOf(start),appJs.indexOf(end,appJs.indexOf(start)));
-  const context = {pickDisplayDecision,pickReviewCheckpoint,escapeHtml:x=>String(x),Date};
+  // The plan summary reads the clock through pickReviewCheckpoint; pin it to the
+  // fixture's day so the check does not fail once the fixture contract expires.
+  const pinnedReview = (p,now) => pickReviewCheckpoint(p, now ?? Date.parse('2026-09-04'));
+  const context = {pickDisplayDecision,pickReviewCheckpoint:pinnedReview,escapeHtml:x=>String(x),Date};
   vm.createContext(context);
   vm.runInContext(section('  function pickEntryPlanHtml(', '  function pickExitPlanHtml('),context);
   const heldHtml = context.pickEntryPlanHtml(be);

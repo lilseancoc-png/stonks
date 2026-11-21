@@ -543,6 +543,96 @@ pack is one dated rules step on top of every signal engine (`|down:` and
   look worse than they were). The tape, the bubble tracker and the news have
   no stored history, so it is a live test and its paper record decides.
 
+### Scorecard pack (2026-11-21)
+
+Owner, 2026-11-20: "measure the engines individual performances improve risk
+and entry because each engine should be given different weighting when it
+comes to position sizing based on what the engine actually measures", and
+shadow engines that "run with different risks, entries, exits, methodology"
+to "measure if x changed what the outcome would be", "as long as it makes
+sense what we are measuring". The research (2026-11-20, real option prices)
+found no sizing weight that beats flat risk sizing in both halves of the
+2007-2026 test, so this pack measures first, sizes down only one place, and
+tests every other idea as a paired paper experiment. Rules only, no AI call,
+no new download. The rules part is one dated step on every signal engine
+(`|card:` in the rules key; Reversion and Macro go to rules 9).
+
+- **Scorecard** (`lib/engines/scorecard.mjs`, `scorecard` in `engines.json`,
+  the page's Scorecard tab): from the live record only (closed trades,
+  realized dollars on the day each trade closed), one row per engine: trades,
+  return a trade, win rate, dollars and dollars a trade, worst drop of the
+  running closed dollars, a weekly Sharpe ratio once the engine has 20 weeks,
+  "the book without this engine" (dollars, worst drop, Sharpe), options /
+  shares / paper trials apart, results by the Top Picks market tape at entry
+  (`macroState`), weekly correlation between engines once the book has 12
+  weeks (engines with 4+ weeks with a close), and the history reference:
+  each sleeve in the 2007-2026 test on real option prices
+  (`research/engines/scorecard/latest.json`, aggregates only). Measurement
+  only.
+- **Loser brake** (`lib/engines/brake.mjs`, `ENGINES_LOSER_BRAKE`): a setup
+  (engine x setup x side x option or shares) with 30 or more closes and a t
+  value (average over its standard error) under -1 sizes new trades at half.
+  The count is the history test's closes on real option prices
+  (`brakePrior` in the research file: closed trades, sum and sum of squares
+  of % results) plus every live and shadow close since (`state.brake`,
+  seeded once from the record and the shadow books). With the market tape
+  step a trade is never under a quarter, and it always keeps one contract or
+  one share, so the brake never stops a setup from trading. It only sizes
+  down, and a setup back above the line is back to normal size at the next
+  run. Paper trials, core engines and Owner closes are left out. At launch it
+  brakes three setups: Reversion's bounce calls, the extreme-fear bounce
+  calls (already one contract, so only stamped) and Macro's yields-rising
+  puts. Each braked trade carries `brake` (mult, t, closes, history closes)
+  and the sizing note says why. The page's Scorecard tab lists every setup
+  with 10+ closes.
+- **Technicals sizes without the score** (`ENGINES_TEC_NO_SCORE`): as
+  Reversion and Macro since 2026-11-20 (`convScore: false`), because the
+  score did not rank Technicals' trades in the history test.
+- **Variant shadows** (`lib/engines/variants.mjs`, `ENGINES_VARIANTS`, the
+  page's Experiments tab): each variant is a copy of one engine with one
+  thing changed and a stated hypothesis and adoption rule. Behavior variants
+  are stepped by the same `stepBook` code on the same input right after the
+  live book, in a paper book of their own (`state.variants.books`, inside
+  `engines-state.json`; no new data key): learning off, the account limits
+  off, trade IDs prefixed `<variant>~`, never mirrored to Webull, never in
+  the live record, the Allocator, learning or Top Picks. They are compared
+  with the live engine signal by signal (a trade only one side took counts
+  as $0 for the other; a pair waits while either side is open). A variant
+  that changes how a trade is made, not which trades are made (options or
+  shares, the contract window, the stop; `match: "same"` on `TEC-stop2.5`,
+  `REV-bounce-shares`, `MAC-fall60`, `FUN-top-shares`, `ERN-runin-shares`),
+  is read only on signals both books took, so a free slot in the variant's
+  younger book or an expiry the run did not load is not read as the change;
+  `side: "call"` keeps a shares variant's comparison to calls (its puts stay
+  options). A new book starts with its parent's seen signals and cooldowns
+  as they were before that run's live step, so it opens only on signals that
+  arrive after it started. Closed variant trades drop their reasons, signal
+  facts, marks and size notes to keep `engines-state.json` small. Sizing
+  variants are recomputed from the live record (the sleeve at another size,
+  with the whole book's Sharpe and worst drop beside it). A verdict needs 30
+  paired closes and t 2.4 or more (raised for testing several at once); each
+  runs six months (up to 12 when its signals are rare), then manages its
+  open trades and opens none. Adopting one
+  is the Owner's call and a new rules version. At most 3 per engine and about
+  20 in all. Starter set (from 2026-11-21):
+
+| Variant | Engine | Change |
+|---|---|---|
+| `TEC-bar65` | Technicals | Entry bar at least 65 |
+| `TEC-stop2.5` | Technicals | Share stop 2.5 ATR instead of 3 |
+| `REV-bounce-shares` | Reversion | Washout bounce buys shares instead of calls |
+| `REV-rsi2-7500` | Reversion | RSI(2) dip trial sized 1.5x (sizing, from the record) |
+| `MAC-riskoff-aside` | Macro | No new trade while the tape reads risk-off |
+| `MAC-fall60` | Macro | Yields-falling TLT calls about 60 days out (50 to 80) |
+| `FUN-top-shares` | Fundamentals | Top-of-rank calls bought as shares, 60 sessions |
+| `ERN-runin-shares` | Earnings & events | Earnings run-in bought as shares |
+| `DWN-budget75` | Downside puts | 0.75x the risk budget |
+
+Tests: `node scripts/engines-smoke.mjs` (brake math and prior, brake in
+`stepBook`, Technicals conviction, scorecard, variants registry, paired books
+and the paired read), `node scripts/engines-browser.mjs` (Scorecard and
+Experiments tabs).
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -979,6 +1069,9 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_TAPE_SIZE` | Owner Settings → Data & desks | Unset / on = new signal-engine longs are sized by the Top Picks tape's multiplier (0.4x severe risk-off); puts keep their size. `0` = full size |
 | `ENGINES_DOWNSIDE` | Owner Settings → Data & desks | Unset / on = Downside puts opens puts on a risk-off tape. `0` = it opens nothing new; open puts run to their exits |
 | `ENGINES_ROTATION` | Owner Settings → Data & desks | Unset / on = the Multi-asset rotation opens holdings. `0` = it opens nothing new; a holding already open still closes when a monthly check drops it, and nothing replaces it |
+| `ENGINES_LOSER_BRAKE` | Owner Settings → Data & desks | Unset / on = a signal setup with 30+ closes (history test plus live) and t under -1 sizes new trades at 0.5x, never under 0.25x with the tape step, always at least one contract or share. `0` = full size |
+| `ENGINES_TEC_NO_SCORE` | Owner Settings → Data & desks | Unset / on = Technicals' size leaves the setup score out. `0` = the score part is back |
+| `ENGINES_VARIANTS` | Owner Settings → Data & desks | Unset / on = the variant shadows run beside their engines on paper (never mirrored, never in the record). `0` = none run; their books are kept |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
 | `ACCOUNT_LIMIT_OPEN_USD`, `_DAY_LOSS_USD`, `_NAME_USD`, `_NEW_PER_DAY` | Owner Settings → Account limits | All 0 = off. Caps on open option premium, a daily loss stop, money per stock across engines and new trades a day; a trade a limit holds back is not opened and not shadowed. A limit never closes a trade |
 

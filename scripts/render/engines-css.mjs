@@ -73,6 +73,11 @@ export function renderEnginesCss() {
 .eng-cmp-name .crd-dim { white-space: nowrap; }
 .eng-flag-row td { background: color-mix(in srgb, var(--accent, var(--muted)) 5%, transparent); }
 .eng-total-row td { border-top: 2px solid var(--border); font-weight: 600; }
+.eng-vars { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; margin: 10px 0 14px; }
+.eng-var { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.eng-var-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 4px; }
+.eng-var .eng-notes { margin: 4px 0; }
+.eng-var-trades > summary { cursor: pointer; padding: 3px 0; }
 @media (max-width: 640px) {
   .eng-tab { padding-left: 10px; padding-right: 10px; }
   .eng-head-pills { justify-content: flex-start; }
