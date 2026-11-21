@@ -543,6 +543,102 @@ pack is one dated rules step on top of every signal engine (`|down:` and
   look worse than they were). The tape, the bubble tracker and the news have
   no stored history, so it is a live test and its paper record decides.
 
+### VIX and rates pack (2026-11-21)
+
+Owner, 2026-11-21: "Build all five, one PR", after the rotate-out-of-tech vs
+hedge test (`/mnt/project-files/engines/rotate-vs-hedge-2026-11-21/`, run on
+every engine history trade 2007-2026 at real implied volatility). That test
+found that buying puts or inverse funds lost money at every VIX trigger and
+option length tried, and that trimming the tech universe cost more than it
+saved, so nothing here hedges and the universe stays as it is. The five rules
+that held up are in `lib/engines/hedge.mjs`; each has its own Owner Settings
+switch, on by default, and the pack is one dated rules step (`ENGINE_FIXES`
+step 8, `|hedge:` in the rules key, on top of the same day's scorecard pack)
+on every signal engine but Reversion and on Momentum (the core engines' first
+rules are now written down in `CORE_RULES` so they can take a step; the Trend
+follower and the rotation have none). Rules only: no AI call and no new
+download.
+
+- **VIX-rising pause** (`ENGINES_VIX_PAUSE`, every signal engine but
+  Reversion, `PAUSE_ENGINES`). From a VIX
+  jump while VIX is still under 25 (up 20% or more in five sessions, or over
+  1.25x its 50-day average) until VIX closes back under its 50-day average,
+  no new long (call or shares) in a tech name: the three tech sector groups
+  plus QQQ, SMH, KWEB, EWY, SPY, IWM, VRT, BABA and SPCX (`isTechName`; the
+  test paused stock-index funds too, since they fall with tech). Read through
+  the prior close (`vixTrack`, `buildMacro` fields `vixHold`, `vixHoldSince`,
+  `vixAvg50`, `vixChg5`). Puts, paper trials, core engines and other names
+  are never paused, and neither is Reversion: its dip buys are what a VIX
+  jump sets up, and pausing them cost $54K of its $102K in the engines'
+  history test (the first build paused it; the pack then trailed the book
+  without it). The held-back trade is a shadow trade, so the pause gets its
+  own record. Trade-list test: worst drop -$64.7K to -$51.7K, Sharpe 0.85 to 0.92
+  (2007-2016) and 1.00 to 1.10 (2017-2026), for $41K of the $785K total. On
+  about a quarter of sessions.
+- **Rate-hike pause** (`ENGINES_HIKE_PAUSE`, the same engines). While the
+  2-year yield is 0.5 points or more over fed funds (`hikeGap`, the FRED
+  lags the macro reads already use) and QQQ closes under its 200-day average,
+  the same longs are held back the same way. Trade-list test: +$12K, worst drop -$64.7K
+  to -$59.7K, t 0.9: weak, kept because it is cheap and switchable.
+- **VIX-rollover buy** (`ENGINES_TRIAL_VIX_ROLLOVER`, a Macro paper trial,
+  setup `vix-rollover`, `trials3` layer). After VIX has closed at 25 or more
+  within ten sessions and then closes 15% or more under that peak (at most one
+  event every 20 sessions; `vixRoll` is the date of that close), buy $25,000
+  of QQQ shares (the Webull mirror's largest stock order; the test bought
+  $30,000) the next session and hold 20 sessions, no stop or target. Not
+  paused by the VIX pause (it is a trial). Test: 72 events, +2.1% in 20
+  sessions (69% up) against +1.35% on any day, in both halves.
+- **Momentum's non-tech sector switch** (`ENGINES_MOM_SECTORS`, Momentum).
+  At the monthly check, when QQQ closed the month under its 10-month average
+  while SPY did not, the basket holds the three strongest of nine non-tech
+  sector SPDRs (XLP, XLV, XLU, XLE, XLF, XLI, XLB, XLY, XLRE), ranked by
+  their average 3, 6 and 12-month rise like the rotation engine, each only
+  while above its 10-month average and ahead of T-bills, at $10,000 each
+  (the basket's $30,000 over three), setup `sectors`. The funds are not
+  covered names: live they are `aux` views from the wide tier's stored daily
+  closes and its last hourly mark (`sectorBars`, `sectorSpot` passed by the
+  bake; `auxViews` in `index.mjs`, `auxView` in `hedge.mjs`), which no signal
+  engine reads; the history test reads them from the long-history download
+  (`auxSeries`). With fewer than six funds on hand (the wide tier off) the
+  basket stays on stocks and says why. Test: 2022 -30% to -19% at the same
+  yearly return.
+- **Volatility target** (`ENGINES_VOL_TARGET`, Momentum 35%).
+  Each new monthly lot is bought at min(1, target / the basket's trailing
+  126-session volatility) of its size (equal-weight daily returns of the
+  month's holdings, at least 60 sessions; never under a tenth), the rest left
+  in T-bills (`basketVol`, `volScale`; the target's `vol` and the trade's
+  `volScale` facts). Holdings already open keep their size. Trade-list test:
+  Sharpe 1.07 to 1.13 and the 2026 drop -40% to -23%. Rotation at 20% was
+  built too and taken out: in the engines' history test it cost 1.2 points a
+  year (12.2% to 11.0%) for a worst drop of -34.3% to -33.5%.
+
+The engines' own history test (`scripts/engines-backtest.mjs`, learning on,
+2007-2026, 77 names, 2026-11-21), the pack against the same run without it:
+
+| | Without | With |
+|---|---|---|
+| Signal engines, total | $497K | $533K |
+| 2007-2016 / 2017-2026 | $186K / $311K | $215K / $318K |
+| Technicals shares (worst drop) | $321K ($38.3K) | $321K ($35.8K) |
+| Macro options (worst drop) | $29.2K ($18.6K) | $28.4K ($17.2K) |
+| VIX-rollover trial | none | $35.3K, 72 trades, 69% up |
+| Momentum basket | 25.2% a year, worst -40.8% | 24.6% a year, worst -29.5% |
+| Multi-asset rotation | 12.2%, -34.3% | unchanged |
+
+So in the engine book the two pauses are about even in money and trim
+drawdowns a little (the trade-list test, which has no slots or learning,
+showed more); the rollover trial makes nearly all the difference, and random
+entries in QQQ made +1.3% against its +2.0%, so most of it is QQQ's own
+rise; the Momentum changes only work together (each alone barely moved the
+worst drop). The committed `research/engines/results/latest.json` was not
+re-run (it uses the Owner's 80-name download).
+
+A rules change inside a month (this pack on its first run after the deploy)
+re-reads a core engine's target for that month once (`switched` in
+`standCore`), so the new rules apply from the next Top Picks run rather than
+next month; a holding the new target drops closes as `rotate`.
+`scripts/engines-backtest.mjs` takes `--off vixPause,hikePause,momSectors,volTarget`
+and `--trials-off vixRollover` to run the history test without them.
 ### Scorecard pack (2026-11-21)
 
 Owner, 2026-11-20: "measure the engines individual performances improve risk

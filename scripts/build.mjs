@@ -63,7 +63,7 @@ import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIO
 import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
 import { buildMarketMap, MARKET_MAP_FILE, barsOf as marketMapBarsOf } from "../lib/market-map.mjs";
-import { runWideTier, wideTierEnabled, WIDE_TIER_KEY, WIDE_TIER_STATE_KEY, WIDE_QUOTE_FIELDS, WIDE_LIMITS, fetchWideListText, carryIntraday, unusualSymbols } from "../lib/wide-tier.mjs";
+import { runWideTier, wideTierEnabled, WIDE_TIER_KEY, WIDE_TIER_STATE_KEY, WIDE_QUOTE_FIELDS, WIDE_LIMITS, fetchWideListText, carryIntraday, unusualSymbols, barsFor as wideBarsFor } from "../lib/wide-tier.mjs";
 import { buildSiteSnapshot, nextSiteChanges, SITE_CHANGES_FILE } from "../lib/site-changes.mjs";
 import { buildMarketDays, buildMarketDayBriefs, MARKET_DAYS_FILE, MARKET_DAYS_BRIEFS_FILE } from "../lib/market-days.mjs";
 import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
@@ -108,6 +108,7 @@ import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OWNER_SETTINGS_REPORT || "null"); return r && typeof r === "object" ? r : null; } catch { return null; } })();
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
+import { HEDGE as ENGINES_HEDGE } from "../lib/engines/hedge.mjs";
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 import { updateDisruptionState, buildDisruptionFiles, readDisruptionPrior, writeDisruptionFiles, AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY } from "../lib/ai-disruption/log.mjs";
@@ -42223,6 +42224,11 @@ async function main() {
           // engine's big-order paper trial (sessions before today only), and
           // the policy and news read for Reversion's news tag (log only).
           webullFlow: webullShadow?.flow || null,
+          // VIX and rates pack (2026-11-21): the non-tech sector funds the
+          // Momentum basket can switch to, from the wide tier's stored daily
+          // closes (read before the wipe) and its last hourly mark. No call.
+          sectorBars: priorWideState?.bars?.dates ? Object.fromEntries(ENGINES_HEDGE.sectorFunds.map((s) => [s, wideBarsFor(priorWideState.bars, s)])) : null,
+          sectorSpot: Array.isArray(priorWide?.tickers) ? Object.fromEntries(priorWide.tickers.filter((r) => r && r.fund && !r.stale && ENGINES_HEDGE.sectorFunds.includes(r.t) && r.sp > 0).map((r) => [r.t, r.sp])) : null,
           policyNews: policyNewsState ? policyNewsShadow(policyNewsState, { nowMs: Date.parse(builtAtIso), symbols: TICKERS }).rows : null,
           fred: Object.fromEntries(["DGS10", "DGS2", "T10Y2Y", "DFF", "NFCI", "DTWEXBGS", "CPIAUCSL", "UNRATE", "USREC"].map((id) => [id, fredRows(id)])),
           vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
