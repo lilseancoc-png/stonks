@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict';
 import { parseOwnershipXml, samePerson, prettySecName, shareClassOf, parseDisplayName, parseEftsHits, officerTitle, prettyCompanyName, isEntityName, matchScore, foldName, tidyPersonName } from '../lib/corporate-structure/forms.mjs';
 import { foldFiling, holdingTotals } from '../lib/corporate-structure/holdings.mjs';
-import { htmlToText, sliceProxy, slice20F, checkProxyFacts, hasInteger, hasPercent, hasName, PROXY_SCHEMA, extractProxyFacts, refersToAnnualReport, parseFilingIndex, annualReportExhibit, sliceAnnualReport, salvageJson, BOARD_ROLES } from '../lib/corporate-structure/proxy.mjs';
-import { refreshCorporateStructure, readSubmissions, chooseFilings } from '../lib/corporate-structure/collector.mjs';
+import { htmlToText, sliceProxy, slice20F, checkProxyFacts, hasInteger, hasPercent, hasName, PROXY_SCHEMA, extractProxyFacts, refersToAnnualReport, parseFilingIndex, annualReportExhibit, sliceAnnualReport, salvageJson, BOARD_ROLES, PROXY_SLICE_VERSION } from '../lib/corporate-structure/proxy.mjs';
+import { refreshCorporateStructure, readSubmissions, chooseFilings, needsReslice } from '../lib/corporate-structure/collector.mjs';
 import { buildCorporateViews, buildCompanyView, voteMath, shareClasses, tidyTitle, companyKey, crossCheckCovered, isoDate } from '../lib/corporate-structure/assemble.mjs';
 import { insiderFromStructure } from '../lib/shadow-signals.mjs';
 import { form4Xml, fakeSec, fakeAi, TECH_CIK, SOCIAL_CIK, TECH_PROXY_HTML, TECH_PROXY_AI, SOCIAL_PROXY_AI } from './fixtures/corporate-structure.mjs';
@@ -618,5 +618,50 @@ ok(fullV.former.some((p) => /Dan/.test(p.name)) && partV.people.some((p) => /Dan
 // says so (a foreign filer that files neither a proxy nor Forms 3/4/5).
 const emptyViews = buildCorporateViews({ companies: { SHP: { symbol: 'SHP', cik: '0000555566', name: 'SHOP CO INC', sub: { foreign: true, doc: null }, owners: {}, sweep: { at: '2026-11-12T00:00:00Z', through: '2026-11-12', pending: [] } } }, people: {} }, { nowMs });
 ok(emptyViews.SHP?.empty === true && emptyViews.SHP.name === 'Shop Co Inc' && emptyViews.SHP.source?.edgar && !emptyViews.SHP.people, 'empty view: ' + JSON.stringify(emptyViews.SHP));
+
+
+// Audit 2026-11-22 (AXP, DELL, TSLA on the live site).
+// Zero-width spaces in every empty cell (as written in AXP's proxy) no longer
+// keep the empty cells from collapsing.
+ok(htmlToText('<table><tr><td>Warren Buffett</td><td>&#8203;</td><td>&#8203;</td><td>151,610,700 (1)</td><td>&#8203;</td><td>—</td><td>&#8203;</td><td>22.1 %</td></tr></table>') === 'Warren Buffett | 151,610,700 (1) | — | 22.1 % |', 'zero-width cells collapse: ' + JSON.stringify(htmlToText('<table><tr><td>Warren Buffett</td><td>&#8203;</td><td>&#8203;</td><td>151,610,700 (1)</td><td>&#8203;</td><td>—</td><td>&#8203;</td><td>22.1 %</td></tr></table>')));
+// The table sits after more than 80 "stock ownership" mentions, with a dash
+// cell between each count and its percent, and a group row without "as a group".
+let axpLike = 'Contents. Security Ownership 41. ' + lorem(400);
+for (let i = 0; i < 120; i++) axpLike += 'our stock ownership guidelines and stock ownership by directors ' + lorem(60) + ' Stock Ownership ' + lorem(40);
+axpLike += 'Stock Ownership of Directors, Executive Officers and Principal Shareholders | Name | Number of Shares Owned | Right to Acquire | Percent of Class (%) | Warren Buffett Berkshire Hathaway Inc. | 151,610,700 (1) | — | 22.1 % | — | The Vanguard Group, Inc. | 46,637,192 (2) | — | 6.8 % | — | BlackRock, Inc. | 44,114,286 (3) | — | 6.4 % | — | '
+  + Array.from({ length: 16 }, (_, k) => 'Director Number' + k + ' | ' + ((k + 2) * 3_101).toLocaleString('en-US') + ' | — | * | ').join('') + 'All current directors, nominees and executive officers (27 individuals) (9) | 501,133 | 448,594 | * | ' + lorem(4000);
+const axpSlice = sliceProxy(axpLike, 60_000);
+ok(axpSlice.includes('Berkshire Hathaway Inc. | 151,610,700') && axpSlice.includes('BlackRock, Inc. | 44,114,286'), 'the 5% holders are in the slice past 80 earlier mentions and dash cells');
+// Votes per share named late in a long proxy, after many "record date" lines.
+let dellLike = 'Record date. ' + lorem(200);
+for (let i = 0; i < 30; i++) dellLike += 'as of the record date ' + lorem(300);
+dellLike += 'Each share of Class A common stock is entitled to ten votes per share. Each share of Class C common stock is entitled to one vote per share. ' + lorem(8000);
+ok(sliceProxy(dellLike, 60_000).includes('Class A common stock is entitled to ten votes per share'), 'the votes per share are in the slice after many record-date mentions');
+// A stored read made with the older slice that missed the holders or the
+// class votes is read once more; a complete one, a 20-F or a current one is not.
+const okRead = (facts, extra = {}) => ({ status: 'ok', v: 4, acc: 'a', form: 'DEF 14A', facts, ...extra });
+ok(PROXY_SLICE_VERSION >= 2
+  && needsReslice(okRead({ owners: [{ name: 'Dir', kind: 'director' }], classes: [{ name: 'Common', votesPerShare: 1 }] }))
+  && needsReslice(okRead({ owners: [{ name: 'Fund', kind: 'holder' }], classes: [{ name: 'A', votesPerShare: null }, { name: 'B', votesPerShare: null }] }))
+  && !needsReslice(okRead({ owners: [{ name: 'Fund', kind: 'holder' }], classes: [{ name: 'Common', votesPerShare: 1 }] }))
+  && !needsReslice(okRead({ owners: [] }, { sliceV: PROXY_SLICE_VERSION }))
+  && !needsReslice(okRead({ owners: [] }, { form: '20-F' }), '20-F')
+  && !needsReslice({ status: 'failed' }), 'needsReslice: only incomplete reads made with an older slice');
+// A newer proxy table well under the filings' lines wins (TSLA: 1.12 billion
+// on a June Form 4, 699.6 million, 19.8%, in the October proxy).
+const tsla = (proxyShares) => buildCompanyView({
+  symbol: 'TSX', cik: '0000555570', name: 'Tsx Inc', sweep: { at: fx + 'T10:00:00Z', through: fx, pending: [] },
+  proxy: { status: 'ok', form: 'DEF 14A', filed: '2026-10-19', acc: 'tp', kept: 4, dropped: [], facts: {
+    classes: [{ name: 'Common Stock', votesPerShare: 1, outstanding: 3_533_000_000, listed: true }], recordDate: 'October 13, 2026', asOfDate: 'October 13, 2026',
+    board: [{ name: 'Elon Musk', roles: ['Chief Executive Officer', 'Director'], independent: false, committees: [], chairOf: [], otherBoards: [] }],
+    executives: [{ name: 'Elon Musk', title: 'Chief Executive Officer' }],
+    owners: [{ name: 'Elon Musk', kind: 'director', holdings: [{ className: 'Common Stock', shares: proxyShares, percent: 19.8 }], votingPercent: null }] } },
+  owners: { '0001494730': { cik: '0001494730', sec: 'MUSK ELON', roles: { director: true, officer: true, title: 'CEO' }, ...at('2026-06-16'),
+    lines: { 'common|D|': { title: 'Common Stock', cls: 'common', di: 'D', shares: 710_172_677, asOf: '2026-06-16', filed: '2026-06-17' }, 'common|I|by trust': { title: 'Common Stock', cls: 'common', di: 'I', nature: 'By Trust', shares: 413_152_109, asOf: '2026-06-16', filed: '2026-06-17' } } } },
+}, { nowMs, price: 400 });
+const musk = (v) => v.people.find((p) => /Musk/.test(p.name));
+const tLow = musk(tsla(699_580_882)), tSame = musk(tsla(1_100_000_000));
+ok(tLow.holdings.source === 'proxy' && tLow.holdings.total === 699_580_882 && Math.abs(tLow.pctVoting - 19.8) < 0.1, 'a newer, lower proxy table sets the holding: ' + JSON.stringify({ src: tLow.holdings.source, total: tLow.holdings.total, vote: tLow.pctVoting }));
+ok(tSame.holdings.source === 'filings' && tSame.holdings.total === 1_123_324_786, 'a proxy table close to the filings keeps the filing lines: ' + JSON.stringify({ src: tSame.holdings.source, total: tSame.holdings.total }));
 
 console.log(`corporate-structure-smoke: ${n} checks passed`);

@@ -9539,7 +9539,7 @@ function engEvidenceNote(t){
   function engMirrorRows(m, id){ return ((m && m.trades) || []).filter(function(t){ return id === 'all' ? !!t.engine : t.engine === id; }); }
   function engMirrorTable(rows, withEngine){
     var cols = [
-      { label: 'Trade', cell: function(t){ var px = engOrderPrefix(t); return '<b>' + escapeHtml(t.symbol || '') + '</b> ' + (t.instrument === 'stock' ? '<span class="eng-side eng-shr">Shares</span>' : engSide(t.side)) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + (px ? '<div class="crd-dim" title="The first letters of this trade’s order IDs at Webull. Orders sent before November 16, 2026 start with plain ms.">Webull order IDs start ' + escapeHtml(px) + '</div>' : ''); }, sort: function(t){ return t.tradeId; } },
+      { label: 'Trade', cell: function(t){ var px = engOrderPrefix(t); return '<b>' + escapeHtml(t.symbol || '') + '</b> ' + (t.instrument === 'stock' ? '<span class="eng-side eng-shr">Shares</span>' : engSide(t.side)) + '<div class="crd-dim eng-id">' + escapeHtml(t.tradeId || '') + '</div>' + (t.setup ? '<div class="crd-dim">' + escapeHtml(engWbSetupName(t)) + '</div>' : '') + (px ? '<div class="crd-dim" title="The first letters of this trade’s order IDs at Webull. Orders sent before November 16, 2026 start with plain ms.">Webull order IDs start ' + escapeHtml(px) + '</div>' : ''); }, sort: function(t){ return t.tradeId; } },
       { label: 'State', cell: function(t){ return escapeHtml(ENG_MIRROR_STATE[t.state] || engCap(t.state)) + (t.needsReview ? ' ' + engPill('Needs review', 'evb-s-fail') : ''); }, sort: function(t){ return t.state; } },
       { label: 'Webull fill', cell: function(t){ return engFillHtml(t); }, sort: function(t){ return t.fillOutcome; } },
       { label: 'Position', cell: function(t){ return escapeHtml(String(t.legs || '').replace(/^BUY /, '')); }, nosort: true },
@@ -9550,6 +9550,63 @@ function engEvidenceNote(t){
     ];
     if (withEngine) cols.splice(1, 0, { label: 'Made by', cell: function(t){ return escapeHtml(t.madeBy || engName(t.engine)); }, sort: function(t){ return t.engine; } });
     return VIEWS.tableHtml(cols, rows, { key: 'eng-mirror' + (withEngine ? '-all' : ''), empty: 'No engine trades in the paper account yet. The mirror runs right after each 11:00 and 15:30 ET build.' });
+  }
+  // Webull results by engine (2026-11-22, owner: "so we can understand which
+  // engine needs further refinement"). One row per engine, then one per setup
+  // and instrument (options, shares, paper trials and tests apart), from the
+  // mirror's own trade log: what was sent, what filled, and what the paper
+  // account made on closed trades beside the engine's own result on the same
+  // trades. % results are from fill prices before fees; dollars are fills
+  // times size (contracts x 100) less known fees.
+  function engWbSpecOf(t){ var d = engState.data, e = d ? engFind(d, t.engine) : null, list = (e && e.setups) || []; for (var i = 0; i < list.length; i++) if (list[i].key === t.setup) return list[i]; return null; }
+  function engWbSetupName(t){ var e = engState.data ? engFind(engState.data, t.engine) : null; return engSetup(e, t.setup); }
+  function engWbUsd(t){
+    var q = Number(t.closedQty) || 0, a = Number(t.fillPrice), b = Number(t.closeFillPrice);
+    if (t.paperPnlPct == null || !(q > 0) || !isFinite(a) || !isFinite(b)) return null;
+    return (t.structure === 'credit_vertical' ? a - b : b - a) * q * (t.instrument === 'stock' ? 1 : 100) - (Number(t.fees) || 0);
+  }
+  function engWbStats(rows){
+    var n = function(k){ return rows.filter(function(t){ return t.fillOutcome === k; }).length; };
+    var done = rows.filter(function(t){ return t.paperPnlPct != null && isFinite(t.paperPnlPct); });
+    var both = done.filter(function(t){ return t.enginePnlPct != null && isFinite(t.enginePnlPct); });
+    var avg = function(list, k){ return list.length ? list.reduce(function(s, t){ return s + Number(t[k]); }, 0) / list.length : null; };
+    var gaps = rows.filter(function(t){ return t.fillPrice != null && t.entryDiffPct != null && isFinite(t.entryDiffPct); });
+    var usd = 0, usdN = 0; done.forEach(function(t){ var u = engWbUsd(t); if (u != null) { usd += u; usdN++; } });
+    return { sent: rows.filter(function(t){ return t.fillOutcome !== 'shared' && t.fillOutcome !== 'not-bought'; }).length, filled: n('filled') + n('partial'), missed: n('missed'),
+      open: rows.filter(function(t){ return t.fillPrice != null && t.paperPnlPct == null; }).length, closed: done.length,
+      win: done.length ? done.filter(function(t){ return Number(t.paperPnlPct) > 0; }).length / done.length : null,
+      paper: avg(both, 'paperPnlPct'), engine: avg(both, 'enginePnlPct'), paperAll: avg(done, 'paperPnlPct'), usd: usdN ? usd : null, gap: avg(gaps, 'entryDiffPct') };
+  }
+  function engWbKind(t){ return t.instrument === 'stock' ? 'shares' : 'options'; }
+  function engWbRow(label, sub, st, cls, mixed){
+    var pct = function(v){ return mixed ? '<span class="crd-dim" title="Options and shares are not averaged together: see the rows under it">mixed</span>' : engPnl(v); };
+    return '<tr class="' + cls + '"><td class="eng-cmp-name">' + label + (sub ? '<div class="crd-dim">' + sub + '</div>' : '') + '</td>' +
+      '<td class="num">' + st.sent + '</td><td class="num">' + st.filled + '</td><td class="num">' + st.missed + '</td><td class="num">' + st.open + '</td><td class="num">' + st.closed + '</td>' +
+      '<td class="num">' + engRate(st.win) + '</td><td class="num">' + pct(st.paper != null ? st.paper : st.paperAll) + '</td><td class="num">' + pct(st.engine) + '</td>' +
+      '<td class="num">' + (st.paper != null && st.engine != null && !mixed ? slpPts(st.paper - st.engine, 1) + ' pts' : '—') + '</td>' +
+      '<td class="num ' + slpSign(st.usd) + '">' + engUsd(st.usd) + '</td><td class="num">' + (st.gap == null || mixed ? '—' : slpPts(st.gap, 1) + '%') + '</td></tr>';
+  }
+  function engWbByEngineHtml(rows, only){
+    var ids = [], by = {};
+    rows.forEach(function(t){ if (!t.engine) return; if (!by[t.engine]) { by[t.engine] = []; ids.push(t.engine); } by[t.engine].push(t); });
+    if (!ids.length) return '';
+    var tabOrder = ENG_TABS.map(function(x){ return x.id; });
+    var order = tabOrder.filter(function(id){ return by[id]; }).concat(ids.filter(function(id){ return tabOrder.indexOf(id) < 0; }));
+    var body = order.map(function(id){
+      var list = by[id], groups = {}, keys = [];
+      list.forEach(function(t){ var k = (t.setup || '') + '|' + engWbKind(t); if (!groups[k]) { groups[k] = []; keys.push(k); } groups[k].push(t); });
+      var kinds = {}; list.forEach(function(t){ kinds[engWbKind(t)] = 1; });
+      var mixed = Object.keys(kinds).length > 1;
+      var head = only ? '' : engWbRow('<button type="button" class="eng-link" data-eng-go="' + escapeHtml(id) + '"><b>' + escapeHtml(engName(id)) + '</b></button>', keys.length + ' setup' + (keys.length === 1 ? '' : 's'), engWbStats(list), 'eng-wb-engine', mixed);
+      var subs = keys.map(function(k){
+        var g = groups[k], t0 = g[0], sp = engWbSpecOf(t0), kind = k.split('|')[1];
+        var badge = (kind === 'shares' ? ' <span class="eng-side eng-shr">Shares</span>' : ' <span class="eng-side">Options</span>') + (sp && sp.trial ? ENG_TRIAL_BADGE : '') + (sp && sp.test ? ' <span class="eng-side eng-test">Test</span>' : '');
+        return engWbRow((only ? '' : '<span class="eng-wb-indent"></span>') + escapeHtml(t0.setup ? engWbSetupName(t0) : 'Other') + badge, null, engWbStats(g), 'eng-wb-setup', false);
+      }).join('');
+      return head + subs;
+    }).join('');
+    return slpTable([[only ? 'Setup' : 'Engine and setup', 'l'], ['Sent', 1, 'Trades the mirror sent to Webull. Not counted: a contract another holder already had, and trades skipped before any order (for example a contract Webull does not support)'], ['Filled', 1, 'Entries that filled, in full or in part'], ['Missed', 1, 'Entries that did not fill inside the allowed price range'], ['Open', 1, 'Filled and not closed yet'], ['Closed', 1], ['Won', 1, 'Closed paper trades that made money'], ['Paper result', 1, 'Average result per closed trade from the Webull paper fill prices, before fees'], ['Engine result', 1, 'The engine record’s own result on the same closed trades, from its own prices'], ['Gap', 1, 'Paper result minus the engine’s on the same trades: below zero means fills cost more than the engine assumed'], ['Paper dollars', 1, 'Closed trades: paper fills times size, less known fees'], ['Entry gap', 1, 'Average paper fill against the engine’s entry price; above zero means the paper account paid more']], body) +
+      '<p class="evb-note">Real Webull paper fills only: an engine that looks good here is doing it with real fills and spreads. Options and shares are kept on their own rows (a 10% option move and a 1% share move are not the same thing), and so are paper trials and tests. Small counts move a lot, so read the closed column first.</p>';
   }
   function engMirrorHtml(id){
     var m = engState.mirror;
@@ -9582,6 +9639,7 @@ function engEvidenceNote(t){
       ]) +
       (id === 'all' && h ? '<p class="evb-note">Open engine trades: ' + h.open + '. In the paper account: ' + h.mirrored + '. Shared with another holder: ' + h.shared + '. Entry not filled: ' + h.unfilled + (h.held ? ' (' + h.held + ' held back by your controls)' : '') + '. Waiting on an order: ' + h.pending + '. No mirror record yet: ' + h.untracked + '.</p>' : '') +
       (issues.length ? '<ul class="eng-notes">' + issues.map(function(i){ return '<li>' + escapeHtml(i.message || i.code) + '</li>'; }).join('') + '</ul>' : '') +
+      (rows.length ? '<h4 class="eng-wb-head">' + (id === 'all' ? 'Webull results by engine' : 'Webull results by setup') + '</h4>' + engWbByEngineHtml(rows, id !== 'all') : '') +
       '<p class="evb-note">Entry and Exit show the paper fill, with the engine’s own price and the gap between them underneath.</p>' +
       engMirrorTable(rows, id === 'all') +
       '<p class="evb-note">Downloads (every engine): <a href="/api/auth/webull-mirror?format=csv&amp;scope=engines">fills CSV</a> · <a href="/api/auth/webull-mirror?format=orders&amp;scope=engines">every order attempt CSV</a>. The Top Picks fills stay on the Track Record’s Real fills tab.</p>';
