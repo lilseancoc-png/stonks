@@ -36,6 +36,13 @@ assert.equal(assessSource(def("fear-greed"), { asOf: "2026-11-02", score: 40, st
 const aged = assessSource(def("fear-greed"), { asOf: "2026-11-01", score: 40 }, now);
 assert.equal(aged.state, "aged"); assert.match(aged.detail, /8 days old/);
 assert.equal(assessSource(def("f13"), { builtAtIso: built, period: "Q3 2026", perFirm: {} }, now).state, "ok", "undated payload written this run reads ok");
+// Webull data logs (audit 2026-11-22): the bake passes the newest session
+// each log holds (a Friday session still reads ok on Monday), or a note when
+// the log is switched off.
+assert.equal(assessSource(def("webull-flow"), { lastDate: "2026-11-06" }, now).state, "ok");
+assert.equal(assessSource(def("webull-breadth"), { lastDate: "2026-11-03" }, now).state, "aged");
+assert.equal(assessSource(def("webull-flow"), { note: "switched off" }, now).state, "ok");
+assert.equal(assessSource(def("webull-flow"), null, now).state, "missing");
 const partial = assessSource(def("commodities"), { builtAtIso: built, items: [{ key: "a", asOf: "2026-11-09", stale: false }, { key: "b", asOf: "2026-11-09", stale: false }, { key: "c", asOf: "2026-11-01", stale: true }] }, now);
 assert.equal(partial.state, "partial"); assert.match(partial.detail, /1 of 3 parts carried/);
 const mostly = assessSource(def("commodities"), { builtAtIso: built, items: [{ key: "a", stale: true }, { key: "b", stale: true }, { key: "c", stale: false }] }, now);

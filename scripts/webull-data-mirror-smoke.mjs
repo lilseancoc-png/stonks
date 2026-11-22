@@ -212,6 +212,15 @@ await ok("stock quote: fresh Webull wins; stale, failed or out-of-band falls bac
   const off = snapshotQuote({ ...fresh, bid: "103", ask: "103.1" });
   assert.match(chooseStockQuote(off, y, { nowMs: NOW, bandPct: BAND }).fallbackWhy, /differ over/);
   assert.equal(chooseStockQuote(null, null, { nowMs: NOW }), null);
+  // Audit 2026-11-22: a Yahoo bid/ask far from Yahoo's own last price (stale
+  // book) no longer overrules a fresh Webull quote that sits on that price.
+  const staleY = { bid: 110, ask: 110.2, spot: 100 };
+  const kept = chooseStockQuote(w, staleY, { nowMs: NOW, bandPct: BAND });
+  assert.equal(kept.source, WEBULL_STOCK_SOURCE);
+  assert.match(kept.keptWhy, /away from its last price/);
+  // Both away from the last price (or no last price): Yahoo, as before.
+  assert.match(chooseStockQuote(off, staleY, { nowMs: NOW, bandPct: BAND }).fallbackWhy, /differ over/);
+  assert.match(chooseStockQuote(w, { bid: 110, ask: 110.2 }, { nowMs: NOW, bandPct: BAND }).fallbackWhy, /differ over/);
   assert.equal(snapshotQuote({ ...fresh, bid: "101", ask: "100" }), null, "crossed quote is no quote");
   assert.equal(snapshotQuote({ ...fresh, bid: "0" }), null);
   assert.equal(snapshotRow([fresh], "aaa").symbol, "AAA");
