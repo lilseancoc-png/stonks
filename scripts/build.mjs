@@ -18066,7 +18066,11 @@ export function pmNamesOneMeeting(ev, monthName) {
   if (/how many|between|through|\bthru\b|by (?:the )?end|this year/.test(title)) return false;
   const named = new Set();
   PM_MONTH_NAMES.forEach((m, i) => {
-    if (new RegExp(`\\b${m}\\b`).test(title) || new RegExp(`\\b${PM_MONTH_ABBR[i]}\\b`).test(title.replace(/\bmay\b/, "")) || slugWords.includes(PM_MONTH_ABBR[i]) || slugWords.includes(m)) named.add(m);
+    // "may" is also a verb, so in a title May counts only as a date.
+    const inTitle = m === "may"
+      ? /\b(?:in|on|for|at the|after the|before the) may\b|\bmay (?:20\d\d|meeting|fomc|decision)\b/.test(title)
+      : new RegExp(`\\b(?:${m}|${PM_MONTH_ABBR[i]})\\b`).test(title);
+    if (inTitle || slugWords.includes(PM_MONTH_ABBR[i]) || slugWords.includes(m)) named.add(m);
   });
   if (!named.has(monthName)) return named.size === 0 ? true : false;
   return named.size === 1;
