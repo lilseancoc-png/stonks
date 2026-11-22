@@ -51,7 +51,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Changed
 
 - The strategy engines read today's VIX (and its 3-month term) on the run day instead of the prior close, so a sell-off that started that morning reaches their market read (Nov 20: 28.4 at the prior close against 35.9 live). Owner Settings switch "Engines read today's VIX, not the prior close" (`ENGINES_LIVE_VIX`, on); the history test keeps the prior close. No AI cost.
-- Anthropic (ANT) leaves the covered list until its options list (owner decision): with no option chain it had no grade, engine read or forecast. It stays on the wide heat map, and its labels stay for when it comes back.
+- Anthropic (ANT) leaves the covered list until its options list (owner decision): with no option chain it had no grade, engine read or forecast. It stays on the wide heat map, and its labels stay for when it comes back. The AI disruption tracker keeps Anthropic as a lab with no stock ticker until then.
 - The LEAPS page says it is research only for now: no contracts, no trades and no paper record yet.
 - The pre-market follow-through card calls it "Defensive rotation" (not "Selective risk-on") when the leaders that hold up are mostly defensive names (retail, health care) while the laggards keep falling.
 - The Market odds card names the close it reads in its title and says when it is a session or more behind.
