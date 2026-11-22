@@ -42863,6 +42863,15 @@ async function main() {
     // after the data wipe, so it was always reported missing; use the copy read
     // before the wipe (audit 2026-11-12).
     if (!sourcePayloads.has(OVERNIGHT_PREOPEN_KEY) && overnightPreopenFile) sourcePayloads.set(OVERNIGHT_PREOPEN_KEY, { payload: overnightPreopenFile });
+    // The Webull data logs are request-time files read before the wipe
+    // (webullW3): report the newest session each holds. A log switched off
+    // in Owner Settings reads as written with no date; one that is on but
+    // missing reads "missing" and is flagged after three days.
+    const w3Session = (on, date) => (on === false ? { payload: { note: "switched off" } } : date ? { payload: { lastDate: date } } : null);
+    for (const [key, entry] of [["webull-flow.json", w3Session(webullW3?.on?.WEBULL_FLOW_LOG, webullW3?.flow?.lastDate)],
+      ["webull-breadth.json", w3Session(webullW3?.on?.WEBULL_BREADTH_LOG, webullW3?.breadth?.today?.date)]]) {
+      if (entry && !sourcePayloads.has(key)) sourcePayloads.set(key, entry);
+    }
     const health = buildSourceHealth({ payloads: sourcePayloads, prior: priorSourceHealth, builtAtIso });
     const healthInfo = await writeSourceHealth(DATA_DIR, health);
     const flagged = health.sources.filter((r) => r.review).map((r) => `${r.id}:${r.state}`);

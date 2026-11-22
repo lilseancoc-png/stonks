@@ -6,7 +6,22 @@
 // 3. A log written under the old rule has its realized moves re-read once.
 // No network.
 import assert from 'node:assert/strict';
-import { updateSpilloverLog, SPILLOVER_LOG_RESOLVE_VERSION, etDateKey } from './build.mjs';
+// The test reads "today" from the clock, and the build drops today's bar while
+// the session is open (confirmedDailyBars). On a weekend the newest bar is
+// Friday's, so the run failed every Saturday and Sunday (audit 2026-11-22).
+// Pin the clock to the newest weekday, 10:30 ET, before the build loads.
+const RealDate = Date;
+const pinnedMs = (() => {
+  let t = RealDate.now();
+  while ([0, 6].includes(new RealDate(t - 5 * 3600000).getUTCDay())) t -= 86400000;
+  const d = new RealDate(t - 5 * 3600000).toISOString().slice(0, 10);
+  return RealDate.parse(`${d}T15:30:00Z`);
+})();
+globalThis.Date = class extends RealDate {
+  constructor(...a) { super(...(a.length ? a : [pinnedMs])); }
+  static now() { return pinnedMs; }
+};
+const { updateSpilloverLog, SPILLOVER_LOG_RESOLVE_VERSION, etDateKey } = await import('./build.mjs');
 
 const today = etDateKey();
 // Weekdays ending today (oldest first).

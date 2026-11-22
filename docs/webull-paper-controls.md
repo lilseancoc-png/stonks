@@ -585,7 +585,13 @@ Share orders price off Webull's stock snapshot
 symbol answered nothing; real time on the paper keys, the 2026-11-19 probe saw
 the last trade 0.0 to 0.1 minutes old). Yahoo is still fetched as the check
 and the backup: the order prices off Yahoo when Webull fails, its last trade
-is over 5 minutes old, or the two mids differ by more than 1%. Each attempt's
+is over 5 minutes old, or the two mids differ by more than 1%. Since
+2026-11-22 Yahoo's own last price referees that last case: Yahoo's bid/ask
+carries no time and can sit far from the last trade (QQQ bid 717 against a
+608 last after the 2026-11-20 close), so when Webull's mid is within 1% of
+Yahoo's last price and Yahoo's mid is not, the order keeps Webull and the run
+log says "share order priced off Webull - Yahoo bid/ask away from its last
+price". Each attempt's
 `quoteSource` says which ("Webull stock snapshot" or "Yahoo stock quote
 (<why>)"). Option orders keep Yahoo quotes: Webull's free option quotes are 15
 minutes late. At most two snapshot calls per share symbol a run.
