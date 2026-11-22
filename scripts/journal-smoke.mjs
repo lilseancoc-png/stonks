@@ -133,7 +133,23 @@ assert.equal(e1b.createdAt, e1.createdAt, 'the first time never changes');
 assert.notEqual(e1b.updatedAt, e1.updatedAt);
 assert.equal(e1b.history.length, 1); assert.equal(e1b.history[0].text, e1.text, 'the earlier text is kept');
 assert.deepEqual(e1b.ref, e1.ref, 'the stamped price never changes');
-assert.ok(!mem.has(J.SHOT_PREFIX + shotId), 'a picture removed in an edit is deleted');
+assert.ok(mem.has(J.SHOT_PREFIX + shotId), 'a picture removed in an edit stays for the earlier version');
+assert.ok(Array.isArray(e1b.history[0].evidence) && e1b.history[0].evidence.length === e1.evidence.length, 'the earlier version keeps its evidence');
+r = await call('journal', { headers: minime });
+const listed = r.body.entries.find((x) => x.id === e1.id);
+assert.equal(listed.history, undefined, 'the list leaves earlier versions out'); assert.equal(listed.historyCount, 1);
+r = await call('journal', { headers: minime, query: { id: e1.id } });
+assert.equal(r.statusCode, 200); assert.equal(r.body.entry.history.length, 1, 'one entry comes with its earlier versions');
+r = await call('journal', { headers: minime, query: { id: 'jnope' } });
+assert.equal(r.statusCode, 404);
+assert.ok(J.validateEntry({ text: 'x', call: { subject: 'SPY', direction: 'up', by: '2026-02-31' } }).error, 'an impossible by-date is refused');
+assert.ok(!J.validateEntry({ text: 'x', call: { subject: 'SPY', direction: 'up', by: '2028-02-29' } }).error, 'a leap day is fine');
+{
+  const slow = { version: 1, entries: [{ id: 'jabc1234500000000', createdAt: '2026-11-22T00:00:00Z', updatedAt: '2026-11-22T00:00:00Z', text: 'A'.repeat(40) + 'B', tags: [], evidence: [] }] };
+  const t0 = Date.now();
+  for (const sym of ['(A+)+', 'A(', '[', '.*']) assert.equal(J.queryJournal(slow, { symbol: sym }).entries.length, 0, 'a symbol that is not a ticker matches nothing');
+  assert.ok(Date.now() - t0 < 200, 'no slow pattern can be built from the symbol');
+}
 r = await post({ op: 'outcome', id: e1.id, outcome: { result: 'right', note: 'peaked in March' } }, lilsean);
 assert.equal(r.statusCode, 200); assert.equal(r.body.entry.outcome.result, 'right'); assert.equal(r.body.entry.outcome.by.name, 'LilSean');
 r = await post({ op: 'outcome', id: e1.id, outcome: { result: 'maybe' } });

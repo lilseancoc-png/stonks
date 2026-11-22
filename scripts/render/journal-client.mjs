@@ -43,11 +43,14 @@ export function journalClient(window, document, ctx) {
   function num(v, dp){ var n = Number(v); if (!isFinite(n)) return ''; return n.toLocaleString('en-US', { minimumFractionDigits: dp == null ? 2 : dp, maximumFractionDigits: dp == null ? 2 : dp }); }
   function pct(v){ var n = Number(v); if (!isFinite(n)) return ''; return (n > 0 ? '+' : '') + n.toFixed(2) + '%'; }
 
-  function api(path, body){
+  function api(path, body, retried){
     var opts = { credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
     if (body !== undefined) { opts.method = 'POST'; opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
     return window.fetch(path, opts).then(function(r){
       return r.json().catch(function(){ return {}; }).then(function(b){
+        // The record is saved under a short lock: one quick retry if another
+        // save holds it.
+        if (r.status === 409 && body !== undefined && !retried) return new Promise(function(res){ setTimeout(res, 900); }).then(function(){ return api(path, body, true); });
         if (!r.ok) { var err = new Error(b && b.error ? b.error : 'The journal did not answer (HTTP ' + r.status + ').'); err.status = r.status; err.off = !!(b && b.off); throw err; }
         return b;
       });
@@ -322,7 +325,7 @@ export function journalClient(window, document, ctx) {
   }
   function entryHtml(e){
     var edited = e.updatedAt && e.updatedAt !== e.createdAt;
-    var hist = e.history || [];
+    var hist = e.history || [], histN = e.history ? e.history.length : (e.historyCount || 0);
     var me = mine(e);
     var out = e.outcome;
     var html = '<li class="jr-entry" data-jr-entry="' + esc(e.id) + '">' +
@@ -343,13 +346,14 @@ export function journalClient(window, document, ctx) {
     html += '<div class="jr-actions">' +
       '<button type="button" class="jr-link" data-jr-outcome="' + esc(e.id) + '">' + (out ? 'Change result' : 'Mark result') + '</button>' +
       (me ? '<button type="button" class="jr-link" data-jr-edit="' + esc(e.id) + '">Edit</button>' : '') +
-      (hist.length ? '<button type="button" class="jr-link" data-jr-hist="' + esc(e.id) + '" aria-expanded="' + (state.openHist[e.id] ? 'true' : 'false') + '">Earlier versions (' + hist.length + ')</button>' : '') +
+      (histN ? '<button type="button" class="jr-link" data-jr-hist="' + esc(e.id) + '" aria-expanded="' + (state.openHist[e.id] ? 'true' : 'false') + '">Earlier versions (' + histN + ')</button>' : '') +
       (me ? (state.confirmDel === e.id ? '<button type="button" class="jr-link jr-danger" data-jr-del="' + esc(e.id) + '">Yes, delete it</button><button type="button" class="jr-link" data-jr-delno>Keep</button>' : '<button type="button" class="jr-link" data-jr-delask="' + esc(e.id) + '">Delete</button>') : '') +
       '<button type="button" class="jr-link" data-jr-copy="' + esc(e.id) + '" title="Copy a link that opens this entry">Copy link</button>' +
       '</div>';
     if (state.openHist[e.id] && hist.length) {
       html += '<ol class="jr-hist">' + hist.slice().reverse().map(function(h){
-        return '<li><div class="jr-hint">Version from ' + esc(stamp(h.at)) + (h.call ? ' · call: ' + esc(h.call.subject + ' ' + h.call.direction) + (h.call.target != null ? ' to ' + esc(num(h.call.target)) : '') + (h.call.by ? ' by ' + esc(h.call.by) : '') : '') + '</div><div class="jr-entry-text">' + esc(h.text) + '</div></li>';
+        return '<li><div class="jr-hint">Version from ' + esc(stamp(h.at)) + (h.call ? ' · call: ' + esc(h.call.subject + ' ' + h.call.direction) + (h.call.target != null ? ' to ' + esc(num(h.call.target)) : '') + (h.call.by ? ' by ' + esc(h.call.by) : '') : '') + '</div><div class="jr-entry-text">' + esc(h.text) + '</div>' +
+          (Array.isArray(h.evidence) && h.evidence.length ? '<ul class="jr-ev-list">' + h.evidence.map(function(x, i){ return evidenceItemHtml(x, i, false); }).join('') + '</ul>' : '') + '</li>';
       }).join('') + '</ol>';
     }
     return html + '</li>';
@@ -379,6 +383,16 @@ export function journalClient(window, document, ctx) {
   }
 
   // ---- Events ---------------------------------------------------------------------
+  // Earlier versions are loaded for one entry when first opened.
+  function toggleHistory(id){
+    state.openHist[id] = !state.openHist[id];
+    var e = state.entries.filter(function(x){ return x.id === id; })[0];
+    if (!state.openHist[id] || !e || e.history) { renderList(); return; }
+    api('/api/auth/journal?id=' + encodeURIComponent(id)).then(function(b){
+      if (b && b.entry && b.entry.id === id) e.history = b.entry.history || [];
+      renderList();
+    }, function(err){ state.openHist[id] = false; setMsg(err.message, 'bad'); renderList(); });
+  }
   function onClick(ev){
     var t = ev.target && ev.target.closest ? ev.target.closest('button, a[data-jr-go]') : null;
     if (!t || !panel.contains(t)) return;
@@ -394,7 +408,7 @@ export function journalClient(window, document, ctx) {
     if (t.hasAttribute('data-jr-reload')) { load(); return; }
     if (t.hasAttribute('data-jr-older')) { load(true); return; }
     if (t.hasAttribute('data-jr-tagq')) { state.q = a('data-jr-tagq'); var q = panel.querySelector('[data-jr-q]'); if (q) q.value = state.q; renderList(); return; }
-    if (t.hasAttribute('data-jr-hist')) { var hid = a('data-jr-hist'); state.openHist[hid] = !state.openHist[hid]; renderList(); return; }
+    if (t.hasAttribute('data-jr-hist')) { toggleHistory(a('data-jr-hist')); return; }
     if (t.hasAttribute('data-jr-delask')) { state.confirmDel = a('data-jr-delask'); renderList(); return; }
     if (t.hasAttribute('data-jr-delno')) { state.confirmDel = ''; renderList(); return; }
     if (t.hasAttribute('data-jr-del')) { removeEntry(a('data-jr-del')); return; }

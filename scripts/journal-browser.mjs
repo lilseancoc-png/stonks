@@ -275,6 +275,11 @@ try {
     assert.ok(await page.isVisible('#journal-panel'));
     await page.reload();
     await page.locator('#journal-panel .jr-entry, #journal-panel [data-jr-text]').first().waitFor();
+    if (await page.locator('[data-jr-view="review"][aria-pressed="false"], [data-jr-view="review"]:not(.is-on)').count()) await page.click('[data-jr-view="review"]');
+    await page.locator('.jr-entry [data-jr-hist]').first().click();
+    await page.locator('.jr-hist').first().waitFor();
+    assert.match(await page.locator('.jr-hist').first().textContent(), /NVDA leads into it/, 'earlier versions load after a reload');
+    assert.ok(await page.locator('.jr-hist .jr-ev-item').count() >= 1, 'an earlier version shows its evidence');
 
     // Split view: the two panes sit left of the journal.
     await page.click('#split-toggle').catch(async () => { await page.click('#workspace-settings-toggle'); await page.click('#split-toggle'); });

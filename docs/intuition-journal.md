@@ -48,8 +48,9 @@ or dependency. Storage is the existing private R2 store.
   move since it was written ("NVDA 190.00 then, 199.50 now: +5.00% (with
   the call)", "target reached"). Pictures open full size.
 - **Edits keep the record honest.** Editing keeps the original time and
-  the market snapshot; the earlier text, tags and call are kept as
-  "Earlier versions" (up to 20). Only the person who wrote an entry can edit
+  the market snapshot; the earlier text, tags, call and evidence are
+  kept as "Earlier versions" (up to 20; loaded when you open them), and a
+  picture removed in an edit stays for the version that had it. Only the person who wrote an entry can edit
   or delete it. Either Owner can **mark the result** (right / wrong / mixed
   with a note).
 - **Links.** "Copy link" gives `/?journal=<id>`, which opens the panel on
@@ -76,9 +77,10 @@ AI client needs to refresh its tool list to see it.
 | Page | `scripts/render/journal-client.mjs` + `journal-css.mjs`, pasted into `app.js` |
 
 Limits: 8,000 characters of text, 8 tags, 12 evidence items and 8 pictures
-an entry, 3,000 entries. Deleting an entry (or removing a picture in an
-edit) deletes its picture objects; a picture uploaded for a draft that is
-cleared is discarded.
+an entry, 3,000 entries. Deleting an entry deletes its picture objects
+(inside the save lock, so no other save can pick one up meanwhile); a
+picture uploaded for a draft that is cleared is discarded. The `symbol`
+filter of `get_journal` accepts only a ticker or `MARKET`.
 
 ## Switch
 

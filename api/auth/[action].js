@@ -1173,13 +1173,22 @@ async function journalSession(req, res) {
   return session;
 }
 async function withJournalDoc(store, fn) {
-  const { JOURNAL_KEY, JOURNAL_LEASE, readJournalDoc } = await import("../../lib/intuition-journal.mjs");
+  const { JOURNAL_KEY, JOURNAL_LEASE, SHOT_PREFIX, readJournalDoc } = await import("../../lib/intuition-journal.mjs");
   const run = async (guard) => {
     const doc = readJournalDoc(await store.rawGet(JOURNAL_KEY));
     const out = fn(doc);
     if (out.save) {
       if (guard) guard();
       await store.rawPut(JOURNAL_KEY, JSON.stringify(out.doc));
+    }
+    // Pictures no entry (or earlier version) uses any more, deleted while the
+    // lease is still held so a save cannot pick one up in between. Best
+    // effort: a failed delete leaves an unused private object, never a
+    // broken entry.
+    out.dropped = 0;
+    for (const id of out.dropShots || []) {
+      try { await store.rawDel(SHOT_PREFIX + id); out.dropped += 1; }
+      catch (err) { console.warn("journal picture delete failed", { message: String(err?.message || err) }); }
     }
     return out;
   };
@@ -1200,23 +1209,21 @@ async function journalRoute(req, res) {
   try {
     const { store } = await import("../../lib/datastore.mjs");
     if (req.method === "GET") {
+      const doc = journal.readJournalDoc(await store.rawGet(journal.JOURNAL_KEY));
+      if (req.query?.id != null) {
+        const entry = journal.journalEntry(doc, String(req.query.id));
+        return entry ? res.status(200).json({ entry }) : res.status(404).json({ error: "entry not found" });
+      }
       const limit = Number.parseInt(String(req.query?.limit || ""), 10);
       const before = String(req.query?.before || "");
-      const view = journal.journalView(journal.readJournalDoc(await store.rawGet(journal.JOURNAL_KEY)), { limit: Number.isInteger(limit) ? limit : undefined, before });
+      const view = journal.journalView(doc, { limit: Number.isInteger(limit) ? limit : undefined, before });
       return res.status(200).json({ ...view, me: { id: session.sub != null ? String(session.sub) : null, name: session.name || "Owner" } });
     }
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const out = await withJournalDoc(store, (doc) => journal.applyJournalOp(doc, body, session));
     if (out.busy) return res.status(409).json({ error: "Busy saving another entry. Try again in a moment." });
     if (out.error) return res.status(out.status || 400).json({ error: out.error });
-    // Pictures no entry uses any more. Best effort: a failed delete leaves an
-    // unused private object, never a broken entry.
-    let dropped = 0;
-    for (const id of out.dropShots || []) {
-      try { await store.rawDel(journal.SHOT_PREFIX + id); dropped += 1; }
-      catch (err) { console.warn("journal picture delete failed", { message: String(err?.message || err) }); }
-    }
-    return res.status(200).json({ ok: true, entry: out.entry || null, total: out.doc.entries.length, dropped });
+    return res.status(200).json({ ok: true, entry: out.entry || null, total: out.doc.entries.length, dropped: out.dropped || 0 });
   } catch (err) {
     console.error("journal failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "The journal could not be saved or read. Try again." });
