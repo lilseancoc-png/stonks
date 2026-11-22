@@ -18,6 +18,7 @@ import { enginesFixture } from './engines-fixture.mjs';
 import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS } from '../lib/engines/config.mjs';
 import { ENGINES_VIEW_KEY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY } from '../lib/engines/index.mjs';
 import { mirrorTradeId } from '../lib/webull-mirror.mjs';
+import { picksTradePop } from '../lib/trade-pop.mjs';
 
 const output = process.env.ENGINES_BROWSER_OUT || resolve(tmpdir(), 'stonks-engines-browser');
 await mkdir(output, { recursive: true });
@@ -26,6 +27,9 @@ const view = fx.view;
 assert.ok(view.engines.length === ENGINE_IDS.length && view.total.open > 0 && view.total.n > 20, 'the fixture has open and closed engine trades');
 assert.ok(fx.flagship && view.shared.length >= 1, 'the fixture has a contract shared with Top Picks');
 
+// The Top Picks trade carries a stated chance, as a new enrollment would.
+fx.flagship.pop = picksTradePop(fx.flagship, { exitPolicy: { takeProfitPct: 25, stopPct: 50 }, rfr: 0.045, setupOdds: { winPct: 48, n: 31, level: 'side-band' } });
+assert.ok(fx.flagship.pop && fx.flagship.pop.p > 0, 'the fixture Top Picks trade has a stated chance');
 const acc = { builtAtIso: view.runIso, open: [fx.flagship], closed: [] };
 let owner = true, haveFile = true;
 const mirrorAsks = [];
@@ -170,7 +174,7 @@ try {
       await sub(s, 'now');
       text = await paneText(s);
       check(text.includes(e.name) && text.includes(e.idea.slice(0, 40)), id + ': the idea is shown: ' + text.slice(0, 160).replace(/\n/g, ' / '));
-      check((await s.page.locator('#eng-open .vt-table tbody tr').count()) === e.open.length, id + ': one row per open trade');
+      check((await s.page.locator('#eng-open .vt-table tbody tr:not(.vt-detail)').count()) === e.open.length, id + ': one row per open trade');
       check(/The rules/.test(text) && /Never a spread/.test(text), id + ': the rules are shown');
       const shareSetups = e.setups.filter((x) => x.calls === 'shares' && !x.retired);
       check(/never short stock/.test(text) === shareSetups.length > 0, id + ': the rules say which setups buy shares (' + shareSetups.length + ')');
@@ -272,7 +276,7 @@ try {
       check(text.includes(e.name) && text.includes(e.idea.slice(0, 40)), id + ': the idea is shown');
       check(/Core engine/i.test(text), id + ': marked as a core engine');
       check((await s.page.locator('#eng-core-target').count()) === 1 && /T-bills/.test(await s.page.locator('#eng-core-target').innerText()), id + ': this month’s target and its reads');
-      check((await s.page.locator('#eng-open .vt-table tbody tr').count()) === e.open.length, id + ': one row per holding');
+      check((await s.page.locator('#eng-open .vt-table tbody tr:not(.vt-detail)').count()) === e.open.length, id + ': one row per holding');
       check((await s.page.locator('#eng-open .eng-shr').count()) === e.open.length, id + ': every holding is shares');
       if (e.open.length) check(/Held until a monthly check swaps it/.test(await s.page.locator('#eng-open').innerText()), id + ': no stop or target, held to the monthly check');
       check((await s.page.locator('#eng-core-log tbody tr').count()) === e.holdings.log.length && e.holdings.log.length >= 2, id + ': one row per monthly check (' + e.holdings.log.length + ')');
@@ -429,7 +433,7 @@ try {
     const trials = view.engines.flatMap((e) => e.open).filter((t) => t.trial).length;
     if (trials) check((await group.locator('.eng-trial').count()) >= trials, 'paper trials carry their badge');
     // Webull column: filled, held by another and missed rows read from the paper account.
-    const wbTexts = await group.locator('tbody tr td:nth-child(5)').allInnerTexts();
+    const wbTexts = await group.locator('tbody tr td:nth-child(6)').allInnerTexts();
     const openRows = fx.mirror.trades.filter((t) => engIds.includes(t.tradeId));
     check(openRows.some((t) => t.fillOutcome === 'filled') && wbTexts.some((x) => /Filled/.test(x)), 'filled engine trades say Filled');
     if (openRows.some((t) => t.fillOutcome === 'shared')) check(wbTexts.some((x) => /Held by another/.test(x)), 'a follower on a shared contract says Held by another');
@@ -441,6 +445,21 @@ try {
     if (await tp.locator('table').count()){
       check(/Filled/.test(tpText) && /\+3\.6%/.test(tpText), 'the Top Picks row shows its Webull fill and paper result');
     }
+    // Chance of profit (2026-11-22): a Chance column with a Why under each stamped row, and the Owner check.
+    const engHead = await group.locator('table').first().locator('thead').innerText();
+    check(/Chance/.test(engHead), 'the engine table has a Chance column');
+    const stampedOpen = view.engines.flatMap((e) => e.open).filter((t) => t.pop);
+    check(stampedOpen.length > 0, 'the fixture opens engine trades with a stated chance (' + stampedOpen.length + ')');
+    const chanceCells = await group.locator('table').first().locator('tbody tr:not(.vt-detail) td:nth-child(5)').allInnerTexts();
+    check(chanceCells.some((x) => /\d+%/.test(x)), 'engine rows show their chance');
+    const why = group.locator('table').first().locator('td:nth-child(5) [data-vt-expand]').first();
+    if (await why.count()){
+      await why.click(); await settle(s.page, 200);
+      const whyText = await group.locator('.vt-detail:not([hidden]) .pop-why').first().innerText();
+      check(/Our estimate: \d+%/.test(whyText) && /Market model/.test(whyText) && /Track record/.test(whyText), 'the Why lays out the estimate, the model and the record');
+    } else check(false, 'a stamped engine row has a Why button');
+    check(await s.page.locator('#open-picks-pop').count() === 1, 'Open picks has the Chance of profit check');
+    check(/Chance of profit check/i.test(await s.page.locator('#open-picks-pop summary').innerText()), 'the check is labelled');
     // Still working at Webull: the closed engine trade still selling.
     if (exitingWb) check(groupText.includes(exitingWb.tradeId) && /Still working at Webull/i.test(groupText) && /Selling/.test(groupText), 'a trade still selling at Webull after its record closed is listed');
     const sumText = await s.page.locator('#open-picks-sum').innerText();
@@ -466,6 +485,7 @@ try {
       const head = await tpTable.locator('thead').innerText();
       const row = await tpTable.locator('tbody tr').first().innerText();
       check(/Webull/.test(head) && /Filled/.test(row), 'the Top Picks table has a Webull column');
+      check(/Chance/.test(head) && row.includes(Math.round(fx.flagship.pop.p * 100) + '%'), 'the Top Picks table shows the trade\'s chance');
       const pnl = Number(fx.flagship.optionPnlPct), basis = Number(fx.flagship.contract?.netDebit ?? fx.flagship.contract?.mid);
       if (Number.isFinite(pnl) && basis > 0 && fx.flagship.contract?.structure !== 'credit_vertical'){
         const mark = '$' + (Math.round(basis * (1 + pnl / 100) * 100) / 100).toFixed(2);
@@ -480,6 +500,14 @@ try {
     await settle(p.page, 300);
     const overflow = await p.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow <= 1, 'Open picks has no sideways page scroll at 390 px (' + overflow + ')');
+    // Cards at phone width: the Top Picks card has a Chance of profit line whose Why opens in place.
+    const chip = p.page.locator('#open-picks-root .pop-chip').first();
+    check(await chip.count() === 1, 'the Top Picks card has a Chance of profit line');
+    if (await chip.count()){
+      await chip.locator('summary').click(); await settle(p.page, 200);
+      const chipText = await chip.innerText();
+      check(/Our estimate: \d+%/.test(chipText) && /Similar past Top Picks/.test(chipText), 'the card\'s Why opens with the estimate and the Top Picks record');
+    }
     await clean(p, 'Open picks, phone dark');
     await p.page.screenshot({ path: resolve(output, 'open-picks-390-dark.png'), fullPage: true });
     await p.context.close();

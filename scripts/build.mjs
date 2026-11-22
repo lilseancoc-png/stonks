@@ -98,6 +98,7 @@ import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 // quant-labs.json + quant-labs-state.json; measurement only, no AI, kill
 // switch QUANT_LABS=0.
 import { loadQuantLabs, carryQuantLabs, writeQuantLabs, runQuantLabs, loadQuantLabsResearch, quantLabsEnabled, quantLabsTextEnabled, QUANT_LABS_KEY } from "../lib/labs/index.mjs";
+import { picksTradePop, stampPopResults, webullPopOutcomes, tradePopEnabled, popRows, popLabSources } from "../lib/trade-pop.mjs";
 import { refreshFilingText } from "../lib/labs/filing-text.mjs";
 import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
 import { engineName as strategyEngineName } from "../lib/engines/config.mjs";
@@ -124,7 +125,7 @@ import {
   TRANSCRIPT_BATCH_MAX_AGE_HOURS, TRANSCRIPT_BATCH_POLL_MS, batchJobDone, batchJobFailureReason, batchJobSucceeded, batchResponseText, buildTranscriptBatchRequests,
   extractBatchResponses, pendingBatchRecord, pendingBatchSymbols, pendingBatchTooOld, transcriptBatchEnabled, transcriptBatchWaitMs,
 } from "../lib/transcript-batch.mjs";
-import { buildSetupOdds } from "../lib/setup-odds.mjs";
+import { buildSetupOdds, decidedTrades as setupDecidedTrades, oddsFor as setupOddsFor, setupOf as setupOddsSetupOf } from "../lib/setup-odds.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
 import { ownerBriefCalendar, ownerBriefRunsOn } from '../lib/owner-market-brief.mjs';
 import { publishOwnerMarketBrief } from './publish-owner-market-brief.mjs';
@@ -31117,6 +31118,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
 
   // Enroll the freshly-shipped roster (dedup per symbol:side).
   const enrolledNow = new Set();
+  let popDecided = null;
   const ownerCtl = opts.ownerControls || null;
   let picksPayload = null;
   try { picksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
@@ -31304,7 +31306,25 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const entryFill = realFillMark(justEnrolled, chains?.[p.symbol] || null, { nowSec });
     justEnrolled.realFillPnlPct = entryFill ? entryFill.pnlPct : null;
     justEnrolled.realFillBasis = entryFill ? entryFill.basis : null;
+    // Chance of profit at entry (lib/trade-pop.mjs, 2026-11-22): the market
+    // model at the contract's own IV through this trade's exits, blended with
+    // the loop's +25%-before-−50% chance once it is past learning, else the
+    // Similar-setup odds. Display and measurement only. TRADE_POP=0: none.
+    if (tradePopEnabled()) {
+      try {
+        popDecided ||= setupDecidedTrades([...closed, ...(state.archive || [])]);
+        const stamp = picksTradePop(justEnrolled, {
+          exitPolicy: justEnrolled.exitPolicy, rfr: Number.isFinite(opts.rfr) ? opts.rfr : FALLBACK_RISK_FREE_RATE, nowMs: nowSec * 1000,
+          setupOdds: setupOddsFor(setupOddsSetupOf(justEnrolled), popDecided), loopOdds: p.loopOdds || null,
+        });
+        if (stamp) justEnrolled.pop = stamp;
+      } catch (err) {
+        console.warn(`  picks-accuracy: chance of profit skipped for ${p.symbol} — ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
   }
+  // The outcome of every stamped trade that closed (once per trade).
+  stampPopResults(closed);
 
   // No-skill baseline: the same side on SPY, opened at the same time as each
   // new pick and closed by the same premium/theta/expiry rules or when its
@@ -40132,9 +40152,14 @@ async function main() {
   // ledger is request-time-owned, hydrated by the pull, so it is read here,
   // before the wipe. A missing or bad ledger leaves the Webull line out.
   let ownerDeskForBrief = { controls: deskControls(ownerControlsRun), webull: null };
+  // The chance-of-profit check (lib/trade-pop.mjs) grades each stated chance
+  // against the Webull fill too: the closed paper results, by trade ID.
+  let webullClosedForPop = null;
   try {
     const ledgerRaw = await readFile(resolve(DATA_DIR, "webull-paper-ledger.json"), "utf8");
-    ownerDeskForBrief.webull = webullFillSummary(JSON.parse(ledgerRaw), { nowMs: Date.now() });
+    const ledgerParsed = JSON.parse(ledgerRaw);
+    ownerDeskForBrief.webull = webullFillSummary(ledgerParsed, { nowMs: Date.now() });
+    webullClosedForPop = webullPopOutcomes(ledgerParsed);
   } catch { /* no ledger yet */ }
   // Read trend history + the latest unusual-flow scan BEFORE writeChainFiles
   // wipes data/. Narrative extraction references yesterday's names for
@@ -42166,7 +42191,7 @@ async function main() {
   // wiped data/). Degrades to a no-op on a first run / missing files.
   if (refreshTopPicks) {
     try {
-      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun, ownerControls: ownerControlsRun });
+      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun, ownerControls: ownerControlsRun, rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE });
       console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
     } catch (err) {
       console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -42261,6 +42286,10 @@ async function main() {
           fearHistory: fngHistoryNext?.snapshots || [],
           flagshipOpen: accForEngines?.open || picksAccuracyPrev?.open || [],
           flagshipStats: flagshipCompare(accForEngines),
+          // The chance-of-profit check (lib/trade-pop.mjs) reads both
+          // records' stamps and the Webull paper results.
+          flagshipClosed: [...(accForEngines?.closed || []), ...(accForEngines?.archive || [])],
+          webullClosed: webullClosedForPop,
           rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
           research: await loadEnginesResearch(ROOT),
           controls: ownerControlsRun,
@@ -42505,7 +42534,11 @@ async function main() {
           earningsStore: earningsHxStore, textWaiting,
           // Earnings Forecast ranges, graded on quarters each range never saw
           // (the history test keeps the rows in the forecast state).
-          extraSources: forecastCalibrationSources((earningsForecastPrepared?.state || priorEarningsForecast)?.lab),
+          extraSources: [
+            ...forecastCalibrationSources((earningsForecastPrepared?.state || priorEarningsForecast)?.lab),
+            // Chance of profit on the Webull trades (lib/trade-pop.mjs).
+            ...popLabSources(popRows({ flagship: allClosed, engines: enginesRecord?.closed || [] })),
+          ],
         });
         for (const line of labsRun.lines) console.log(line);
         const labsInfo = await writeQuantLabs(DATA_DIR, labsRun.payload, labsRun.state);

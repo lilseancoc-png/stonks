@@ -43,6 +43,7 @@ import { renderValuationLabCss } from './valuation-lab-css.mjs';
 import { renderEnginesCss } from './engines-css.mjs';
 import { renderOwnerControlsCss } from './owner-controls-client.mjs';
 import { renderOwnerInsightCss } from './owner-insight-css.mjs';
+import { renderTradePopCss } from './trade-pop-css.mjs';
 import { renderI18nCss } from './i18n-client.mjs';
 
 export function renderStylesCss() {
@@ -25644,6 +25645,7 @@ ${renderValuationLabCss()}
 ${renderEnginesCss()}
 ${renderOwnerControlsCss()}
 ${renderOwnerInsightCss()}
+${renderTradePopCss()}
 ${renderI18nCss()}
 `);
 }
