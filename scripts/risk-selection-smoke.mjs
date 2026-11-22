@@ -24,7 +24,7 @@ export function runRiskSelectionChecks() {
   assert(alternative.economics.comparison.evaluated>1);
   assert.equal(alternative.economics.comparison.reason,'permitted-alternative-clears');
 
-  const dated=structuredClone(data),earlier=expiry-15*86400;
+  const dated=structuredClone(data),earlier=expiry-7*86400;
   dated.chains[expiry].c=dated.chains[expiry].c.filter(q=>q.s===preferred.strike);
   dated.chains[earlier]={c:[{s:preferred.strike,iv:.4,oi:1000,v:50}],p:[]};
   const earlierMid=bsPrice('call',100,preferred.strike,yearsToExpiry(earlier),.4,.045);

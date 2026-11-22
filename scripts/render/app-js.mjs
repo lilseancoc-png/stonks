@@ -1,6 +1,7 @@
 import { updateCheckerClient } from './update-checker-client.mjs';
 import { ownerSettingsClient, ownerDisplayBoot } from './owner-settings-client.mjs';
 import { OWNER_SETTINGS } from '../../lib/owner-settings.mjs';
+import { PICKS_DTE_LO, PICKS_DTE_HI } from '../../lib/top-picks-config.mjs';
 import { closureTables } from '../../lib/us-equity-calendar.mjs';
 import { contactClient } from './contact-client.mjs';
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
@@ -2144,7 +2145,7 @@ ${scenarioEventPhase.toString()}
     var body;
     if (!pick){
       body = '<div class="opt-toppick-empty">No ' + escapeHtml(sym) + ' ' + sideWord + ' clear the contract candidate screen in this build. ' +
-        '<span class="opt-toppick-crit">Needs 30–90 days · |Δ| 0.30–0.50 (prefer 0.40) · at most 15% OTM · OI ≥ 50 · spread ≤ 12% · IV ≤ 200% · premium ≤ max($35, 12% of spot). A contract candidate is not an entry confirmation; Top Picks also checks strategy, timing and option feasibility.</span></div>';
+        '<span class="opt-toppick-crit">Needs ${PICKS_DTE_LO}–${PICKS_DTE_HI} days · |Δ| 0.30–0.50 (prefer 0.40) · at most 15% OTM · OI ≥ 50 · spread ≤ 12% · IV ≤ 200% · premium ≤ max($35, 12% of spot). A contract candidate is not an entry confirmation; Top Picks also checks strategy, timing and option feasibility.</span></div>';
     } else {
       body = topPickCardHtml(pick, side, sym);
     }
@@ -37668,6 +37669,8 @@ ${renderExportBindings()}
     // Market-side lanes (bar 5 with the market, 8 against; the grader runs
     // every run; macro block only against the market), stamped from 2026-11-20.
     { key:'marketside', get:function(e){ return (e && typeof e.marketSideVersion === 'string' && e.marketSideVersion) || ''; } },
+    // Contract window (shorter contracts, about a month), stamped from 2026-11-22.
+    { key:'dte', get:function(e){ return (e && typeof e.dtePolicyVersion === 'string' && e.dtePolicyVersion) || ''; } },
     // Owner risk dial (lib/owner-controls.mjs, from 2026-11-19): Safer is the
     // only setting that changes Top Picks (one new trade a run), so only it
     // splits the record. Riskier is stamped for the scorecard, no divider.
@@ -37694,7 +37697,8 @@ ${renderExportBindings()}
       '2026-11-signed-flow': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold, in delta dollars, confirmed by next-day open interest' },
       '2026-11-signed-flow-no-macro': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold (macro read off)' }
     },
-    exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
+    exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' }, '2026-11-22-hold10-stop60': { note:'Single calls held 10 sessions with a -60% stop: no take-profit and no stock stop (puts and spreads keep +25% / -50%)' } },
+    dte: { '2026-11-22-short-dte': { note:'New picks buy contracts about a month out (21-45 days, ideal 25-35) instead of 30-90' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
     timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
     caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } },

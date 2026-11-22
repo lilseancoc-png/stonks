@@ -2089,9 +2089,21 @@ Nothing here changes a pick, a gate or the record. Switch `TRADE_POP`
 
 ## Flagship review changes, November 22, 2026
 
-Four rule changes from the November 22 flagship review, each an Owner
-Settings switch (Top Picks → Engine) and **off by default**, plus three
-measurement additions that are on. Settings live in `lib/top-picks-config.mjs`.
+Five rule changes from the November 22 flagship review, each an Owner
+Settings switch (Top Picks → Engine), plus three measurement additions that
+are on. Settings live in `lib/top-picks-config.mjs`. **On since 2026-11-22**
+(owner decision after the combination test, which ran about 840 bench runs):
+the call hold exit and shorter contracts. The other three are off by default.
+
+- **Shorter contracts** (`PICKS_SHORT_DTE`, on). The contract picker reads
+  `PICKS_DTE_LO` / `PICKS_DTE_HI` (21 / 45 days, ideal 25-35) instead of
+  30 / 90 (ideal 45-75); `PICKS_MIN_DTE` / `PICKS_MAX_DTE` stay as the outer
+  data window the chain fetch covers. Singles, spreads and the paired SPY
+  baseline all use the window. New trades carry `dtePolicyVersion`
+  (`2026-11-22-short-dte`, Track Record divider key `dte`). In the test,
+  30-day contracts made +7.3% a trade on the saved grades (today +3.5%) and
+  lost less over 20 years of the price half (-4.6% vs -5.4%); with the hold
+  exit a call still has about two weeks left when it closes.
 
 - **Lift soft timing waits** (`PICKS_SOFT_WAITS`). `entryGateBlocked` in
   `build.mjs` runs today's full `entryPromotionBlocked` check, or only
@@ -2105,7 +2117,7 @@ measurement additions that are on. Settings live in `lib/top-picks-config.mjs`.
   `basis: "soft-wait-lifted"`, the run lists it in `rosterMeta.softWaitLifted`
   and the trade carries `softWaitVersion`. The precheck (`openPickPrecheck`)
   uses the same gate, so a lifted name can take an AI grader slot.
-- **Hold exit for calls** (`PICKS_CALL_HOLD`, `PICKS_CALL_HOLD_SESSIONS`,
+- **Hold exit for calls** (`PICKS_CALL_HOLD`, on; `PICKS_CALL_HOLD_SESSIONS`,
   `PICKS_CALL_HOLD_STOP_PCT`). A new single call's `exitPolicy` is
   `{ style: "hold", holdSessions: 10, stopPct: 60, takeProfitPct: null }`
   (`holdExitPolicy` in `lib/top-picks-exit-review.mjs`). `resolvePickOutcome`

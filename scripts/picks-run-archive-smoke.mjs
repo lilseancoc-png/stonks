@@ -64,7 +64,9 @@ ok("shipped contract: structure and both legs with bid/ask", vert.st === "debit_
 
 // --- a real roster through the real engine -----------------------------------
 const dayMs = 86400000;
-const exp45 = Math.floor((Date.now() + 47 * dayMs) / dayMs) * 86400;
+// About a month out: inside both contract windows (21-45 days with
+// PICKS_SHORT_DTE, 30-90 without).
+const exp45 = Math.floor((Date.now() + 33 * dayMs) / dayMs) * 86400;
 const inDays = (d) => new Date(Date.now() + d * dayMs).toISOString().slice(0, 10);
 function mkChain(spot) {
   const c = [], p = [];

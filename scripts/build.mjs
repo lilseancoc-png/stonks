@@ -18739,7 +18739,7 @@ import {
   PICKS_MAX_AI_THESES, PICKS_MAX_PER_SIDE, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG,
   PICKS_EDGE_GATE, PICKS_EDGE_GATE_SOFT, PICKS_EDGE_GATE_HARD, PICKS_EDGE_GATE_MIN_N,
   PICKS_EDGE_GATE_WINDOW_DAYS, PICKS_EDGE_GATE_STRONG_BAR, PICKS_PILLAR_CLAMP,
-  PICKS_TRAJECTORY_CLAMP, PICKS_MIN_DTE, PICKS_MAX_DTE, PICKS_IDEAL_DTE_LO, PICKS_IDEAL_DTE_HI,
+  PICKS_TRAJECTORY_CLAMP, PICKS_MIN_DTE, PICKS_MAX_DTE, PICKS_IDEAL_DTE_LO, PICKS_IDEAL_DTE_HI, PICKS_DTE_VERSION, PICKS_DTE_LO, PICKS_DTE_HI,
   PICKS_DELTA_MIN, PICKS_DELTA_MAX, PICKS_SINGLE_DELTA_IDEAL, PICKS_DELTA_IDEAL,
   PICKS_MAX_SPREAD_PCT, PICKS_MIN_OI, PICKS_MAX_IV, PICKS_MAX_PREMIUM_PCT, PICKS_MAX_PREMIUM_ABS,
   PICKS_MIN_QUALITY, PICKS_STRATEGY_AUTO, PICKS_SKEW_ADVERSE_RAW, PICKS_CREDIT_WIDTH_FRAC,
@@ -22140,7 +22140,7 @@ export function rankSinglePickContracts(side, data, rfr = FALLBACK_RISK_FREE_RAT
   const requireClean = !!opts.requireClean;
   // One DTE floor for both modes now that the base window starts at 30 (the old
   // roster-only 21-day floor existed because the lenient/autoPick minimum was 14).
-  const minDte = PICKS_MIN_DTE;
+  const minDte = PICKS_DTE_LO;
   const minOi = requireClean ? PICKS_MIN_OI : 50;
   const maxSpread = requireClean ? 0.10 : PICKS_MAX_SPREAD_PCT;
   const premCap = Math.max(PICKS_MAX_PREMIUM_ABS, spot * PICKS_MAX_PREMIUM_PCT);
@@ -22153,7 +22153,7 @@ export function rankSinglePickContracts(side, data, rfr = FALLBACK_RISK_FREE_RAT
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
     const dte = Math.round((expiryCloseEpochSec(expSec) * 1000 - nowMs) / 86400000);
-    if (dte < minDte || dte > PICKS_MAX_DTE) continue;
+    if (dte < minDte || dte > PICKS_DTE_HI) continue;
     const rows = isCall ? chain.c : chain.p;
     if (!Array.isArray(rows)) continue;
     const T = yearsToExpiry(expSec);
@@ -22418,7 +22418,7 @@ export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
 
 export function rankVerticalPickContracts(side, data, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   const type = opts.type === "credit" ? "credit" : "debit";
-  const minDte = pnum(opts.minDte) ?? PICKS_MIN_DTE;
+  const minDte = pnum(opts.minDte) ?? PICKS_DTE_LO;
   const spot = pnum(data?.spot);
   const chains = data?.chains;
   if (!spot || spot <= 0 || !chains) return [];
@@ -22436,7 +22436,7 @@ export function rankVerticalPickContracts(side, data, rfr = FALLBACK_RISK_FREE_R
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
     const dte = Math.round((expiryCloseEpochSec(expSec) * 1000 - nowMs) / 86400000);
-    if (dte < minDte || dte > PICKS_MAX_DTE) continue;
+    if (dte < minDte || dte > PICKS_DTE_HI) continue;
     const rows = isCallLeg ? chain.c : chain.p;
     if (!Array.isArray(rows)) continue;
     const T = yearsToExpiry(expSec);
@@ -22574,8 +22574,8 @@ export function buildPickContract(side, data, rfr, strategyIn, opts = {}) {
   let permitted = want === "debit" ? ["debit"] : [want, "debit"];
   const rankers = {
     long: () => rankSinglePickContracts(side, data, rfr, { requireClean: true, ...(opts.evaluateEconomics ? {} : { limit: 1 }) }),
-    debit: () => rankVerticalPickContracts(side, data, rfr, { type: "debit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
-    credit: () => rankVerticalPickContracts(side, data, rfr, { type: "credit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
+    debit: () => rankVerticalPickContracts(side, data, rfr, { type: "debit", minDte: PICKS_DTE_LO, expand: !!opts.evaluateEconomics }),
+    credit: () => rankVerticalPickContracts(side, data, rfr, { type: "credit", minDte: PICKS_DTE_LO, expand: !!opts.evaluateEconomics }),
   };
   // Per-contract cost cap (singles by default, 2026-11-07): when one contract
   // of the single the engine would buy costs more than PICKS_SINGLE_MAX_COST,
@@ -31420,6 +31420,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // one changes. Absent while every Top Picks setting is the default.
       ...(OWNER_SETTINGS_REPORT?.picksTag ? { ownerSettings: OWNER_SETTINGS_REPORT.picksTag } : {}),
       exitPolicy: pickExitPolicy(p.contract?.structure, p.side),
+      // Shorter contracts (PICKS_SHORT_DTE, since 2026-11-22): the window the
+      // contract was bought from, so the Track Record draws a divider.
+      ...(PICKS_DTE_VERSION ? { dtePolicyVersion: PICKS_DTE_VERSION } : {}),
       // 2026-11-22 review stamps: the soft-wait lift (when it opened this
       // trade) and the deterministic entry read beside the AI's final call.
       ...(p.entry?.softWaitLifted ? { softWaitVersion: PICKS_SOFT_WAITS_VERSION } : {}),

@@ -22,7 +22,9 @@ export function entryPolicyFixture() {
     bars.push({date:new Date(now-(closes.length-i)*DAY).toISOString().slice(0,10),o:c,c,h:c*1.01,l:c*.99,v:volumes[i]});
   }
   bars.push({...bars.at(-1),date:new Date(now).toISOString().slice(0,10)});
-  const expiry = Math.floor((now+60*DAY)/DAY)*86400, T = yearsToExpiry(expiry);
+  // About a month out: inside both contract windows (21-45 days with
+  // PICKS_SHORT_DTE, 30-90 without).
+  const expiry = Math.floor((now+42*DAY)/DAY)*86400, T = yearsToExpiry(expiry);
   const chain = {c:[],p:[]};
   for (let strike = 70; strike <= 130; strike++) for (const [type,key] of [['call','c'],['put','p']]) {
     const mid = bsPrice(type,100,strike,T,.4,.045);
