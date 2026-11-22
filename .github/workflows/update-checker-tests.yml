@@ -8,7 +8,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -63,6 +63,23 @@ jobs:
           npm run test:top-picks-watchdog
           node scripts/sports-on-time-smoke.mjs
           npm run test:owner-settings
+      - name: Verify the 2026-11-19 to 11-22 builds
+        # Webull data, Owner controls, wide tier, policy news, chance of
+        # profit and the journal shipped with tests but no CI step
+        # (2026-11-22 audit). Offline, about three minutes.
+        run: |
+          node scripts/trade-pop-smoke.mjs
+          node scripts/journal-smoke.mjs
+          node scripts/owner-controls-smoke.mjs
+          node scripts/owner-desk-smoke.mjs
+          node scripts/webull-data-smoke.mjs
+          node scripts/webull-w3-smoke.mjs
+          node scripts/webull-data-mirror-smoke.mjs
+          node scripts/option-history-smoke.mjs
+          node scripts/engines-history-smoke.mjs
+          node scripts/sports-win-by-smoke.mjs
+          node scripts/wide-tier-smoke.mjs
+          node scripts/policy-news-smoke.mjs
       - name: Verify browser behavior
         run: |
           npm install --prefix "$RUNNER_TEMP/checker-browser" --no-audit --no-fund playwright@1.64.1
@@ -74,3 +91,5 @@ jobs:
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" npm run test:features-next-browser
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" node scripts/engines-browser.mjs
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" node scripts/ai-disruption-browser.mjs
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" node scripts/journal-browser.mjs
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/checker-browser/node_modules/playwright/index.mjs" node scripts/owner-controls-browser.mjs

@@ -72,6 +72,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Fix the Kalshi S&P 500 read: when an open-ended range holds most of the odds it says "below X" (or "above X") instead of a made-up mean (it showed 7,261 with 98.5% of the odds at or below 7,225 and the S&P near 6,940).
 - Fix the NBA research capture on busy slates: a game's record may now be 32 MB raw / 4 MB packed (two Nov 21 captures stopped at the old 16 MB / 2 MB limit; the props were recorded either way).
 - Fix the MCP ticker filter: rows that name their stock as `t` (heat map, pre-market movers, wide tier) now match.
+- Fix the NBA sportsbook reference read on busy slates: the bulk PropLine read may now be 64 MB (it passed 32 MB on Friday Nov 20, so four props and research runs that evening had no book prices and recorded no NBA props).
+- Fix the MCP's engines note: it now says ten strategy engines (seven signal engines plus the Trend follower, Momentum basket and Multi-asset rotation), not eight.
+- The Update Checker CI job now also runs the tests that shipped Nov 19 to 22 with no CI step (chance of profit, journal, Owner controls and desk, Webull data and W3, Webull data in the mirror, option history, engine history, sports win-by, wide tier, policy news, and the journal and Owner controls browser checks); its time limit goes from 15 to 25 minutes.
 
 ## 2026-11-21
 
