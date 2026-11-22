@@ -3,7 +3,7 @@
 // same expiration, not against the average of the whole +/-60% band.
 // Run: node scripts/gamma-squeeze-smoke.mjs
 import assert from 'node:assert/strict';
-import { concentratedNearMoneyCall, CONCENTRATED_RATIO, NEIGHBOR_STRIKES } from '../lib/gamma-squeeze.mjs';
+import { oiWall, concentratedNearMoneyCall, CONCENTRATED_RATIO, NEIGHBOR_STRIKES } from '../lib/gamma-squeeze.mjs';
 
 const EXP1 = 1_800_000_000, EXP2 = EXP1 + 7 * 86400;
 const chain = (exp, rows) => rows.map(([strike, oi]) => ({ side: 'call', strike, oi, expSec: exp }));
@@ -82,6 +82,19 @@ const spot = 100;
 {
   const puts = [[103, 100], [104, 100], [105, 9000], [106, 100], [107, 100]].map(([strike, oi]) => ({ side: 'put', strike, oi, expSec: EXP1 }));
   assert.equal(concentratedNearMoneyCall(puts, spot), null);
+}
+
+// OI walls sit on the right side of the price.
+{
+  const rows = [
+    { side: 'call', strike: 240, oi: 90000 }, { side: 'call', strike: 260, oi: 500 },
+    { side: 'call', strike: 275, oi: 4000 }, { side: 'call', strike: 300, oi: 4000 },
+    { side: 'put', strike: 300, oi: 80000 }, { side: 'put', strike: 250, oi: 7000 }, { side: 'put', strike: 230, oi: 2000 },
+  ];
+  assert.equal(oiWall(rows, 'call', 255).strike, 275, 'call wall: biggest OI at or above the price, nearer strike wins a tie');
+  assert.equal(oiWall(rows, 'put', 255).strike, 250, 'put wall: biggest OI at or below the price');
+  assert.equal(oiWall(rows, 'call', 400), null, 'no call strike above the price -> no wall');
+  assert.equal(oiWall(rows, 'put', 0), null, 'no price -> no wall');
 }
 
 console.log('gamma-squeeze smoke: ok');

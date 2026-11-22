@@ -28,7 +28,7 @@ eq(flowScanSwitches({ FLOW_OPEN_WINDOW: " false ", FLOW_STOCK_BARS: "1" }), { op
 eq(flowScanSwitches({ FLOW_OPEN_WINDOW: "", FLOW_STOCK_BARS: "on" }), { openWindow: true, stockBars: true }, "empty stays on");
 
 eq([flowScanVersion({}), flowScanVersion({ FLOW_STOCK_BARS: "0" }), flowScanVersion({ FLOW_OPEN_WINDOW: "0" }), flowScanVersion({ FLOW_OPEN_WINDOW: "0", FLOW_STOCK_BARS: "0" })],
-  ["2026-11-17", "2026-11-17-open", "2026-11-17-bars", ""], "trade stamp names the switches that are on");
+  ["2026-11-22", "2026-11-22-open", "2026-11-22-bars", "2026-11-22-tag"], "trade stamp names the switches that are on");
 
 // 2. Traded this session: today after 9:30 ET only (November = EST, UTC-5).
 const today = "2026-11-17";

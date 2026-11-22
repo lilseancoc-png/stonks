@@ -169,6 +169,10 @@ UBER and ANT (Anthropic, listed 2026-11-19, not yet an index member) joined
 expirations" (not retried) and it is left out of that build like any
 unfetched name; on the wide map it counts as missing until then.
 
+On 2026-11-22 ANT left `TICKERS` again until its options list (owner
+decision; 79 → 78) and joined `WIDE_EXTRAS`, so the wide map reads it from
+its own chart bars like any other untracked name.
+
 ## Tests
 
 - `node scripts/wide-tier-smoke.mjs` (offline, synthetic seeded market,

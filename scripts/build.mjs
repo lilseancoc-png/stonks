@@ -279,11 +279,13 @@ export const TICKERS = [
   "SPCX",
   // Added coverage — Arm IP, DC infra, retail
   "ARM", "VRT", "TGT",
-  // Added 2026-11-20 (user decision): Uber, and Anthropic (listed on Nasdaq
-  // 2026-11-19, not yet an index member). Until ANT's options list, its chain
-  // fetch fails fast ("No expirations", not retried) and it is left out of
-  // that build like any unfetched ticker.
-  "UBER", "ANT",
+  // Added 2026-11-20 (user decision): Uber. Anthropic (ANT, listed on Nasdaq
+  // 2026-11-19) joined the same day but was taken back out on 2026-11-22
+  // (user decision): with no listed options its chain fetch failed every
+  // build, so it had no grade, engine read or forecast and only held a slot.
+  // Add "ANT" back here once its options list; its SECTORS / industry labels,
+  // name maps and the wide heat map (WIDE_EXTRAS) keep it in the meantime.
+  "UBER",
   // SMCI, ASTS, DIS, CBRS and PYPL moved to the wide tier on 2026-11-19 (user
   // decision, engine roadmap): no chain, grade or AI read; they stay on the
   // wide heat map (lib/wide-tier.mjs WIDE_EXTRAS) and keep their SECTORS
@@ -14551,18 +14553,50 @@ export function buyoutQuoteMatches(row, quote) {
   return ratio >= BUYOUT_QUOTE_PRICE_BAND[0] && ratio <= BUYOUT_QUOTE_PRICE_BAND[1];
 }
 
-export function enrichConfirmedBuyouts(rows, quotes) {
+// Spread, days left and the yearly figure are worked out here from the price
+// the page shows (2026-11-22). The source table's own spread was paired with
+// our Yahoo price, so rows didn't add up (VAL's sign flipped), and its yearly
+// figure compounds a short window (UNF read 2,167% a year). A stock or mixed
+// deal keeps the table's price, because its offer is an implied value marked
+// at the table's own moment. The yearly figure is simple (spread x 365 / days
+// left) and flagged over 100%; a deal at or past its guided close has none.
+export const BUYOUT_ANNUALIZED_FLAG_PCT = 100;
+export function buyoutSpreadRead({ price, consideration, closeAt, todayKey, fallbackSpread = null, fallbackDays = null }) {
+  const p = pnumN(price), c = pnumN(consideration);
+  const grossSpreadPct = p > 0 && c > 0 ? Math.round((c / p - 1) * 10000) / 100 : pnumN(fallbackSpread);
+  const closeKey = closeAt ? String(closeAt).slice(0, 10) : null;
+  const dayMs = closeKey && todayKey ? Date.parse(`${closeKey}T00:00:00Z`) - Date.parse(`${todayKey}T00:00:00Z`) : NaN;
+  const daysLeft = Number.isFinite(dayMs) ? Math.round(dayMs / 86400000) : pnumN(fallbackDays);
+  const pastGuidedClose = daysLeft != null && daysLeft <= 0;
+  const annualizedSpreadPct = !pastGuidedClose && daysLeft > 0 && grossSpreadPct != null
+    ? Math.round(grossSpreadPct * 365 / daysLeft * 10) / 10 : null;
+  return {
+    grossSpreadPct, daysLeft, pastGuidedClose, annualizedSpreadPct,
+    annualizedFlag: annualizedSpreadPct != null && Math.abs(annualizedSpreadPct) > BUYOUT_ANNUALIZED_FLAG_PCT,
+  };
+}
+
+export function enrichConfirmedBuyouts(rows, quotes, nowIso = new Date().toISOString()) {
+  const todayKey = etDateKey(new Date(nowIso));
   return rows.map((row) => {
     const rawQuote = quotes?.[row.targetTicker] || null;
     const quote = rawQuote && buyoutQuoteMatches(row, rawQuote) ? rawQuote : null;
-    const currentPrice = pnumN(quote?.price) ?? row.targetPrice ?? null;
+    const impliedOffer = row.dealType === "stock" || row.dealType === "mixed";
+    const marketPrice = pnumN(quote?.price);
+    const currentPrice = impliedOffer ? (row.targetPrice ?? marketPrice ?? null) : (marketPrice ?? row.targetPrice ?? null);
     const marketCap = pnumN(quote?.marketCap);
     const consideration = pnumN(row.considerationPerShare);
-    const estimatedEquityValue = marketCap > 0 && currentPrice > 0 && consideration > 0
-      ? Math.round(marketCap * (consideration / currentPrice))
+    const estimatedEquityValue = marketCap > 0 && marketPrice > 0 && consideration > 0
+      ? Math.round(marketCap * (consideration / marketPrice))
       : null;
+    const spread = buyoutSpreadRead({ price: currentPrice, consideration, closeAt: row.expectedCloseAt, todayKey, fallbackSpread: row.grossSpreadPct, fallbackDays: row.daysLeft });
     return {
       ...row,
+      ...spread,
+      sourceSpreadPct: pnumN(row.grossSpreadPct),
+      sourceAnnualizedPct: pnumN(row.annualizedSpreadPct),
+      priceBasis: impliedOffer && row.targetPrice != null ? "deal-table" : quote ? "quote" : "deal-table",
+      marketPrice: marketPrice ?? null,
       targetPrice: currentPrice,
       targetMarketCap: marketCap,
       // No matched quote: the table's prices are in the target's home
@@ -14885,7 +14919,7 @@ async function fetchConfirmedPendingBuyouts() {
   const rows = parsePendingBuyoutTable(await res.text());
   if (rows.length < 5) throw new Error(`only ${rows.length} active deal rows parsed`);
   const quotes = await fetchBuyoutQuotes(rows.map((r) => r.targetTicker));
-  return enrichConfirmedBuyouts(rows, quotes);
+  return enrichConfirmedBuyouts(rows, quotes, new Date().toISOString());
 }
 
 async function fetchPendingBuyoutRumors(builtAtIso) {
@@ -14915,7 +14949,14 @@ export async function buildPendingBuyoutsPayload(builtAtIso, prior = null) {
   try {
     confirmed = await fetchConfirmedPendingBuyouts();
   } catch (err) {
-    confirmed = priorDeals.filter((d) => d?.status === "pending").map((d) => ({ ...d, stale: true }));
+    // Last-good rows keep their prices; days left, the past-close mark and the
+    // yearly figure move with today's date.
+    const todayKey = etDateKey(new Date(builtAtIso));
+    confirmed = priorDeals.filter((d) => d?.status === "pending").map((d) => ({
+      ...d,
+      ...buyoutSpreadRead({ price: d.targetPrice, consideration: d.considerationPerShare, closeAt: d.expectedCloseAt, todayKey, fallbackSpread: d.grossSpreadPct, fallbackDays: d.daysLeft }),
+      stale: true,
+    }));
     confirmedStale = true;
     console.warn(`    ⚠ pending-buyouts: confirmed feed failed (${err.message})${confirmed.length ? " — carrying last-good" : ""}`);
   }
@@ -18014,6 +18055,23 @@ function polymarketYesPrice(mk) {
 
 const PM_MARKET_VOL = (mk) => Number(mk && (mk.volume ?? mk.volumeNum ?? mk.volume24hr)) || 0;
 
+// A Fed market for ONE meeting names only that month. Combined-window events
+// ("Fed decisions Dec-Mar", "how many cuts between December and March") name
+// two months and price a path, not one decision, so they never fill a single
+// meeting's row. Slugs abbreviate months ("dec-mar").
+const PM_MONTH_ABBR = PM_MONTH_NAMES.map((m) => m.slice(0, 3));
+export function pmNamesOneMeeting(ev, monthName) {
+  const title = String(ev?.title || ev?.question || "").toLowerCase();
+  const slugWords = String(ev?.slug || "").toLowerCase().split(/[^a-z0-9]+/);
+  if (/how many|between|through|\bthru\b|by (?:the )?end|this year/.test(title)) return false;
+  const named = new Set();
+  PM_MONTH_NAMES.forEach((m, i) => {
+    if (new RegExp(`\\b${m}\\b`).test(title) || new RegExp(`\\b${PM_MONTH_ABBR[i]}\\b`).test(title.replace(/\bmay\b/, "")) || slugWords.includes(PM_MONTH_ABBR[i]) || slugWords.includes(m)) named.add(m);
+  });
+  if (!named.has(monthName)) return named.size === 0 ? true : false;
+  return named.size === 1;
+}
+
 async function fetchPolymarketFomc(meetingDate) {
   const events = await loadPolymarketEvents();
   if (!events.length) return null;
@@ -18028,6 +18086,7 @@ async function fetchPolymarketFomc(meetingDate) {
     if (!/fed/.test(title)) continue;
     if (!/(decision|rate|meeting|fomc|hike|cut|change|bps|basis point)/.test(title)) continue;
     if (!title.includes(monthName)) continue;
+    if (!pmNamesOneMeeting(ev, monthName)) continue;
     const endMs = Date.parse(ev.endDate || ev.end_date || "");
     let gap = Number.isFinite(endMs) ? Math.abs(endMs - meetingMs) : Infinity;
     if (!Number.isFinite(endMs) && title.includes(year)) gap = 15 * 86400000; // year in title, no date
@@ -34497,12 +34556,40 @@ function briefBpsStr(v) {
   return (v >= 0 ? "+" : "") + v.toFixed(1) + "bp";
 }
 // First sentence / clause of a longer note, trimmed for chips + prompt lines.
-function briefClause(text, max = 110) {
+// A period after one capital letter ("U.S.", "J.P.") or a short title or
+// company word ("Inc.", "vs.") is not a sentence end.
+const BRIEF_ABBREV_RE = /(?:\b[A-Z]|\b(?:Inc|Corp|Co|Ltd|vs|St|Mr|Mrs|Ms|Dr|Jr|Sr|No|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec))$/;
+function briefClauseCut(s) {
+  const re = /(?:\s[—–-]\s|;|\.\s)/g;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m[0].startsWith(".") && BRIEF_ABBREV_RE.test(s.slice(0, m.index))) continue;
+    if (m.index > 20) return m.index;
+  }
+  return -1;
+}
+export function briefClause(text, max = 110) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
   if (!s) return "";
-  const cut = s.search(/(?:\s[—–-]\s|;|\.\s)/);
+  const cut = briefClauseCut(s);
   const head = cut > 20 ? s.slice(0, cut) : s;
   return head.length > max ? head.slice(0, max - 1).trim() + "…" : head;
+}
+
+// The news take is cached AI prose that can be days old, so a percent in it
+// ("nearly 8%") may describe an older session than the move the Brief shows.
+// Use the first clause that carries no percent figure; none = no take.
+const BRIEF_PCT_RE = /\d(?:[\d.,]*)\s?(?:%|percent\b|pct\b)/i;
+export function briefTakeNoMoves(text, max = 160) {
+  let rest = String(text || "").replace(/\s+/g, " ").trim();
+  for (let i = 0; rest && i < 6; i++) {
+    const cut = briefClauseCut(rest);
+    const head = cut > 20 ? rest.slice(0, cut) : rest;
+    if (!BRIEF_PCT_RE.test(head)) return briefClause(head, max);
+    if (cut <= 20) break;
+    rest = rest.slice(cut).replace(/^(?:\s[—–-]\s|;|\.)\s*/, "").trim();
+  }
+  return null;
 }
 
 // Human B/M/K for a signed OI-gamma-proxy dollar figure (fact-sheet + render share).
@@ -34776,7 +34863,7 @@ export function buildBriefWatchlist(ctx) {
     if (sent === "bullish" || sent === "bearish") {
       score += 3; event++;
       reasons.push(sent === "bullish" ? "bullish news" : "bearish news");
-      take = briefClause(d.news.paragraph, 160);
+      take = briefTakeNoMoves(d.news.paragraph, 160);
     }
     // Dated near-term catalyst pulled by the news read (FDA / court / launch /
     // merger / guidance …) — inside the next week, not low-confidence.
@@ -34919,7 +35006,10 @@ function briefToolFacts(source, p, kind, nowMs) {
       const updatedMs = Date.parse(row.lastUpdateAtIso || row.reportedAtIso || "");
       const recent = Number.isFinite(updatedMs) && nowMs - updatedMs <= 7 * 86400000;
       let importance = 0;
-      if (row.stage === "expected_close" && Number.isFinite(days) && days >= 0 && days <= 30) importance = 88;
+      // A deal at or past its guided close (2026-11-22) has a spread from
+      // before it was due, so it never leads the Brief (BHF: "0d, 69.5%").
+      if (row.pastGuidedClose || (Number.isFinite(days) && days <= 0 && row.status !== "rumored")) importance = 0;
+      else if (row.stage === "expected_close" && Number.isFinite(days) && days > 0 && days <= 30) importance = 88;
       else if (row.stage === "regulatory_vote") importance = 84;
       else if (["active_talks", "rumor"].includes(row.stage) && recent) importance = row.stage === "active_talks" ? 82 : 77;
       else if (Number.isFinite(spread) && spread >= 5) importance = 78;
@@ -34931,7 +35021,7 @@ function briefToolFacts(source, p, kind, nowMs) {
       const row = lead.row;
       const stage = row.statusLabel || (row.stage === "active_talks" ? "Reported talks" : row.stage === "regulatory_vote" ? "Regulatory / vote pending" : row.stage === "expected_close" ? "Expected close" : row.stage === "announced" ? "Definitive agreement" : "Rumor");
       const economics = [
-        Number.isFinite(lead.days) && lead.days >= 0 ? `${Math.round(lead.days)}d to the guided close` : null,
+        Number.isFinite(lead.days) && lead.days > 0 ? `${Math.round(lead.days)}d to the guided close` : null,
         Number.isFinite(lead.spread) ? `${lead.spread.toFixed(1)}% current-vs-deal spread` : null,
         row.coverageCount > 1 ? `${row.coverageCount} linked publishers` : null,
       ].filter(Boolean).join(", ");
@@ -35144,6 +35234,9 @@ function briefToolFacts(source, p, kind, nowMs) {
       const band = Array.isArray(kh.band80) && kh.band80.length === 2 ? ` with an 80% range of ${count(kh.band80[0])} to ${count(kh.band80[1])}` : "";
       const likely = kh.mostLikely?.title && Number.isFinite(kh.mostLikely.prob) ? `; most traded bucket ${kh.mostLikely.title} at ${Math.round(kh.mostLikely.prob * 100)}%` : "";
       add(`Kalshi traders price ${title} at an implied mean of ${count(kh.impliedMean)}${band}${likely}. Prediction-market prices, not a forecast.`, 60, "info");
+    } else if (kh?.tail && Number.isFinite(kh.tail.level) && Number.isFinite(kh.tail.prob)) {
+      const title = String(ks.events?.[0]?.title || "the S&P 500 close").replace(/^S&P 500 close/, "the S&P 500 close");
+      add(`Kalshi traders put ${Math.round(kh.tail.prob * 100)}% on ${title} landing ${kh.tail.side === "below" ? "at or below" : "at or above"} ${count(kh.tail.level)}, the edge of the listed ranges. Prediction-market prices, not a forecast.`, 60, "info");
     }
     const md = live(p.marginDebt)?.summary;
     if (md && Number.isFinite(md.debitUsdM)) {
@@ -35843,7 +35936,7 @@ export function briefUserMessage(kind, dateKey, signals) {
     }
   }
   if (signals.watchlist && signals.watchlist.length) {
-    lines.push("Tickers to watch this build (deterministic public single-name screen — news takes, dated catalysts, capital raises, earnings timing, unusual flow, heavy tape; weave the interesting ones into the narrative):");
+    lines.push("Tickers to watch this build (deterministic public single-name screen — news takes, dated catalysts, capital raises, earnings timing, unusual flow, heavy tape; weave the interesting ones into the narrative). The percent in brackets is the only current move for each name; never state a different move or size for it:");
     for (const w of signals.watchlist) {
       lines.push(`- ${w.sym}${w.ch != null ? ` (${briefPctStr(w.ch)})` : ""}: ${(w.reasons || []).join("; ")}${w.take ? ` — ${w.take}` : ""}`);
     }
@@ -42233,6 +42326,13 @@ async function main() {
           fred: Object.fromEntries(["DGS10", "DGS2", "T10Y2Y", "DFF", "NFCI", "DTWEXBGS", "CPIAUCSL", "UNRATE", "USREC"].map((id) => [id, fredRows(id)])),
           vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
           vix3m: regimeLabVolSeries(historicalSourceCache, null, globalMarkets?.["^VIX3M"]),
+          // Live VIX (2026-11-22, Owner Settings ENGINES_LIVE_VIX, on): the
+          // tape's own VIX / VIX3M quote from this bake, so the engines' VIX
+          // pause, fear reads and VIX bands match the Top Picks tape instead of
+          // the prior close. Only a quote stamped today (ET) counts.
+          liveVol: macroBackdrop?.vix?.value > 0 && macroBackdrop.vix.asOf && etDateKey(new Date(macroBackdrop.vix.asOf)) === etDateKey(new Date(builtAtIso))
+            ? { date: etDateKey(new Date(builtAtIso)), vix: macroBackdrop.vix.value, vix3m: macroBackdrop.vixTerm?.mid ?? null, asOf: macroBackdrop.vix.asOf }
+            : null,
           // Fed decisions are the dated list; CPI and jobs days are the FRED
           // release calendars (the first-Friday rule stands in for jobs days
           // when that calendar did not load).

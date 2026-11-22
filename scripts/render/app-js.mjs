@@ -24324,7 +24324,7 @@ ${renderExportBindings()}
       : (rumor && d.targetMarketCap != null ? 'reference only; no bid value reported' : 'terms unavailable');
     var close = rumor ? 'No signed timeline' : pbDate(d.expectedCloseAt || d.expectedCloseLabel);
     var closeDays = d.daysLeft != null && isFinite(d.daysLeft) ? Math.max(0, Math.round(d.daysLeft)) : null;
-    var closeNote = rumor ? 'reported talks are not signed' : (closeDays != null ? closeDays + ' day' + (closeDays === 1 ? '' : 's') + ' at last build' : 'company guidance');
+    var closeNote = rumor ? 'reported talks are not signed' : (d.pastGuidedClose ? 'past the guided close date; waiting on the deal to finish' : closeDays != null ? closeDays + ' day' + (closeDays === 1 ? '' : 's') + ' at last build' : 'company guidance');
     var spread = d.grossSpreadPct != null && isFinite(d.grossSpreadPct) ? Number(d.grossSpreadPct).toFixed(2) + '%' : 'Not available';
     var premium = d.reportedPremiumPct != null && isFinite(d.reportedPremiumPct) ? Number(d.reportedPremiumPct).toFixed(1) + '% premium to unaffected' : (rumor ? 'price not disclosed' : 'unaffected premium not captured');
     var currentMove = d.recentMovePct != null && isFinite(d.recentMovePct) ? '1-day ' + (Number(d.recentMovePct) >= 0 ? '+' : '') + Number(d.recentMovePct).toFixed(2) + '%' : 'recent move unavailable';
@@ -24382,11 +24382,15 @@ ${renderExportBindings()}
         }, sort: function(d){ return d.considerationPerShare; } },
       { label: 'Price', num: true, cell: function(d){ return d.targetPrice != null && isFinite(d.targetPrice) ? pbFmtShare(d.targetPrice, d.currency) : ''; }, sort: function(d){ return d.targetPrice; } },
       { label: 'Spread', num: true, title: 'Offer vs current price', cell: function(d){ return pbPct(d.grossSpreadPct, 2); }, sort: function(d){ return d.grossSpreadPct; } },
-      { label: 'Annualised', num: true, title: 'Spread scaled to a year at the guided close date; very short or very wide deals swing this a lot', cell: function(d){ return d.status === 'rumored' ? '' : pbPct(d.annualizedSpreadPct, 1); }, sort: function(d){ return d.status === 'rumored' ? null : d.annualizedSpreadPct; } },
+      { label: 'Yearly rate', num: true, title: 'Spread x 365 / days to the guided close (simple, not compounded). Over 100% is flagged: a short window or a doubtful deal, not a real yearly return. Blank past the close date.', cell: function(d){
+          if (d.status === 'rumored') return '';
+          if (d.pastGuidedClose) return '<small class="pb-t-days" title="The guided close date has passed, so there is no yearly figure">past close</small>';
+          return pbPct(d.annualizedSpreadPct, 1) + (d.annualizedFlag ? '<small class="pb-t-days" title="Over 100% a year: a very short window or a deal the market doubts">check</small>' : '');
+        }, sort: function(d){ return d.status === 'rumored' || d.pastGuidedClose ? null : d.annualizedSpreadPct; } },
       { label: 'Expected close', cell: function(d){
           if (d.status === 'rumored' || !(d.expectedCloseAt || d.expectedCloseLabel)) return '';
           var days = d.daysLeft != null && isFinite(d.daysLeft) ? Math.round(d.daysLeft) : null;
-          return escapeHtml(pbDate(d.expectedCloseAt || d.expectedCloseLabel)) + (days != null ? '<small class="pb-t-days">' + (days > 0 ? days + 'd left' : 'due') + '</small>' : '');
+          return escapeHtml(pbDate(d.expectedCloseAt || d.expectedCloseLabel)) + (days != null ? '<small class="pb-t-days">' + (days > 0 ? days + 'd left' : 'past date') + '</small>' : '');
         }, sort: function(d){ return d.status === 'rumored' ? null : (d.expectedCloseAt || null); } },
       { label: 'Stage', cell: function(d){ return pbStageMini(pbStage(d)); }, sort: function(d){ return PB_STAGE_ORDER.indexOf(pbStage(d)); } },
       { label: 'Equity value', num: true, title: 'Offer per share × implied shares outstanding; not enterprise value', cell: function(d){ return d.estimatedEquityValue != null && isFinite(d.estimatedEquityValue) ? pbFmtValue(d.estimatedEquityValue, d.valueCurrency || d.currency) : ''; }, sort: function(d){ return d.estimatedEquityValue; } }
@@ -26718,7 +26722,7 @@ ${renderExportBindings()}
     return { label: 'Paper record', resolved: closed.length, open: open,
       winPct: closed.length ? wins / closed.length * 100 : null,
       avg: rets.length ? rets.reduce(function(a, b){ return a + b; }, 0) / rets.length : null, avgLabel: 'avg contract',
-      empty: !d ? 'loading' : d.missing ? 'paper record not running' : 'no paper trades yet',
+      empty: !d ? 'loading' : d.missing ? 'research only, no paper record yet' : 'no paper trades yet',
       title: d && d.missing ? 'The LEAPS paper book is not switched on: the build does not enroll LEAPS ideas yet (leapsPicksForBake), so no trades are recorded.'
         : 'LEAPS paper book: one contract per qualified idea, filled at the ask, closed on target, doubling, flag, roll or the six-month time exit.' };
   }
@@ -37672,7 +37676,11 @@ ${renderExportBindings()}
     flowscan: {
       '2026-11-17': { note:'Flow scan counts the opening half hour and gives each stock its own volume bar, so the flow vote sees more names' },
       '2026-11-17-open': { note:'Flow scan counts the opening half hour (one volume bar for every stock)' },
-      '2026-11-17-bars': { note:'Flow scan gives each stock its own volume bar (opening half hour not counted)' }
+      '2026-11-17-bars': { note:'Flow scan gives each stock its own volume bar (opening half hour not counted)' },
+      '2026-11-22': { note:'Flow tape reads buy or sell sides again: the 15-minute Yahoo delay no longer marks almost every print stale' },
+      '2026-11-22-open': { note:'Flow tape reads sides again (Yahoo delay allowed for); opening half hour counted, one volume bar' },
+      '2026-11-22-bars': { note:'Flow tape reads sides again (Yahoo delay allowed for); each stock its own bar, opening half hour not counted' },
+      '2026-11-22-tag': { note:'Flow tape reads sides again (Yahoo delay allowed for); both flow scan switches off' }
     },
     // No fixed date: the divider dates from the first trade under the rule.
     structure: { '2026-11-singles-default': { note:'Single calls and puts by default; a debit spread only for earnings inside the hold or one contract over $5,000' } },

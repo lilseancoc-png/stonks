@@ -3009,4 +3009,20 @@ ok("bounce skip: switch, Owner Settings and the rules step on Reversion only", (
   const made = adoptRules(es, ENGINES.reversion, TODAY);
   assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(bounce skip rules\)/); assert.equal(es.rules, 11);
 });
+ok("live VIX: today's quote replaces the prior close on the decision day only; switch and Owner Settings", () => {
+  const dates = []; for (let d = Date.parse("2026-08-03T12:00:00Z"); dates.length < 80; d += 86400000) { const w = new Date(d).getUTCDay(); if (w && w < 6) dates.push(new Date(d).toISOString().slice(0, 10)); }
+  const today = "2026-11-20"; const past = dates.filter((t) => t < today);
+  const vix = past.map((t, i) => ({ t, v: i === past.length - 1 ? 28.44 : 18 }));
+  const closeOnly = buildMacro({ vix });
+  assert.equal(closeOnly.factors(today).vix, 28.44, "no live quote: the prior close");
+  assert.equal(closeOnly.factors(today).vixLive, false);
+  const live = buildMacro({ vix, vix3m: past.map((t) => ({ t, v: 24 })), live: { date: today, vix: 40.1, vix3m: 33 } });
+  const f = live.factors(today);
+  assert.equal(f.vix, 40.1); assert.equal(f.vixLive, true); assert.equal(f.vix3m, 33); assert.ok(Math.abs(f.vixRatio - 40.1 / 33) < 1e-9);
+  assert.equal(live.env(today, f).vix, "30+", "the band reads the live quote");
+  assert.equal(live.factors(past[past.length - 1]).vix, 18, "an earlier date keeps the prior-close rule");
+  assert.equal(buildMacro({ vix, live: { date: today, vix: null } }).factors(today).vix, 28.44, "a missing quote is ignored");
+  assert.equal(engineSwitches({}).liveVix, true); assert.equal(engineSwitches({ ENGINES_LIVE_VIX: "0" }).liveVix, false);
+  const d = ownerSettingDef("ENGINES_LIVE_VIX"); assert.ok(d && d.kind === "switch" && d.default === true && d.group === "Strategy engines" && d.scope === "build");
+});
 console.log(`${passed} engine checks passed${process.exitCode ? " (with failures)" : ""}`);

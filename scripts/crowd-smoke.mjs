@@ -436,6 +436,15 @@ ok("Kalshi live shapes: fixed-point counts, x.9999 strikes, tails, claims and re
     { ticker: "a", floor: 7600, cap: 7649.99, prob: 0.2 }, { ticker: "b", floor: 7650, cap: 7699.99, prob: 0.25 }, { ticker: "c", floor: 7700, cap: null, prob: 0.4 },
   ]);
   assert.equal(dist.mostLikely.floor, 7650);
+  assert.ok(dist.impliedMean != null && dist.tail == null, "a 40% tail still has a mean");
+  // The ladder drifted away from the market: almost all the odds sit in the
+  // low tail (Nov 20: S&P near 6,940, 98.5% in "7,224.99 or below").
+  const drift = rangeDistribution([
+    { ticker: "lo", floor: null, cap: 7224.99, prob: 0.985 }, { ticker: "m", floor: 7225, cap: 7249.99, prob: 0.01 }, { ticker: "h", floor: 7250, cap: 7274.99, prob: 0.005 },
+  ]);
+  assert.equal(drift.impliedMean, null, "no mean from a tail's guessed midpoint");
+  assert.equal(drift.band80, null);
+  assert.deepEqual([drift.tail.side, drift.tail.level], ["below", 7224.99]);
   const claims = buildKalshiSeries({ ticker: "KXJOBLESSCLAIMS", kind: "threshold", unit: "k", scale: 1000, maxEvents: 1 }, [{ event_ticker: "KXJOBLESSCLAIMS-26NOV", title: "Claims", markets: [
     { ticker: "x1", strike_type: "greater_or_equal", floor_strike: 210000, last_price_dollars: "0.80", yes_bid_dollars: "0.79", yes_ask_dollars: "0.81" },
     { ticker: "x2", strike_type: "greater_or_equal", floor_strike: 220000, last_price_dollars: "0.40", yes_bid_dollars: "0.39", yes_ask_dollars: "0.41" },
