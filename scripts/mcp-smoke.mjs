@@ -578,6 +578,30 @@ async function tool(name, args, opts) {
   assert.equal(trr.recent_closed[1].close_reason, "premium stop hit", "closes say why in words");
   assert.equal(trr.open_trades[0].close_reason, undefined);
   assert.ok(trr.trade_lines.includes("NVDA-C-10/28/26-11:05"));
+  // Order-ready instructions (lib/trade-instructions.mjs): the raw record,
+  // closes first, codes not prose, and nothing written.
+  const ti = await tool("get_trade_instructions", {});
+  assert.equal(ti.isError, false, JSON.stringify(ti).slice(0, 400));
+  const tir = ti.structuredContent.results;
+  assert.equal(ti.structuredContent.access, "owner");
+  assert.equal(tir.feed.status, "fresh");
+  assert.deepEqual(tir.instructions.map((x) => `${x.kind}:${x.symbol}`), ["CLOSE:AAPL", "OPEN:NVDA"], "closes from the last 7 days, then opens");
+  assert.deepEqual(tir.instructions[0].blocked_by, ["multi_leg"]);
+  assert.equal(tir.instructions[1].trade_id, "NVDA-C-10/28/26-11:05");
+  assert.equal(tir.instructions[1].occ_symbol, "NVDA261219C00200000");
+  assert.deepEqual(tir.instructions[1].blocked_by, ["act_by_passed"], "an OPEN from an earlier session is listed, not placeable");
+  assert.equal(tir.instructions[1].price.worst, 10.5);
+  assert.equal((await tool("get_trade_instructions", { placeable_only: true })).structuredContent.results.instructions.length, 0);
+  assert.deepEqual((await tool("get_trade_instructions", { kind: "close" })).structuredContent.results.instructions.map((x) => x.symbol), ["AAPL"]);
+  assert.equal((await tool("get_trade_instructions", { since: "2026-10-31T00:00:00Z" })).structuredContent.results.instructions.length, 0);
+  assert.equal((await tool("get_trade_instructions", { since: "yesterday" })).structuredContent.error.code, "INVALID_INPUT");
+  files["owner-controls.json"] = { version: 1, stop: { at: new Date(now - 3_600_000).toISOString(), by: "owner" }, avoid: [], watch: [], catalysts: [], dial: null, past: [], log: [] };
+  const tiStop = await tool("get_trade_instructions", {});
+  assert.equal(tiStop.structuredContent.results.new_trades_stopped, true);
+  assert.ok(tiStop.structuredContent.results.instructions[1].blocked_by.includes("new_trades_stopped"));
+  assert.ok(tiStop.structuredContent.warnings.some((w) => /^NEW_TRADES_STOPPED/.test(w)));
+  delete files["owner-controls.json"];
+  assert.equal(writeAttempts.length, 0, "instructions save nothing");
 
   // ---- page datasets ----
   const lf2 = await tool("list_features", {});
@@ -824,7 +848,7 @@ async function tool(name, args, opts) {
   const list = await rpc("tools/list", {}, pub);
   assert.equal(list.statusCode, 200);
   const names = list.body.result.tools.map((t) => t.name);
-  for (const owner of ["get_stock", "get_stock_grades", "get_top_picks", "get_near_misses", "get_track_record"]) assert.ok(!names.includes(owner), owner + " hidden");
+  for (const owner of ["get_stock", "get_stock_grades", "get_top_picks", "get_near_misses", "get_track_record", "get_trade_instructions"]) assert.ok(!names.includes(owner), owner + " hidden");
   assert.ok(!JSON.stringify(list.body).includes("track record"), "owner descriptions hidden");
   const lf = await tool("list_features", {}, pub);
   assert.ok(lf.structuredContent.results.features.every((f) => f.access === "public"));

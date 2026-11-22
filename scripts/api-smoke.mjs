@@ -375,6 +375,31 @@ try {
   else process.env.SESSION_SECRET = priorSecret;
 }
 
+// The private picks feed (text and ?format=json) stays a 404 without the
+// right key, before anything is read.
+{
+  const saved = { key: process.env.PICKS_FEED_KEY, flag: process.env.PRIVATE_DATA_ENABLED };
+  try {
+    process.env.PRIVATE_DATA_ENABLED = "1";
+    process.env.PICKS_FEED_KEY = "k".repeat(32);
+    for (const query of [{}, { key: "wrong" }, { key: "k".repeat(31) }, { key: ["k".repeat(32)] }]) {
+      for (const format of [undefined, "json"]) {
+        const r = mockResponse();
+        await authHandler({ query: { action: "picks-feed", ...query, ...(format ? { format } : {}) }, method: "GET", headers: { host: "example.test" } }, r);
+        assert.equal(r.statusCode, 404, JSON.stringify(query) + " " + format);
+        assert.equal(r.headers["cache-control"], "private, no-store");
+      }
+    }
+    process.env.PICKS_FEED_KEY = "short";
+    const r = mockResponse();
+    await authHandler({ query: { action: "picks-feed", key: "short", format: "json" }, method: "GET", headers: { host: "example.test" } }, r);
+    assert.equal(r.statusCode, 404, "a key under 24 characters keeps the feed off");
+  } finally {
+    if (saved.key === undefined) delete process.env.PICKS_FEED_KEY; else process.env.PICKS_FEED_KEY = saved.key;
+    if (saved.flag === undefined) delete process.env.PRIVATE_DATA_ENABLED; else process.env.PRIVATE_DATA_ENABLED = saved.flag;
+  }
+}
+
 // Root output deployments must explicitly exclude local secrets/private data.
 const vercelIgnore = await readFile(new URL("../.vercelignore", import.meta.url), "utf8");
 for (const pattern of ["/data/", "/r2.env", "*.env", ".env*", "/ai-health.json", "/.codex/"]) {

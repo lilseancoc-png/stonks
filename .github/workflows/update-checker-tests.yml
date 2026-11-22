@@ -80,6 +80,7 @@ jobs:
           node scripts/sports-win-by-smoke.mjs
           node scripts/wide-tier-smoke.mjs
           node scripts/policy-news-smoke.mjs
+          node scripts/trade-instructions-smoke.mjs
       - name: Verify browser behavior
         run: |
           npm install --prefix "$RUNNER_TEMP/checker-browser" --no-audit --no-fund playwright@1.64.1
