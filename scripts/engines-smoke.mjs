@@ -2950,25 +2950,17 @@ ok("logic audit fix 6: the too-dear swap to shares honors the share switches; a 
   assert.equal(summarize([{ ...t, markSource: "chain", optionPnlPct: -50 }]).modelExits, 0);
 });
 // ---------------------------------------------------------------------------
-// Bounce skip rules (2026-11-22, owner chose "Both skip rules, panic
-// exception" on the bounce falling-knife test): no new washout bounce or
-// RSI(2) dip while VIX is under 30 and hikes are priced or the market grinds.
+// Bounce skip rule (2026-11-22, owner chose "Both skip rules, panic
+// exception" on the bounce falling-knife test, then "Keep sell-off rule only"
+// the same day): no new washout bounce or RSI(2) dip while VIX is under 30 and
+// the market grinds. Hikes priced alone no longer skip them.
 // ---------------------------------------------------------------------------
-ok("bounce skip: the two rules, the panic exception and who they reach", () => {
+ok("bounce skip: the grind rule, the panic exception and who it reaches", () => {
   const rev = ENGINES.reversion, bounce = { symbol: "CCC", side: "call", setup: "oversold-bounce" }, dip = { ...bounce, setup: "rsi2-dip" };
   const hikes = (vix) => ({ ...CTX, macro: { hikeGap: 0.8, vix } });
-  assert.match(bounceSkipWhy(hikes(22), bounce, rev) || "", /^Bounce skip: hikes are priced \(2-year yield 0.8 points over fed funds\) and VIX is 22, under 30/);
-  assert.match(bounceSkipWhy(hikes(22), dip, rev) || "", /^Bounce skip: hikes are priced/, "the RSI(2) dip trial too");
-  assert.equal(bounceSkipWhy(hikes(30), bounce, rev), null, "VIX 30: a panic, so it trades");
-  assert.equal(bounceSkipWhy(hikes(41), dip, rev), null);
-  assert.match(bounceSkipWhy(hikes(null), bounce, rev) || "", /no VIX reading/, "no VIX read: no panic exception");
-  assert.equal(bounceSkipWhy({ ...CTX, macro: { hikeGap: 0.49, vix: 20 } }, bounce, rev), null, "under 0.5 points: not priced");
-  assert.equal(bounceSkipWhy({ ...CTX, macro: { vix: 20 } }, bounce, rev), null, "no rate read: that rule is left out");
-  // Only Reversion's two buys: not its other setups, puts or other engines, and the switch turns it off.
-  for (const setup of ["capitulation", "fear-bounce"]) assert.equal(bounceSkipWhy(hikes(22), { ...bounce, setup }, rev), null, setup);
-  assert.equal(bounceSkipWhy(hikes(22), { ...bounce, side: "put" }, rev), null);
-  assert.equal(bounceSkipWhy(hikes(22), { ...bounce, setup: "pullback" }, ENGINES.technicals), null);
-  assert.equal(bounceSkipWhy(hikes(22), bounce, engineSpecs({ bounceSkip: false }).reversion), null);
+  assert.equal(bounceSkipWhy(hikes(22), bounce, rev), null, "hikes priced alone: no skip (the hike part was dropped)");
+  assert.equal(bounceSkipWhy(hikes(22), dip, rev), null, "the RSI(2) dip trial too");
+  assert.equal(BOUNCE.hikeGap, undefined, "no hike threshold left");
   // The grind: SPY under its 50-day and more than 60% of covered names under theirs.
   const names = (under, n = 20) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`N${i}`, V(`N${i}`, baseF(i < under ? { c: 90, sma50: 94 } : {}))]));
   const spyDown = baseF({ c: 470, sma50: 480 });
@@ -2977,22 +2969,36 @@ ok("bounce skip: the two rules, the panic exception and who they reach", () => {
   assert.equal(bounceSkipWhy(grind(12), bounce, rev), null, "60% is not more than 60%");
   assert.equal(bounceSkipWhy({ ...grind(13), spy: spyF }, bounce, rev), null, "SPY over its 50-day: no grind");
   assert.equal(bounceSkipWhy({ ...grind(13), macro: { vix: 33 } }, bounce, rev), null, "a grind in a panic still trades");
+  assert.equal(bounceSkipWhy({ ...grind(13), macro: { vix: 30 } }, bounce, rev), null, "VIX 30: a panic, so it trades");
+  assert.match(bounceSkipWhy(grind(13), dip, rev) || "", /^Bounce skip: the market is grinding lower/, "the RSI(2) dip trial too");
+  assert.match(bounceSkipWhy({ ...grind(13), macro: {} }, bounce, rev) || "", /no VIX reading/, "no VIX read: no panic exception");
+  assert.equal(bounceSkipWhy({ ...grind(13), byId: names(5, 10) }, bounce, rev), null, "no breadth read: no skip");
+  // Only Reversion's two buys: not its other setups, puts or other engines, and the switch turns it off.
+  for (const setup of ["capitulation", "fear-bounce"]) assert.equal(bounceSkipWhy(grind(13), { ...bounce, setup }, rev), null, setup);
+  assert.equal(bounceSkipWhy(grind(13), { ...bounce, side: "put" }, rev), null);
+  assert.equal(bounceSkipWhy(grind(13), { ...bounce, setup: "pullback" }, ENGINES.technicals), null);
+  assert.equal(bounceSkipWhy(grind(13), bounce, engineSpecs({ bounceSkip: false }).reversion), null);
   assert.equal(breadthUnder50({ ...CTX, byId: names(5, 10) }), null, "under 20 names: no breadth read");
   // Sector funds (aux views) are not counted.
   const aux = Object.fromEntries(["XLP", "XLV", "XLU", "XLE", "XLF"].map((s) => [s, { sym: s, aux: true, f: baseF({ c: 90, sma50: 94 }) }]));
   assert.equal(breadthUnder50(grind(12, aux)).n, 20);
   assert.equal(BOUNCE.panicVix, 30); assert.deepEqual(BOUNCE.setups, ["oversold-bounce", "rsi2-dip"]);
 });
-ok("bounce skip: in the book, the washout bounce is shadowed, the dip trial is not, and a panic or the switch opens both", () => {
+ok("bounce skip: in the book, the washout bounce is shadowed, the dip trial is not, and a panic, hikes alone or the switch opens both", () => {
   const views = { CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) };
-  const run = (macro, specs) => stepBook(emptyState(), emptyRecord(), bookInput(views, { engines: ["reversion"], shares: true, ctx: { ...CTX, byId: views, macro }, ...(specs ? { specs } : {}) }));
+  // 20 more covered names, 15 of them under their 50-day, and SPY under its own: a grind.
+  const others = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`N${i}`, V(`N${i}`, baseF(i < 15 ? { c: 90, sma50: 94 } : {}))]));
+  const spyDown = baseF({ c: 470, sma50: 480 });
+  const run = (macro, specs, spy = spyDown) => stepBook(emptyState(), emptyRecord(), bookInput(views, { engines: ["reversion"], shares: true, ctx: { ...CTX, spy, byId: { ...others, ...views }, macro }, ...(specs ? { specs } : {}) }));
   const held = run({ hikeGap: 0.88, vix: 24.6 });
   assert.equal(held.opened.length, 0);
   const rows = held.checks.CCC.filter((r) => r.setup === "oversold-bounce" || r.setup === "rsi2-dip");
-  assert.equal(rows.length, 2); for (const r of rows) assert.match(r.why || "", /Bounce skip: hikes are priced/, r.setup);
+  assert.equal(rows.length, 2); for (const r of rows) assert.match(r.why || "", /Bounce skip: the market is grinding lower/, r.setup);
   assert.equal(held.shadowOpened, 1, "the washout bounce is tracked as a shadow trade; the trial never is");
   const panic = run({ hikeGap: 0.88, vix: 35.9 });
   assert.deepEqual(panic.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"], "VIX 35.9 (the Nov 20 close): both open");
+  const hikesOnly = run({ hikeGap: 0.88, vix: 24.6 }, null, spyF);
+  assert.deepEqual(hikesOnly.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"], "hikes priced with no grind: both open");
   const off = run({ hikeGap: 0.88, vix: 24.6 }, engineSpecs({ bounceSkip: false }));
   assert.deepEqual(off.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"], "switched off: both open");
 });

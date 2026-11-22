@@ -798,17 +798,27 @@ default), and one dated rules step on Reversion only (`ENGINE_FIXES` step 10,
 `stepBook` after the news gate and the pauses.
 
 Reversion's washout bounce (`oversold-bounce`, calls) and its RSI(2) dip paper
-trial (`rsi2-dip`, shares) open no new trade while VIX is under 30 and either
+trial (`rsi2-dip`, shares) open no new trade while VIX is under 30 and **the
+market is grinding lower**: SPY closes under its 50-day average and more than
+60% of the covered names (sector funds left out; at least 20 names, else no
+read) close under theirs.
 
-1. **hikes are priced**: the 2-year Treasury yield is 0.5 points or more over
-   fed funds (`macro.hikeGap`), or
-2. **the market is grinding lower**: SPY closes under its 50-day average and
-   more than 60% of the covered names (sector funds left out; at least 20
-   names, else no read) close under theirs.
+**Sell-off rule only (owner, 2026-11-22, before the first live run).** The
+first version had a second rule: skip them whenever hikes are priced (the
+2-year Treasury yield 0.5 points or more over fed funds). That read was true
+every session from July 2026 (0.88 on Nov 20), so under VIX 30 it worked as a
+standing off switch for bounces, and the owner had already turned off the
+similar rate-hike pause for the other engines (#904). On the bench (same setup
+as below), the grind rule alone made +$842,559 with a worst drop of -$57,822
+(2022 -$32.7K; 776 bounce calls, +$93.8K), against +$835,081 / -$52,043 with
+both rules and +$834,732 / -$63,695 with neither: most of the drawdown
+protection with more live bounce trades. The owner chose "Keep sell-off rule
+only"; the hike part was dropped and rules 11 keeps its number and date.
 
-With VIX at 30 or more neither rule applies: a panic still trades. Every read
-is through the prior close. With no VIX reading there is no panic exception;
-with no rate or breadth reading that rule is left out. A skipped washout bounce
+With VIX at 30 or more the rule does not apply: a panic still trades. The VIX
+read is today's quote on the run day (`ENGINES_LIVE_VIX`), the breadth read the
+prior close. With no VIX reading there is no panic exception; with no breadth
+reading there is no skip. A skipped washout bounce
 is tracked as a shadow trade (so the rule can be scored live); the dip trial,
 like every trial, is not. The capitulation bounce, the extreme-fear bounce test
 and every other engine are untouched.
@@ -823,6 +833,8 @@ A deeper stretch is not a better bounce in a grind: 3 standard deviations under
 the 20-day lost 0.74% a trade where these rules block it and made 0.60% where
 they allow it. Stock-level filters (a 4%+ gap down, a stock-specific drop,
 heavy volume) were weaker and inconsistent across halves, so none is used.
+
+The tables below are the first version, with both rules.
 
 The engines' own code on the calibrated backtest bench (snapshot 2026-11-20,
 option prices calibrated to Webull, 8.2-point option round trip, learning off;
@@ -1292,7 +1304,7 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_HELD_SAME_SIDE` | Owner Settings → Data & desks | Unset / on = the "already open" size cut counts only same-side signal-engine and Top Picks trades. `0` = every holding counts, core engines and the other side too |
 | `ENGINES_FIX_SLOT_RETRY` | Owner Settings → Data & desks | Unset / on = a signal turned away for a slot or the run limit is shadowed once and can open at a later run. `0` = it is marked done |
 | `ENGINES_FIX_RUNIN_EARLY` | Owner Settings → Data & desks | Unset / on = new earnings run-in trades close at the first run (11:00 or 15:30) of their last day. `0` = 15:30 only |
-| `ENGINES_BOUNCE_SKIP` | Owner Settings → Data & desks | Unset / on = Reversion opens no new washout bounce or RSI(2) dip while VIX is under 30 and hikes are priced (2-year 0.5+ over fed funds) or the market is grinding lower (SPY under its 50-day, more than 60% of covered names under theirs); `0` / off = both trade in every market. A dated rules change on Reversion (bounce skip rules, 2026-11-22). |
+| `ENGINES_BOUNCE_SKIP` | Owner Settings → Data & desks | Unset / on = Reversion opens no new washout bounce or RSI(2) dip while VIX is under 30 and the market is grinding lower (SPY under its 50-day, more than 60% of covered names under theirs; the rate-hike part was dropped 2026-11-22); `0` / off = both trade in every market. A dated rules change on Reversion (bounce skip rules, 2026-11-22). |
 | `ENGINES_LIVE_VIX` | Owner Settings → Data & desks | Unset / on = on the run day the engines' market read (`buildMacro`) uses the day's VIX and VIX3M quote from the bake's macro backdrop, only when that quote is stamped today; `0` / off = the prior close, as before. The history test always reads the prior close. A plain switch, not a rules step (2026-11-22). |
 | `TRADE_POP` | Owner Settings → Research | Unset / on = every new engine trade (and every Top Picks trade) gets a stated chance of profit at entry and its outcome at the close, shown on Open picks with a Why and graded in the Chance of profit check (`docs/trade-pop.md`). Off = no new stamps. Changes no trade |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |

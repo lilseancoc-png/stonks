@@ -60,6 +60,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - The strategy engines' Reversion engine no longer buys a washout bounce or an RSI(2) dip while VIX is under 30 and either rate hikes are priced (2-year yield 0.5+ points over fed funds) or the market is grinding lower (SPY under its 50-day with more than 60% of covered names under theirs); a panic (VIX 30+) still trades. Owner Settings switch `ENGINES_BOUNCE_SKIP` (on), logged as Reversion rules 11; a skipped washout bounce is tracked as a shadow trade. On the backtest bench the book's total is unchanged (+$835K over 2007-2026) with a smaller worst drop (-$52K against -$64K) and better trades kept (bounce calls +12.2% a trade against +9.1%). No AI cost, no new download; changes no Top Pick.
 
+- The Reversion bounce skip keeps only its sell-off rule (owner choice): the washout bounce and RSI(2) dip trial still sit out while VIX is under 30 and the market grinds lower, but no longer whenever rate hikes are priced, which had been true every day since July (#910).
+
 - The strategy engines' rate-hike pause (`ENGINES_HIKE_PAUSE`) is now off by default (owner decision): the signal engines no longer hold back new tech and index-fund longs while hikes are priced and QQQ is under its 200-day. Owner Settings can still turn it on. The $4,000 ceiling on one Downside put stays. No AI cost.
 
 ### Fixed
