@@ -4294,11 +4294,10 @@ function recoveryEvidence(row, data, now = Date.now()) {
     if (g.cutNext != null || g.hikeNext != null) {
       // Hike, hold and cut together: a cut-only gauge says nothing in a hiking cycle.
       var fedParts = [];
-      if (g.hikeNext != null) fedParts.push('hike ' + pmkNum(g.hikeNext) + '%');
-      if (g.holdNext != null) fedParts.push('hold ' + pmkNum(g.holdNext) + '%');
-      if (g.cutNext != null) fedParts.push('cut ' + pmkNum(g.cutNext) + '%');
       var fedTop = [['Hike', g.hikeNext], ['Hold', g.holdNext], ['Cut', g.cutNext]].filter(function(x){ return x[1] != null; }).sort(function(a, b){ return b[1] - a[1]; })[0];
-      k.push(['Next Fed meeting' + (g.fedMeeting ? ' (' + escapeHtml(String(g.fedMeeting)) + ')' : ''), escapeHtml(fedTop[0]) + ' ' + pmkNum(fedTop[1]) + '%<small class="pmk-kpi-sub">' + escapeHtml(fedParts.join(' · ')) + (g.fedVenue ? ' · ' + escapeHtml(g.fedVenue === 'kalshi' ? 'Kalshi' : 'Polymarket') : '') + '</small>']);
+      // The top outcome is the headline; the sub-line lists the other two (audit, 2026-11-22).
+      [['hike', g.hikeNext], ['hold', g.holdNext], ['cut', g.cutNext]].forEach(function(x){ if (x[1] != null && x[0] !== fedTop[0].toLowerCase()) fedParts.push(x[0] + ' ' + pmkNum(x[1]) + '%'); });
+      k.push(['Next Fed meeting' + (g.fedMeeting ? ' (' + escapeHtml(String(g.fedMeeting)) + ')' : ''), escapeHtml(fedTop[0]) + ' ' + pmkNum(fedTop[1]) + '%<small class="pmk-kpi-sub">' + escapeHtml(fedParts.concat(g.fedVenue ? [g.fedVenue === 'kalshi' ? 'Kalshi' : 'Polymarket'] : []).join(' · ')) + '</small>']);
     }
     if (big) k.push(['Biggest move this week', (big.ch7 > 0 ? '+' : '') + Number(big.ch7).toFixed(1) + '<small class="pmk-kpi-sub">points · ' + escapeHtml(String(big.title).slice(0, 60)) + '</small>']);
     if (up) k.push(['Next release guess', pmkFmtVal(up.expected, up.unit, up.digits) + '<small class="pmk-kpi-sub">' + escapeHtml(up.label) + (up.release ? ' · ' + escapeHtml(vnDay(up.release)) : '') + '</small>']);
@@ -52910,7 +52909,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (m.type === 'rate') return v.toFixed(2) + '%';
     if (m.type === 'vol') return v.toFixed(1);
     var num = Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
-    if (m.type === 'fx') return num;
+    if (m.type === 'fx') return Math.abs(v) < 10 ? v.toFixed(4) : num;
     var usd = (m.cur === 'USD' || !m.cur);
     if (m.type === 'commodity' || m.type === 'crypto' || m.type === 'future') return (usd ? '$' : '') + num + (usd ? '' : (m.cur ? ' ' + m.cur : ''));
     return num + (m.cur && m.cur !== 'USD' ? ' ' + m.cur : '');

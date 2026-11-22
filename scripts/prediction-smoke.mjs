@@ -429,6 +429,15 @@ ok('grader lines mark an unknown direction with ?', predictionGraderLines(ctx).s
   const fk = fedNextDecision([...open, ...kx], NOW2);
   ok('Kalshi wins when its ladder is tracked', fk && fk.venue === 'kalshi' && fk.hike === 90 && fk.cut === 2);
   ok('no Fed contracts reads null', fedNextDecision([], NOW2) === null);
+  // audit 2026-11-22: last trades summing past 100% are scaled back; the
+  // Kalshi event title's trailing "?" leaves the meeting label.
+  const kOver = [
+    { id: 'K:A', venue: 'kalshi', theme: 'fed', series: 'KXFEDDECISION', eventTicker: 'KXFEDDECISION-26DEC', eventTitle: 'Fed decision in Dec 2026?', outcome: 'Hike 25bps', closeTime: '2026-12-09T19:00:00Z', last: { p: 0.91 } },
+    { id: 'K:B', venue: 'kalshi', theme: 'fed', series: 'KXFEDDECISION', eventTicker: 'KXFEDDECISION-26DEC', eventTitle: 'Fed decision in Dec 2026?', outcome: 'Hold', closeTime: '2026-12-09T19:00:00Z', last: { p: 0.10 } },
+  ];
+  const fo = fedNextDecision(kOver, NOW2);
+  ok('Fed odds over 100% are scaled to 100', fo && Math.abs(fo.hike + fo.hold + fo.cut - 100) < 0.2 && fo.hike > 89 && fo.hike < 91);
+  ok('Fed meeting label drops the question mark', fo && fo.meeting === 'Dec 2026');
 }
 
 console.log(`prediction-smoke: ${passed} checks passed`);

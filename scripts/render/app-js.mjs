@@ -30800,7 +30800,7 @@ ${renderExportBindings()}
     if (m.type === 'rate') return v.toFixed(2) + '%';
     if (m.type === 'vol') return v.toFixed(1);
     var num = Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2));
-    if (m.type === 'fx') return num;
+    if (m.type === 'fx') return Math.abs(v) < 10 ? v.toFixed(4) : num;
     var usd = (m.cur === 'USD' || !m.cur);
     if (m.type === 'commodity' || m.type === 'crypto' || m.type === 'future') return (usd ? '$' : '') + num + (usd ? '' : (m.cur ? ' ' + m.cur : ''));
     return num + (m.cur && m.cur !== 'USD' ? ' ' + m.cur : '');
