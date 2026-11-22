@@ -186,7 +186,7 @@ import { buildEarningsWeek, buildEarningsWeekPlan, EARNINGS_WEEK_DAYS } from "..
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { fetchPartyBars, refreshPartyTracker } from './refresh-party-tracker.mjs';
 import { emptyLeverageDistress, readLeverageDistress, refreshLeverageDistress, writeLeverageDistress } from './refresh-leverage-distress.mjs';
-import { withYahooTimeout } from "../lib/yahoo.mjs";
+import { withYahooTimeout, withYahooCallTimeouts } from "../lib/yahoo.mjs";
 import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
 import { prepareTranscriptInput, transcriptListOverruns, transcriptCharacterBudget, salvageTruncatedJson } from "../lib/transcript-input.mjs";
 import { UNIFIED_SIGNAL_KEY } from "../lib/unified-signal.mjs";
@@ -234,7 +234,9 @@ import {
 // User-Agent (the library throws "No set-cookie header present in Yahoo's
 // response"). Sending a real desktop UA makes consent.yahoo.com behave and
 // the crumb flow complete normally.
-const yahooFinance = new YahooFinance({
+// Every data call is time-limited (withYahooCallTimeouts, 30 s); before
+// 2026-11-22 only the LEAPS chain read was.
+const yahooFinance = withYahooCallTimeouts(new YahooFinance({
   suppressNotices: ["yahooSurvey"],
   validation: { logErrors: false },
   fetchOptions: {
@@ -243,7 +245,7 @@ const yahooFinance = new YahooFinance({
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     },
   },
-});
+}));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -16391,30 +16393,33 @@ const ECON_REPORTS = [
 // newest. We pull each series once and reuse across reports (e.g.,
 // CPIAUCSL feeds both CPI MoM and CPI YoY).
 //
-// Cascade short-circuit: when ≥2 series fail their first attempt against
-// the CSV endpoint in the same run, FRED is clearly unreachable from
-// this IP — subsequent retries and later series' first attempts are
-// skipped to avoid burning ~25s per attempt × N series. The counter is
-// at module scope so a cascade in fetchMacroReleases also short-circuits
-// the subsequent fetchEffectiveFedFundsRate.
+// Cascade short-circuit: when ≥2 series in a row fail their first attempt
+// against the CSV endpoint, FRED's CSV path is clearly unreachable from this
+// IP — later CSV retries and first attempts are skipped to avoid burning
+// ~25s per attempt × N series. The counter is at module scope so a cascade
+// in fetchMacroReleases also short-circuits the subsequent
+// fetchEffectiveFedFundsRate. Review 2026-11-22: the counter used to count
+// every first-attempt failure for the whole run and never reset, and it
+// skipped the keyed API too, so two flaky CSV tries early in a bake cut off
+// every later FRED series. Now a CSV success resets it, and the keyed API
+// (a different host, outside Cloudflare) is never skipped by it; the API has
+// its own short-circuit after three network failures in a row.
 let _fredFirstAttemptFailures = 0;
 const FRED_CASCADE_THRESHOLD = 2;
+let _fredApiFailures = 0;
+const FRED_API_CASCADE_THRESHOLD = 3;
 
 async function fetchFredSeries(seriesId) {
-  if (_fredFirstAttemptFailures >= FRED_CASCADE_THRESHOLD) {
-    console.log(`    ⚠ FRED ${seriesId} skipped — cascade detected (${_fredFirstAttemptFailures} first-attempt failures)`);
-    return [];
-  }
-
   // Primary path: official JSON API when FRED_API_KEY is set.
   const apiKey = process.env.FRED_API_KEY;
-  if (apiKey) {
+  if (apiKey && _fredApiFailures < FRED_API_CASCADE_THRESHOLD) {
     try {
       const apiRes = await fetch(
         `https://api.stlouisfed.org/fred/series/observations?series_id=${encodeURIComponent(seriesId)}&api_key=${encodeURIComponent(apiKey)}&file_type=json`,
         { signal: AbortSignal.timeout(15000) },
       );
       if (apiRes.ok) {
+        _fredApiFailures = 0;
         const json = await apiRes.json();
         const out = [];
         for (const ob of (json?.observations || [])) {
@@ -16428,11 +16433,23 @@ async function fetchFredSeries(seriesId) {
         if (out.length) return out;
         console.log(`    ⚠ FRED ${seriesId} API returned no observations — falling back to CSV`);
       } else {
+        // A 5xx / 429 says the host is struggling; a 4xx (bad series id)
+        // is about this series only.
+        if (apiRes.status >= 500 || apiRes.status === 429) _fredApiFailures++;
+        else _fredApiFailures = 0;
         console.log(`    ⚠ FRED ${seriesId} API HTTP ${apiRes.status} — falling back to CSV`);
       }
     } catch (err) {
+      _fredApiFailures++;
       console.log(`    ⚠ FRED ${seriesId} API failed: ${err.message} — falling back to CSV`);
     }
+  } else if (apiKey) {
+    console.log(`    ⚠ FRED ${seriesId} API skipped — ${_fredApiFailures} API failures in a row`);
+  }
+
+  if (_fredFirstAttemptFailures >= FRED_CASCADE_THRESHOLD) {
+    console.log(`    ⚠ FRED ${seriesId} CSV skipped — cascade detected (${_fredFirstAttemptFailures} first-attempt failures in a row)`);
+    return [];
   }
 
   // Fallback path: public CSV endpoint with retries. Cloudflare-fronted
@@ -16445,7 +16462,7 @@ async function fetchFredSeries(seriesId) {
   let lastErr = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (attempt > 1 && _fredFirstAttemptFailures >= FRED_CASCADE_THRESHOLD) {
-      console.log(`    ⚠ FRED ${seriesId} retries cut short — cascade detected (${_fredFirstAttemptFailures} first-attempt failures)`);
+      console.log(`    ⚠ FRED ${seriesId} retries cut short — cascade detected (${_fredFirstAttemptFailures} first-attempt failures in a row)`);
       return [];
     }
     try {
@@ -16471,6 +16488,7 @@ async function fetchFredSeries(seriesId) {
         }
         return [];
       }
+      _fredFirstAttemptFailures = 0;
       const csv = await res.text();
       const lines = csv.split(/\r?\n/).filter(Boolean);
       if (lines.length < 2) return [];
