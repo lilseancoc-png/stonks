@@ -87,7 +87,13 @@ const dm = L.defaults(mega);
 ok(dm.inputs.rf === 4.4 && /10-year/.test(dm.sources.rf), "10-year yield is the default risk-free rate");
 ok(dm.inputs.beta === 1.1 && /measured/.test(dm.sources.beta), "measured beta preferred");
 ok(dm.inputs.g1 === 10, "growth default = median of revenue growth, analysts' revenue and EPS growth (9, 10, 12)");
-close(dm.inputs.fcfMargin, 26.7, 0.05, "FCF margin default");
+close(dm.inputs.fcfMargin, 27.2, 0.05, "FCF margin default: reported last four quarters (80 / 294), not Yahoo's summary (80 / 300)");
+ok(/reported/.test(dm.sources.fcfMargin), "FCF margin says it is the reported figure");
+{
+  const noQ = L.defaults({ ...mega, facts: { ...mega.facts, fcfTtm: null, revenueTtm: null } });
+  close(noQ.inputs.fcfMargin, 26.7, 0.05, "FCF margin falls back to Yahoo's figure without the quarters");
+  ok(/Yahoo/.test(noQ.sources.fcfMargin), "fallback source says Yahoo");
+}
 ok(dm.inputs.exitPE === 25 && /peer/.test(dm.sources.exitPE), "exit P/E defaults to the peer median");
 const db = L.defaults(bank);
 ok(db.inputs.weights.dcf === 0 && db.inputs.weights.power > 0, "banks: no DCF weight, earnings power on");
