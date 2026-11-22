@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, CLOSE_LABEL, ENGINE_FIXES, ENGINE_FIX_IDS, ENGINE_TRIALS, ENGINE_TRIAL_IDS, engineSwitches, engineSpecs, newsBlock, tapeRead, NEWS_GATE, engineByTag, engineName, instrumentFor, isSharesTrade, contractFor, exitsFor } from "../lib/engines/config.mjs";
 import { precompute, featAt, toColumns, barDate, monthEnds } from "../lib/engines/features.mjs";
 import { trendRead, momentumRead, rotationRead, standCore, evalCore, ret12, ret12skip1, avg10 } from "../lib/engines/core.mjs";
-import { HEDGE, vixTrack, hedgePauseWhy, isTechName, basketVol, volScale, auxView } from "../lib/engines/hedge.mjs";
+import { HEDGE, vixTrack, hedgePauseWhy, isTechName, basketVol, volScale, auxView, BOUNCE, bounceSkipWhy, breadthUnder50 } from "../lib/engines/hedge.mjs";
 import { ALLOC, allocObserve, allocDecide, allocKey, allocStamp, allocBook, allocPriorFrom, allocView, emptyAlloc } from "../lib/engines/allocator.mjs";
 import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamentals, evalFlow, evalDownside, DOWNSIDE, withSkips, thesisCheck } from "../lib/engines/signals.mjs";
 import { stepBook, emptyRecord, emptyState, engineTradeId } from "../lib/engines/book.mjs";
@@ -113,11 +113,14 @@ const FIXED_IDS = SIGNAL_IDS.filter((id) => !ENGINES[id].ownRules);
 // as they stood before them.
 // The logic audit fixes (2026-11-21) sit on top of all of them: `preAudit`
 // steps under that layer first.
-const preAudit = (r) => (r && r.before && /\|audit:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r);
+// The bounce skip rules (2026-11-22, Reversion only) sit on top of those:
+// `preBounce` steps under that layer, and `preAudit` steps under both.
+const preBounce = (r) => (r && r.before && /\|bounce:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r);
+const preAudit = (r0) => { const r = preBounce(r0); return r && r.before && /\|audit:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r; };
 const preHedge = (r0) => { let r = preAudit(r0); while (r && r.before && /\|(hedge|trials3):[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
 const uncard = (r0) => { const r = preHedge(r0); return r && r.before && /\|card:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r; };
 const DR = (id, specs = ENGINES) => uncard(specs[id].rules);
-const peel = (r) => { while (r && r.before && /\|(live|trials2|trials3|hedge|card|audit):[^|]*$|\|down:[^|]*(\|putcap:\d+)?$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
+const peel = (r) => { while (r && r.before && /\|(live|trials2|trials3|hedge|card|audit|bounce):[^|]*$|\|down:[^|]*(\|putcap:\d+)?$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
 ok("ten engines (seven signal, three core), unique tags, every setup has a label", () => {
   assert.deepEqual(ENGINE_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside", "trend", "momentum", "rotation"]);
   assert.deepEqual(SIGNAL_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside"]);
@@ -766,7 +769,7 @@ const WASHOUT = (over = {}) => baseF({ c: 90, pc: 93, sma20: 97, sma200: 85, sd2
 // Off by default: the rate-hike pause (owner, 2026-11-22). Every other fix is on.
 const DEFAULT_OFF_FIXES = new Set(["hikePause"]);
 ok("fixes: the Owner Settings switches, all on by default but the rate-hike pause", () => {
-  assert.deepEqual(ENGINE_FIX_IDS, ["retirePuts", "bounce", "size", "stockStop", "fillBasis", "riskSize", "conviction", "tecShares", "crashStand", "fearBounce", "convNoScore", "runInShares", "funPuts", "newsGate", "tapeSize", "loserBrake", "tecNoScore", "vixPause", "hikePause", "momSectors", "volTarget", "dearFull", "allocAdvise", "heldSameSide", "slotRetry", "runInEarly"]);
+  assert.deepEqual(ENGINE_FIX_IDS, ["retirePuts", "bounce", "size", "stockStop", "fillBasis", "riskSize", "conviction", "tecShares", "crashStand", "fearBounce", "convNoScore", "runInShares", "funPuts", "newsGate", "tapeSize", "loserBrake", "tecNoScore", "vixPause", "hikePause", "momSectors", "volTarget", "dearFull", "allocAdvise", "heldSameSide", "slotRetry", "runInEarly", "bounceSkip"]);
   const sw = engineSwitches({});
   assert.deepEqual(sw.fixes, Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, !DEFAULT_OFF_FIXES.has(id)])));
   assert.equal(BOOK.optionUsd, 2000); assert.equal(sw.optionUsd, 2000);
@@ -948,7 +951,7 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   // Every fix off on an engine: back to rules 2's setups, logged, rules number kept.
   const allOff = Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false]));
   out = stepBook(state, emptyRecord(), bookInput({}, { engines: ["reversion"], specs: engineSpecs(allOff), fixesOff: ENGINE_FIX_IDS }));
-  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 10);
+  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 11);
   // A trade opened with a fix off carries the ones that reach its engine.
   const rv = stepBook(emptyState(), emptyRecord(), bookInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], specs: engineSpecs({ bounce: false, stockStop: false }), fixesOff: ["bounce", "stockStop"] })).opened[0];
   assert.deepEqual(rv.fixesOff, ["bounce"]);
@@ -963,7 +966,7 @@ ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average,
   // (The honest paper trades sit on top as rules 5: the trial is rules 4.)
   // (The contract cap of 2026-11-20 is rules 6 on top of those.)
   const revR = peel(ENGINES.reversion.rules);
-  assert.equal(ENGINES.reversion.rules.n, 10, "the logic audit fixes are rules 10 on top (the scorecard pack 9, the downtrend pack 8, the live data pack 7; the VIX and rates pack leaves Reversion out)");
+  assert.equal(ENGINES.reversion.rules.n, 11, "the bounce skip rules are rules 11 on top (the logic audit fixes 10, the scorecard pack 9, the downtrend pack 8, the live data pack 7; the VIX and rates pack leaves Reversion out)");
   assert.equal(revR.n, 6); assert.equal(revR.before.n, 5); assert.equal(revR.before.before.n, 4); assert.equal(revR.before.before.date, "2026-11-19");
   assert.match(revR.before.before.note, /paper trial/); assert.match(revR.key, /\|trials:rsi2Dip\|cap:25$/);
   assert.equal(ownerSettingDef("ENGINES_TRIAL_RSI2_DIP")?.default, true);
@@ -1388,12 +1391,12 @@ ok("honest: rules 4 is adopted once on a running engine, and every new trade say
   // Reversion as it runs on main after #870 (rules 4, the paper trial): one change to rules 5.
   const es = newEngineState(ENGINES.reversion); es.rules = 4; es.rulesKey = "fixes:retirePuts,bounce,size|trials:rsi2Dip";
   const made = adoptRules(es, ENGINES.reversion, TODAY);
-  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\).*New rules \(wider size range\).*New rules \(live data pack\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.match(made.text, /New rules \(downtrend pack\).*New rules \(scorecard pack\)/); assert.doesNotMatch(made.text, /VIX and rates pack/); assert.match(made.text, /New rules \(scorecard pack\).*New rules \(logic audit fixes\)/); assert.equal(es.rules, 10);
+  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\).*New rules \(wider size range\).*New rules \(live data pack\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.match(made.text, /New rules \(downtrend pack\).*New rules \(scorecard pack\)/); assert.doesNotMatch(made.text, /VIX and rates pack/); assert.match(made.text, /New rules \(scorecard pack\).*New rules \(logic audit fixes\).*New rules \(bounce skip rules\)/); assert.equal(es.rules, 11);
   assert.equal(adoptRules(es, ENGINES.reversion, TODAY), null);
   // An engine still on rules 3 gets both notes in one change, the trial first.
   const es3b = newEngineState(ENGINES.reversion); es3b.rules = 3; es3b.rulesKey = "fixes:retirePuts,bounce,size";
   const both = adoptRules(es3b, ENGINES.reversion, TODAY);
-  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 10);
+  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 11);
   // Earnings (no trial): rules 3 to 4.
   const ee = newEngineState(ENGINES.earnings); ee.rules = 3; ee.rulesKey = "fixes:size";
   assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 10);
@@ -2846,7 +2849,7 @@ ok("logic audit fixes: switches, Owner Settings and the rules step", () => {
     const d = ownerSettingDef(envs[i]); assert.ok(d && d.kind === "switch" && d.default === true && d.group === "Strategy engines" && d.scope === "build", envs[i]);
   });
   for (const id of FIXED_IDS) {
-    const r = ENGINES[id].rules;
+    const r = preBounce(ENGINES[id].rules);
     assert.equal(r.date, "2026-11-21", id); assert.match(r.note, /^New rules \(logic audit fixes\)/, id);
     assert.match(r.key, id === "earnings" ? /\|audit:allocAdvise,heldSameSide,slotRetry,runInEarly$/ : /\|audit:allocAdvise,heldSameSide,slotRetry$/, id);
   }
@@ -2945,5 +2948,65 @@ ok("logic audit fix 6: the too-dear swap to shares honors the share switches; a 
   assert.match(row, /on a model price: the contract had no usable quote/); assert.match(row, /"exitModel":true/);
   assert.equal(summarize([{ ...t, optionPnlPct: -50 }]).modelExits, 1);
   assert.equal(summarize([{ ...t, markSource: "chain", optionPnlPct: -50 }]).modelExits, 0);
+});
+// ---------------------------------------------------------------------------
+// Bounce skip rules (2026-11-22, owner chose "Both skip rules, panic
+// exception" on the bounce falling-knife test): no new washout bounce or
+// RSI(2) dip while VIX is under 30 and hikes are priced or the market grinds.
+// ---------------------------------------------------------------------------
+ok("bounce skip: the two rules, the panic exception and who they reach", () => {
+  const rev = ENGINES.reversion, bounce = { symbol: "CCC", side: "call", setup: "oversold-bounce" }, dip = { ...bounce, setup: "rsi2-dip" };
+  const hikes = (vix) => ({ ...CTX, macro: { hikeGap: 0.8, vix } });
+  assert.match(bounceSkipWhy(hikes(22), bounce, rev) || "", /^Bounce skip: hikes are priced \(2-year yield 0.8 points over fed funds\) and VIX is 22, under 30/);
+  assert.match(bounceSkipWhy(hikes(22), dip, rev) || "", /^Bounce skip: hikes are priced/, "the RSI(2) dip trial too");
+  assert.equal(bounceSkipWhy(hikes(30), bounce, rev), null, "VIX 30: a panic, so it trades");
+  assert.equal(bounceSkipWhy(hikes(41), dip, rev), null);
+  assert.match(bounceSkipWhy(hikes(null), bounce, rev) || "", /no VIX reading/, "no VIX read: no panic exception");
+  assert.equal(bounceSkipWhy({ ...CTX, macro: { hikeGap: 0.49, vix: 20 } }, bounce, rev), null, "under 0.5 points: not priced");
+  assert.equal(bounceSkipWhy({ ...CTX, macro: { vix: 20 } }, bounce, rev), null, "no rate read: that rule is left out");
+  // Only Reversion's two buys: not its other setups, puts or other engines, and the switch turns it off.
+  for (const setup of ["capitulation", "fear-bounce"]) assert.equal(bounceSkipWhy(hikes(22), { ...bounce, setup }, rev), null, setup);
+  assert.equal(bounceSkipWhy(hikes(22), { ...bounce, side: "put" }, rev), null);
+  assert.equal(bounceSkipWhy(hikes(22), { ...bounce, setup: "pullback" }, ENGINES.technicals), null);
+  assert.equal(bounceSkipWhy(hikes(22), bounce, engineSpecs({ bounceSkip: false }).reversion), null);
+  // The grind: SPY under its 50-day and more than 60% of covered names under theirs.
+  const names = (under, n = 20) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`N${i}`, V(`N${i}`, baseF(i < under ? { c: 90, sma50: 94 } : {}))]));
+  const spyDown = baseF({ c: 470, sma50: 480 });
+  const grind = (under, extra = {}) => ({ ...CTX, spy: spyDown, byId: { ...names(under), ...extra }, macro: { hikeGap: 0.1, vix: 24 } });
+  assert.match(bounceSkipWhy(grind(13), bounce, rev) || "", /^Bounce skip: the market is grinding lower \(SPY under its 50-day, 65% of covered names under theirs\)/);
+  assert.equal(bounceSkipWhy(grind(12), bounce, rev), null, "60% is not more than 60%");
+  assert.equal(bounceSkipWhy({ ...grind(13), spy: spyF }, bounce, rev), null, "SPY over its 50-day: no grind");
+  assert.equal(bounceSkipWhy({ ...grind(13), macro: { vix: 33 } }, bounce, rev), null, "a grind in a panic still trades");
+  assert.equal(breadthUnder50({ ...CTX, byId: names(5, 10) }), null, "under 20 names: no breadth read");
+  // Sector funds (aux views) are not counted.
+  const aux = Object.fromEntries(["XLP", "XLV", "XLU", "XLE", "XLF"].map((s) => [s, { sym: s, aux: true, f: baseF({ c: 90, sma50: 94 }) }]));
+  assert.equal(breadthUnder50(grind(12, aux)).n, 20);
+  assert.equal(BOUNCE.panicVix, 30); assert.deepEqual(BOUNCE.setups, ["oversold-bounce", "rsi2-dip"]);
+});
+ok("bounce skip: in the book, the washout bounce is shadowed, the dip trial is not, and a panic or the switch opens both", () => {
+  const views = { CCC: V("CCC", { ...WASHOUT(), sma5: 95 }) };
+  const run = (macro, specs) => stepBook(emptyState(), emptyRecord(), bookInput(views, { engines: ["reversion"], shares: true, ctx: { ...CTX, byId: views, macro }, ...(specs ? { specs } : {}) }));
+  const held = run({ hikeGap: 0.88, vix: 24.6 });
+  assert.equal(held.opened.length, 0);
+  const rows = held.checks.CCC.filter((r) => r.setup === "oversold-bounce" || r.setup === "rsi2-dip");
+  assert.equal(rows.length, 2); for (const r of rows) assert.match(r.why || "", /Bounce skip: hikes are priced/, r.setup);
+  assert.equal(held.shadowOpened, 1, "the washout bounce is tracked as a shadow trade; the trial never is");
+  const panic = run({ hikeGap: 0.88, vix: 35.9 });
+  assert.deepEqual(panic.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"], "VIX 35.9 (the Nov 20 close): both open");
+  const off = run({ hikeGap: 0.88, vix: 24.6 }, engineSpecs({ bounceSkip: false }));
+  assert.deepEqual(off.opened.map((x) => x.setup).sort(), ["oversold-bounce", "rsi2-dip"], "switched off: both open");
+});
+ok("bounce skip: switch, Owner Settings and the rules step on Reversion only", () => {
+  assert.equal(engineSwitches({}).fixes.bounceSkip, true); assert.equal(engineSwitches({ ENGINES_BOUNCE_SKIP: "0" }).fixes.bounceSkip, false);
+  const d = ownerSettingDef("ENGINES_BOUNCE_SKIP"); assert.ok(d && d.kind === "switch" && d.default === true && d.group === "Strategy engines" && d.scope === "build");
+  const r = ENGINES.reversion.rules;
+  assert.equal(r.n, 11); assert.equal(r.date, "2026-11-22"); assert.match(r.note, /^New rules \(bounce skip rules\): the washout bounce and the RSI\(2\) dip trial/); assert.match(r.key, /\|bounce:bounceSkip$/);
+  for (const id of ENGINE_IDS.filter((x) => x !== "reversion")) assert.doesNotMatch(ENGINES[id].rules.key || "", /bounce:/, id);
+  const off = engineSpecs({ bounceSkip: false });
+  assert.equal(off.reversion.bounceSkip, false); assert.notEqual(off.reversion.rules.key, r.key); assert.match(off.reversion.rules.switchNote, /Bounce skip.*switched off/);
+  assert.deepEqual(off.technicals.rules, ENGINES.technicals.rules);
+  const es = newEngineState(ENGINES.reversion); es.rules = 10; es.rulesKey = preBounce(r).key;
+  const made = adoptRules(es, ENGINES.reversion, TODAY);
+  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(bounce skip rules\)/); assert.equal(es.rules, 11);
 });
 console.log(`${passed} engine checks passed${process.exitCode ? " (with failures)" : ""}`);

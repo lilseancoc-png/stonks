@@ -787,6 +787,67 @@ engines take none of it. Rules only: no AI call, no new download.
 `scripts/engines-backtest.mjs` takes `--off dearFull,allocAdvise,heldSameSide,slotRetry,runInEarly`
 to run the history test without them.
 
+### Bounce skip rules (2026-11-22)
+
+Owner, 2026-11-22: "For oversold bounce setup trade we got to make sure we
+aren't catching a falling knife", then "Both skip rules, panic exception" on
+the bounce test. One Owner Settings switch, `ENGINES_BOUNCE_SKIP` (on by
+default), and one dated rules step on Reversion only (`ENGINE_FIXES` step 10,
+`BOUNCE_PACK`, `|bounce:` in the rules key): rules 11. Code: `BOUNCE`,
+`bounceSkipWhy` and `breadthUnder50` in `lib/engines/hedge.mjs`, checked in
+`stepBook` after the news gate and the pauses.
+
+Reversion's washout bounce (`oversold-bounce`, calls) and its RSI(2) dip paper
+trial (`rsi2-dip`, shares) open no new trade while VIX is under 30 and either
+
+1. **hikes are priced**: the 2-year Treasury yield is 0.5 points or more over
+   fed funds (`macro.hikeGap`), or
+2. **the market is grinding lower**: SPY closes under its 50-day average and
+   more than 60% of the covered names (sector funds left out; at least 20
+   names, else no read) close under theirs.
+
+With VIX at 30 or more neither rule applies: a panic still trades. Every read
+is through the prior close. With no VIX reading there is no panic exception;
+with no rate or breadth reading that rule is left out. A skipped washout bounce
+is tracked as a shadow trade (so the rule can be scored live); the dip trial,
+like every trial, is not. The capitulation bounce, the extreme-fear bounce test
+and every other engine are untouched.
+
+Why (the 2026-11-22 test on stock returns, 76 covered names, 2007-2026): all
+washout bounces made +0.40% a trade (n 2,954, 57% won). With hikes priced and
+VIX under 30 they lost 0.50% (n 623, 44% won); in a grind with VIX under 30 they
+lost 0.16% (n 918); both negative in both halves. With VIX at 30 or more they
+made 2.44% (n 234, 72% won). Both rules together kept 1,657 trades at +0.80% and
+removed 1,297 at -0.10%; on the RSI(2) dip, kept +0.60% against removed +0.09%.
+A deeper stretch is not a better bounce in a grind: 3 standard deviations under
+the 20-day lost 0.74% a trade where these rules block it and made 0.60% where
+they allow it. Stock-level filters (a 4%+ gap down, a stock-specific drop,
+heavy volume) were weaker and inconsistent across halves, so none is used.
+
+The engines' own code on the calibrated backtest bench (snapshot 2026-11-20,
+option prices calibrated to Webull, 8.2-point option round trip, learning off;
+on against `--off bounceSkip`):
+
+| | Off | On |
+|---|---|---|
+| Washout bounce calls | 980 trades, +9.1% a trade, 57% won, +$108K | 660 trades, +12.2%, 60% won, +$87K |
+| Bounce halves (2007-16 / 2017-26) | +8.1% / +9.7% | +9.5% / +13.7% |
+| Bounce vs random entries (z) | 1.6 | 2.4 |
+| RSI(2) dip trial (shares) | 2,366 trades, +0.39%, +$46K | 1,620 trades, +0.54%, +$44K |
+| Capitulation shares (freed room) | 240 trades, +$8K | 262 trades, +$28K |
+| All engines together | +$834,732, worst drop -$63,695 | +$835,081, worst drop -$52,043 |
+| 2008 / 2022 | -$26,211 / -$38,463 | -$28,503 / -$25,916 |
+
+The total is the same, each kept trade is better, and the book's worst drop is
+18% smaller (mostly 2022). The removed bounce calls were still slightly
+positive on option prices (about +2.7% a trade), so the rule trades some
+profit for a smaller drawdown; the bounce option numbers are trust grade C
+(72% of option trades priced on the calibrated stand-in volatility). Nov 18-19,
+2026 (hikes priced at 0.88, VIX 24.6 and 28.4, 75-80% of names under their
+50-day) the rule would have held back the MRK, ACN, HD and SHOP buys; at the
+Nov 20 close (VIX 35.9) it would not. `scripts/engines-backtest.mjs --off
+bounceSkip` runs the history test without it.
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -1231,6 +1292,7 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_HELD_SAME_SIDE` | Owner Settings → Data & desks | Unset / on = the "already open" size cut counts only same-side signal-engine and Top Picks trades. `0` = every holding counts, core engines and the other side too |
 | `ENGINES_FIX_SLOT_RETRY` | Owner Settings → Data & desks | Unset / on = a signal turned away for a slot or the run limit is shadowed once and can open at a later run. `0` = it is marked done |
 | `ENGINES_FIX_RUNIN_EARLY` | Owner Settings → Data & desks | Unset / on = new earnings run-in trades close at the first run (11:00 or 15:30) of their last day. `0` = 15:30 only |
+| `ENGINES_BOUNCE_SKIP` | Owner Settings → Data & desks | Unset / on = Reversion opens no new washout bounce or RSI(2) dip while VIX is under 30 and hikes are priced (2-year 0.5+ over fed funds) or the market is grinding lower (SPY under its 50-day, more than 60% of covered names under theirs); `0` / off = both trade in every market. A dated rules change on Reversion (bounce skip rules, 2026-11-22). |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
 | `ACCOUNT_LIMIT_OPEN_USD`, `_DAY_LOSS_USD`, `_NAME_USD`, `_NEW_PER_DAY` | Owner Settings → Account limits | All 0 = off. Caps on open option premium, a daily loss stop, money per stock across engines and new trades a day; a trade a limit holds back is not opened and not shadowed. A limit never closes a trade |
 
