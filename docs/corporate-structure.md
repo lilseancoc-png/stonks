@@ -72,6 +72,20 @@ Gotchas found on the live filings:
   followed (or, for the group row, preceded) by the most ownership rows (a
   share count then a percent or "*"); pay tables full of dollar figures do
   not crowd it out, and "stock ownership guidelines" is skipped.
+- Every heading mention is scored, not only the first 80 (American
+  Express prints "stock ownership" over 80 times before its table). Zero-width
+  spaces in empty cells are removed and a dash cell between a share count and
+  its percent does not break the row; "All current directors, nominees and
+  executive officers" counts as a group row. Votes-per-share sentences have
+  their own windows, apart from "record date" mentions (Dell names its class
+  votes late). These changes are `PROXY_SLICE_VERSION` 2: a stored read made
+  with an older slice that has no 5% holder rows, or two or more classes with
+  unknown votes, is read once more (`needsReslice`, not for 20-F reads).
+- A person's holding is their newest Form 3/4/5 lines, except when the
+  proxy shows a class those lines miss, there are no lines, or the company's
+  fresh proxy table is dated after the lines, covers the same classes and
+  counts under 90% of them (Tesla: the June Form 4 lines total 1.12 billion,
+  the October proxy 699.6 million, 19.8%). Then the proxy row is used.
 - Line breaks in the HTML source are spaces (a padded table put every cell on
   its own line, so Netflix's ownership table did not fit the slice and its
   5% holders were missing). Table rows read as one line each.
