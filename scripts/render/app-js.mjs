@@ -39,7 +39,8 @@ import { unifiedSignalDisplayFactory } from '../../lib/unified-signal-display.mj
 import { renderWorkspaceBindings, renderWorkspaceHelpers } from './workspace-js.mjs';
 import { renderWayfindingBindings, renderWayfindingHelpers } from './wayfinding-js.mjs';
 import { renderSplitViewBindings, renderSplitViewHelpers } from './split-view-js.mjs';
-import { renderExportBindings } from './export-js.mjs';
+import { renderExportBindings, EXPORT_IMAGE_LIB } from './export-js.mjs';
+import { journalClient } from './journal-client.mjs';
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { renderChartKitJs } from './chart-kit-js.mjs';
@@ -303,6 +304,8 @@ ${scenarioEventPhase.toString()}
     // The Export menu is for the signed-in owners only.
     var exportBtn = document.getElementById('export-toggle');
     if (exportBtn) exportBtn.hidden = !HAS_OWNER_ACCESS || IS_EMBED;
+    var journalBtn = document.getElementById('journal-toggle');
+    if (journalBtn) journalBtn.hidden = !HAS_OWNER_ACCESS || IS_EMBED;
   }
   // Private-data deploys read through a data mode on the exact /api/auth/me
   // function that established membership for this page. Production has
@@ -4533,6 +4536,19 @@ ${renderWorkspaceBindings()}
 ${renderWayfindingBindings()}
 ${renderSplitViewBindings()}
 ${renderExportBindings()}
+    // Owner intuition journal (journal-client.mjs): the right-side notepad.
+    var journalPanel = (${journalClient.toString()})(window, document, {
+      owner: function(){ return HAS_OWNER_ACCESS && !IS_EMBED; },
+      tab: exportTabNow,
+      pageLabel: exportPageLabel,
+      imageLib: exportLib,
+      imageLibSrc: '${EXPORT_IMAGE_LIB}',
+      fonts: exportFonts,
+      cssVar: exportVar,
+      when: formatDisplayInstant,
+      dateText: formatDisplayDate,
+      dateKey: displayDateKey,
+    });
     // Restore the persisted desktop collapse before the first sync so the
     // sidebar doesn't flash open for a user who keeps it closed.
     try {

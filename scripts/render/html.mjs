@@ -2238,6 +2238,11 @@ ${i18nHeadScript()}
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h14v7a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5Z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M7.5 11.5c1-1.4 3-1.4 4 0 1-1.4 3-1.4 4 0 0 2.2-2 3.5-4 4.7-2-1.2-4-2.5-4-4.7Z"/></svg>
         <span>Support</span>
       </a>
+      <!-- Owner-only intuition journal (journal-client.mjs): hidden until the Owner session is confirmed.
+           It sits outside the settings pop-over so it is one tap away on every screen. -->
+      <button id="journal-toggle" class="icon-btn" type="button" hidden aria-expanded="false" aria-label="Intuition journal: write and review your market calls" title="Intuition journal (Alt+J)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3Z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>
+      </button>
       <div class="workspace-settings" id="workspace-settings">
       <button type="button" class="icon-btn" id="workspace-settings-toggle" aria-label="Open settings" aria-expanded="false" aria-controls="workspace-settings-panel">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--surface)"/><circle cx="15" cy="17" r="3" fill="var(--surface)"/></svg>

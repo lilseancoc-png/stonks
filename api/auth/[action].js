@@ -36,6 +36,11 @@
 //                       same-origin POST a message (lib/contact-messages.mjs)
 //   contact-inbox    -> Owner-only: read the messages (GET) and mark read /
 //                       unread / delete (same-origin POST)
+//   journal          -> Owner-only intuition journal: entries (GET) and add /
+//                       edit / outcome / delete (same-origin POST;
+//                       lib/intuition-journal.mjs)
+//   journal-shot     -> Owner-only journal pictures: upload (same-origin POST)
+//                       and view (GET ?id=)
 //   calendar-ics     -> .ics feed of watchlist earnings, CPI, jobs and FOMC
 //                       (?s=SYMBOLS for anyone, ?o=<signed token> for an
 //                       Owner's synced watchlist; lib/calendar-ics.mjs)
@@ -127,7 +132,9 @@ const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "M
   // The daily Webull data runner and its jobs (2026-11-19, lib/webull-data/).
   "WEBULL_DATA", "WEBULL_OPTION_SAVER",
   // W3 Webull data logs: order flow, market breadth, backups.
-  "WEBULL_FLOW_LOG", "WEBULL_BREADTH_LOG", "WEBULL_BACKUPS"];
+  "WEBULL_FLOW_LOG", "WEBULL_BREADTH_LOG", "WEBULL_BACKUPS",
+  // The Owner intuition journal (2026-11-22, lib/intuition-journal.mjs).
+  "JOURNAL_ENABLED"];
 // Keys this module forced off, with the value they had before. The forced
 // values stay in place between requests and change only when the saved
 // settings change, so two requests running at once on one warm instance can
@@ -149,7 +156,7 @@ function syncSiteSwitches(overrides) {
 }
 // The Vercel value of each switch, without this page's overrides.
 const siteSwitchBase = () => Object.fromEntries(SITE_SWITCH_KEYS.map((k) => [k, siteSwitchForced.has(k) ? siteSwitchForced.get(k) : process.env[k]]));
-const SITE_SWITCH_ACTIONS = new Set(["contact", "contact-inbox", "webull-mirror", "webull-data", "mcp", "mcp-meta", "mcp-oauth"]);
+const SITE_SWITCH_ACTIONS = new Set(["contact", "contact-inbox", "journal", "journal-shot", "webull-mirror", "webull-data", "mcp", "mcp-meta", "mcp-oauth"]);
 let siteSwitchCache = { at: 0, overrides: {} };
 async function applySiteSwitches(req, action) {
   if (!SITE_SWITCH_ACTIONS.has(action) && !(action === "me" && req.query?.sports)) return;
@@ -208,6 +215,10 @@ export default async function handler(req, res) {
       return contactSubmit(req, res);
     case "contact-inbox":
       return contactInbox(req, res);
+    case "journal":
+      return journalRoute(req, res);
+    case "journal-shot":
+      return journalShot(req, res);
     case "top-picks":
       return (await import('../top-picks.js')).default(req,res);
     // Mingstreet MCP server (lib/mcp/). vercel.json rewrites /mcp,
@@ -1131,6 +1142,116 @@ async function contactInbox(req, res) {
   } catch (err) {
     console.error("contact inbox failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "inbox unavailable" });
+  }
+}
+
+// --- Intuition journal (Owner only) -------------------------------------------
+// GET  /api/auth/journal[?limit=&before=]   -> { entries, total, more }
+// POST /api/auth/journal { op: add|edit|outcome|delete|discard, ... }
+// GET  /api/auth/journal-shot?id=<shot id>  -> the picture (private, no-store)
+// POST /api/auth/journal-shot { data: <base64 JPEG/PNG/WebP> } -> { shot }
+//   One raw private record plus one raw object per picture, all under
+//   `_stonks/journal/v1/` (lib/intuition-journal.mjs). Both owners read and
+//   write it; an entry is edited or deleted only by the owner who wrote it.
+//   JOURNAL_ENABLED=0 (Vercel or Owner Settings → Live site) turns it off.
+function journalOff() {
+  return process.env.PRIVATE_DATA_ENABLED !== "1" || process.env.JOURNAL_ENABLED === "0";
+}
+async function journalSession(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  if (journalOff()) { res.status(404).json({ error: "The journal is off right now.", off: true }); return null; }
+  const session = await getSession(req).catch(() => null);
+  if (!session) { res.status(401).json({ error: "auth required" }); return null; }
+  if (session.tr !== true || session.tp !== true) { res.status(401).json({ error: "role required" }); return null; }
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    res.status(405).json({ error: "method not allowed" });
+    return null;
+  }
+  if (req.method === "POST" && !isSameOriginRequest(req)) { res.status(403).json({ error: "forbidden" }); return null; }
+  return session;
+}
+async function withJournalDoc(store, fn) {
+  const { JOURNAL_KEY, JOURNAL_LEASE, readJournalDoc } = await import("../../lib/intuition-journal.mjs");
+  const run = async (guard) => {
+    const doc = readJournalDoc(await store.rawGet(JOURNAL_KEY));
+    const out = fn(doc);
+    if (out.save) {
+      if (guard) guard();
+      await store.rawPut(JOURNAL_KEY, JSON.stringify(out.doc));
+    }
+    return out;
+  };
+  if (store.backend === "r2" && typeof store.withLease === "function") {
+    let leased;
+    try { leased = await store.withLease(JOURNAL_LEASE, run); }
+    catch (err) { if (err?.code === "LEASE_CONFLICT") return { busy: true }; throw err; }
+    if (leased?.busy) return { busy: true };
+    return leased.result;
+  }
+  return run(null);
+}
+
+async function journalRoute(req, res) {
+  const session = await journalSession(req, res);
+  if (!session) return;
+  const journal = await import("../../lib/intuition-journal.mjs");
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    if (req.method === "GET") {
+      const limit = Number.parseInt(String(req.query?.limit || ""), 10);
+      const before = String(req.query?.before || "");
+      const view = journal.journalView(journal.readJournalDoc(await store.rawGet(journal.JOURNAL_KEY)), { limit: Number.isInteger(limit) ? limit : undefined, before });
+      return res.status(200).json({ ...view, me: { id: session.sub != null ? String(session.sub) : null, name: session.name || "Owner" } });
+    }
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const out = await withJournalDoc(store, (doc) => journal.applyJournalOp(doc, body, session));
+    if (out.busy) return res.status(409).json({ error: "Busy saving another entry. Try again in a moment." });
+    if (out.error) return res.status(out.status || 400).json({ error: out.error });
+    // Pictures no entry uses any more. Best effort: a failed delete leaves an
+    // unused private object, never a broken entry.
+    let dropped = 0;
+    for (const id of out.dropShots || []) {
+      try { await store.rawDel(journal.SHOT_PREFIX + id); dropped += 1; }
+      catch (err) { console.warn("journal picture delete failed", { message: String(err?.message || err) }); }
+    }
+    return res.status(200).json({ ok: true, entry: out.entry || null, total: out.doc.entries.length, dropped });
+  } catch (err) {
+    console.error("journal failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "The journal could not be saved or read. Try again." });
+  }
+}
+
+async function journalShot(req, res) {
+  const session = await journalSession(req, res);
+  if (!session) return;
+  const journal = await import("../../lib/intuition-journal.mjs");
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    if (req.method === "GET") {
+      const id = String(req.query?.id || "");
+      if (!journal.SHOT_ID_RE.test(id)) return res.status(400).json({ error: "bad picture id" });
+      const buf = await store.rawGet(journal.SHOT_PREFIX + id);
+      const type = buf ? journal.imageTypeOf(Buffer.from(buf)) : null;
+      if (!type) return res.status(404).json({ error: "picture not found" });
+      res.setHeader("Content-Type", type);
+      // A picture id never changes what it points to, so this browser may keep
+      // it (private: never a shared cache, and the service worker skips it).
+      res.setHeader("Cache-Control", "private, max-age=604800, immutable");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Disposition", "inline");
+      res.statusCode = 200;
+      return res.end(Buffer.from(buf));
+    }
+    const shot = journal.decodeShot(req.body?.data);
+    if (shot.error) return res.status(400).json({ error: shot.error });
+    const id = journal.newShotId();
+    await store.rawPut(journal.SHOT_PREFIX + id, shot.buf);
+    return res.status(200).json({ ok: true, shot: { id, bytes: shot.buf.length, type: shot.type } });
+  } catch (err) {
+    console.error("journal picture failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "The picture could not be saved or read. Try again." });
   }
 }
 
