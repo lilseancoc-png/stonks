@@ -21,6 +21,7 @@ export function renderTradePopCss() {
 .pop-why .pop-sub { color: var(--muted-strong); font-size: 12.5px; }
 .pop-why .pop-src { margin: 2px 0 6px 18px; padding: 0; font: 500 12.5px/1.5 var(--font-sans); color: var(--text); }
 .pop-why .pop-src li { margin: 1px 0; }
+.pop-why .pop-eg { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
 .pop-check .mm-kpis { margin: 4px 0 8px; }
 .pop-table td { font-variant-numeric: tabular-nums; }
 .pop-table th:not(.num), .pop-table td:not(.num) { text-align: left; }

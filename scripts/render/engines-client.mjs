@@ -245,6 +245,7 @@ function engEvidenceNote(t){
       { label: 'P&L', num: true, title: 'The engine record’s open result: % of the premium for an option, % of the share price for shares', cell: function(t){ return t.optionPnlPct == null ? '' : engPnl(t.optionPnlPct); }, sort: function(t){ var v = Number(t.optionPnlPct); return t.optionPnlPct != null && isFinite(v) ? v : null; } },
       { label: 'Chance', num: true, title: POP_TIP, cell: function(t){ return popCellHtml(t, true); }, sort: popSortOf },
       { label: 'Webull', title: OP_WB_TIP, cell: function(t){ return opWebullHtml(t.tradeId); }, sort: function(t){ return opWebullSort(t.tradeId); } },
+      { label: 'Exp. gain', num: true, title: EG_TIP, cell: egCellHtml, sort: egSortOf },
       { label: 'Entry', num: true, title: 'Entry price per share (an option at the ask when the record books ask and bid)', cell: function(t){ var v = opEntry(t); return v == null ? '' : engMoney(v); }, sort: opEntry },
       { label: 'Mark', num: true, title: 'Price the engine record would sell at now: the bid for options booked ask in, bid out, else the mid. P&L uses the same price.', cell: function(t){ var v = opMark(t); return v == null ? '' : engMoney(v) + (opBidMark(t) ? ' <span class="crd-dim">bid</span>' : ''); }, sort: opMark },
       { label: 'Opened (ET)', cell: function(t){ return t.entryDate && typeof accOpenedEt === 'function' ? escapeHtml(accOpenedEt(t.entryDate)) : ''; }, sort: function(t){ var x = Date.parse(t.entryDate); return isFinite(x) ? x : null; } },
@@ -328,6 +329,7 @@ function engEvidenceNote(t){
       { label: 'Result', num: true, cell: function(r){ return engPnl(r.t.optionPnlPct) + '<div class="crd-dim">' + engMoney(r.t.contract && r.t.contract.mid) + ' → ' + engMoney(r.t.lastMid) + '</div>'; }, sort: function(r){ return r.t.optionPnlPct; } },
       { label: 'Sessions', num: true, cell: function(r){ return String(r.t.sessions || 0) + (r.t.exits && r.t.exits.maxSessions ? '<span class="crd-dim"> of ' + r.t.exits.maxSessions + '</span>' : ''); }, sort: function(r){ return r.t.sessions || 0; } },
       { label: 'Chance', num: true, title: POP_TIP, cell: function(r){ return popCellHtml(r.t, true); }, sort: function(r){ return popSortOf(r.t); } },
+      { label: 'Exp. gain', num: true, title: EG_TIP, cell: function(r){ return egCellHtml(r.t); }, sort: function(r){ return egSortOf(r.t); } },
     ];
     return VIEWS.tableHtml(cols, rows, { key: 'eng-open-all', empty: 'No engine has an open trade. New ones open at the 11:00 and 15:30 ET runs when a setup clears its bar.', detail: function(r){ return r.t.pop ? popWhyHtml(r.t.pop) : ''; } });
   }
@@ -406,6 +408,7 @@ function engEvidenceNote(t){
       { label: 'At Webull', title: ENG_AT_WEBULL_TIP, cell: engAtWebullHtml, sort: engAtWebullSort },
       { label: 'Sessions', num: true, cell: function(t){ return String(t.sessions || 0) + (t.exits && t.exits.maxSessions ? '<span class="crd-dim"> of ' + t.exits.maxSessions + '</span>' : ''); }, sort: function(t){ return t.sessions || 0; } },
       { label: 'Chance', num: true, title: POP_TIP, cell: function(t){ return popCellHtml(t, true); }, sort: popSortOf },
+      { label: 'Exp. gain', num: true, title: EG_TIP, cell: egCellHtml, sort: egSortOf },
       { label: 'Exit plan', cell: function(t){ return engExitPlan(t); }, nosort: true },
     ];
     return VIEWS.tableHtml(cols, e.open || [], { key: 'eng-open-' + e.id, empty: 'No open trades. New ones open at the 11:00 and 15:30 ET runs when a setup clears the bar.', detail: function(t){ return t.pop ? popWhyHtml(t.pop) : ''; } });

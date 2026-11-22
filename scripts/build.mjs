@@ -75,7 +75,7 @@ import {
   persistAiRejections,
 } from "../lib/ai-rejections.mjs";
 import { buildPicksRunRecord, loadPicksRunDay, persistPicksRun, picksRunArchiveEnabled } from "../lib/picks-run-archive.mjs";
-import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, marketTypeOf, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN } from "../lib/picks-outcomes.mjs";
+import { addControlEntries, appendRunOutcomes, drawControlEntries, emptyOutcomesState, fillOutcomes, loadPicksOutcomes, markControlBook, marketTypeOf, pruneOutcomes, writePicksOutcomes, CONTROL_PER_RUN_MIN, dailyClosesOf } from "../lib/picks-outcomes.mjs";
 import { buildEvidenceBoard, writeEvidenceBoard } from "../lib/evidence-board.mjs";
 import {
   readWebullW3, w3LogLine, w3ShadowInputs, w3BottomContextRow, w3EvidenceTests, buildBackupCheck, writeBackupCheck,
@@ -98,7 +98,7 @@ import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 // quant-labs.json + quant-labs-state.json; measurement only, no AI, kill
 // switch QUANT_LABS=0.
 import { loadQuantLabs, carryQuantLabs, writeQuantLabs, runQuantLabs, loadQuantLabsResearch, quantLabsEnabled, quantLabsTextEnabled, QUANT_LABS_KEY } from "../lib/labs/index.mjs";
-import { picksTradePop, stampPopResults, webullPopOutcomes, tradePopEnabled, popRows, popLabSources } from "../lib/trade-pop.mjs";
+import { picksTradePop, stampPopResults, webullPopOutcomes, tradePopEnabled, popRows, popLabSources, loopForecastFor } from "../lib/trade-pop.mjs";
 import { refreshFilingText } from "../lib/labs/filing-text.mjs";
 import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
 import { engineName as strategyEngineName } from "../lib/engines/config.mjs";
@@ -31541,6 +31541,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         const stamp = picksTradePop(justEnrolled, {
           exitPolicy: justEnrolled.exitPolicy, rfr: Number.isFinite(opts.rfr) ? opts.rfr : FALLBACK_RISK_FREE_RATE, nowMs: nowSec * 1000,
           setupOdds: setupOddsFor(setupOddsSetupOf(justEnrolled), popDecided), loopOdds: p.loopOdds || null,
+          // The expected gain (2026-11-22): the loop's expected 10-session
+          // move for this name and side, the stock's realized volatility and
+          // its IV history. Measure only.
+          forecast: typeof opts.loopForecast === "function" ? opts.loopForecast(p.symbol, p.side) : null,
+          bars: dailyClosesOf(chains?.[p.symbol] || null), chain: chains?.[p.symbol] || null,
         });
         if (stamp) justEnrolled.pop = stamp;
       } catch (err) {
@@ -42483,7 +42488,12 @@ async function main() {
   // wiped data/). Degrades to a no-op on a first run / missing files.
   if (refreshTopPicks) {
     try {
-      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun, ownerControls: ownerControlsRun, rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE });
+      // The loop's estimate for each new trade (the expected-gain stamp, lib/trade-pop.mjs).
+      const loopDay = etDateKey(new Date(builtAtIso));
+      const loopForecast = loopState?.ledger && loopState.lastRun?.date === loopDay
+        ? (symbol, side) => loopForecastFor(loopState.ledger, { date: loopDay, symbol, side, modelRows: loopState.lastRun?.modelRows ?? null })
+        : null;
+      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun, ownerControls: ownerControlsRun, rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, loopForecast });
       console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
     } catch (err) {
       console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);

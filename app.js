@@ -8910,6 +8910,7 @@ function engEvidenceNote(t){
       { label: 'P&L', num: true, title: 'The engine record’s open result: % of the premium for an option, % of the share price for shares', cell: function(t){ return t.optionPnlPct == null ? '' : engPnl(t.optionPnlPct); }, sort: function(t){ var v = Number(t.optionPnlPct); return t.optionPnlPct != null && isFinite(v) ? v : null; } },
       { label: 'Chance', num: true, title: POP_TIP, cell: function(t){ return popCellHtml(t, true); }, sort: popSortOf },
       { label: 'Webull', title: OP_WB_TIP, cell: function(t){ return opWebullHtml(t.tradeId); }, sort: function(t){ return opWebullSort(t.tradeId); } },
+      { label: 'Exp. gain', num: true, title: EG_TIP, cell: egCellHtml, sort: egSortOf },
       { label: 'Entry', num: true, title: 'Entry price per share (an option at the ask when the record books ask and bid)', cell: function(t){ var v = opEntry(t); return v == null ? '' : engMoney(v); }, sort: opEntry },
       { label: 'Mark', num: true, title: 'Price the engine record would sell at now: the bid for options booked ask in, bid out, else the mid. P&L uses the same price.', cell: function(t){ var v = opMark(t); return v == null ? '' : engMoney(v) + (opBidMark(t) ? ' <span class="crd-dim">bid</span>' : ''); }, sort: opMark },
       { label: 'Opened (ET)', cell: function(t){ return t.entryDate && typeof accOpenedEt === 'function' ? escapeHtml(accOpenedEt(t.entryDate)) : ''; }, sort: function(t){ var x = Date.parse(t.entryDate); return isFinite(x) ? x : null; } },
@@ -8993,6 +8994,7 @@ function engEvidenceNote(t){
       { label: 'Result', num: true, cell: function(r){ return engPnl(r.t.optionPnlPct) + '<div class="crd-dim">' + engMoney(r.t.contract && r.t.contract.mid) + ' → ' + engMoney(r.t.lastMid) + '</div>'; }, sort: function(r){ return r.t.optionPnlPct; } },
       { label: 'Sessions', num: true, cell: function(r){ return String(r.t.sessions || 0) + (r.t.exits && r.t.exits.maxSessions ? '<span class="crd-dim"> of ' + r.t.exits.maxSessions + '</span>' : ''); }, sort: function(r){ return r.t.sessions || 0; } },
       { label: 'Chance', num: true, title: POP_TIP, cell: function(r){ return popCellHtml(r.t, true); }, sort: function(r){ return popSortOf(r.t); } },
+      { label: 'Exp. gain', num: true, title: EG_TIP, cell: function(r){ return egCellHtml(r.t); }, sort: function(r){ return egSortOf(r.t); } },
     ];
     return VIEWS.tableHtml(cols, rows, { key: 'eng-open-all', empty: 'No engine has an open trade. New ones open at the 11:00 and 15:30 ET runs when a setup clears its bar.', detail: function(r){ return r.t.pop ? popWhyHtml(r.t.pop) : ''; } });
   }
@@ -9071,6 +9073,7 @@ function engEvidenceNote(t){
       { label: 'At Webull', title: ENG_AT_WEBULL_TIP, cell: engAtWebullHtml, sort: engAtWebullSort },
       { label: 'Sessions', num: true, cell: function(t){ return String(t.sessions || 0) + (t.exits && t.exits.maxSessions ? '<span class="crd-dim"> of ' + t.exits.maxSessions + '</span>' : ''); }, sort: function(t){ return t.sessions || 0; } },
       { label: 'Chance', num: true, title: POP_TIP, cell: function(t){ return popCellHtml(t, true); }, sort: popSortOf },
+      { label: 'Exp. gain', num: true, title: EG_TIP, cell: egCellHtml, sort: egSortOf },
       { label: 'Exit plan', cell: function(t){ return engExitPlan(t); }, nosort: true },
     ];
     return VIEWS.tableHtml(cols, e.open || [], { key: 'eng-open-' + e.id, empty: 'No open trades. New ones open at the 11:00 and 15:30 ET runs when a setup clears the bar.', detail: function(t){ return t.pop ? popWhyHtml(t.pop) : ''; } });
@@ -10578,14 +10581,47 @@ function engEvidenceNote(t){
       }).join('') + '</ul>');
     } else out.push('<p class="pop-line"><b>Track record:</b> none yet for this kind of trade.</p>');
     if (s.note) out.push('<p class="pop-line pop-sub">' + escapeHtml(s.note) + '</p>');
+    if (s.eg) out.push(egWhyHtml(s.eg));
     out.push('<p class="pop-line pop-sub">Set once when the trade opened and never changed. Not modeled: thesis, news and earnings exits, gaps inside a day, and any edge the setup really has (which is what the check below measures).' + (s.res ? ' Outcome: ' + (s.res.y === 1 ? 'closed with a gain' : s.res.y === 0 ? 'closed without a gain' : 'not counted') + (s.res.pnl != null ? ' (' + popSigned(s.res.pnl, 1) + ')' : '') + '.' : '') + '</p>');
     return '<div class="pop-why">' + out.join('') + '</div>';
   }
+  // ---- Expected gain (lib/trade-pop.mjs expectedGain) ------------------------------
+  var EG_BETTER = { option: 'the option', shares: 'shares', 'about even': 'about even', neither: 'neither (no gain expected either way)' };
+  function egUsd(v){ var n = Number(v); return v == null || !isFinite(n) ? '' : (n < 0 ? '−$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US'); }
+  function egCls(v){ var n = Number(v); return !isFinite(n) ? '' : n > 0.05 ? 'sig-pos' : n < -0.05 ? 'sig-neg' : ''; }
+  function egWhyHtml(g){
+    var out = [], fc = g.fc || {}, vol = g.vol || {};
+    var opt = g.twin != null || vol.iv != null;
+    var head = '<p class="pop-line"><b>Expected gain: ' + popSigned(g.ev, 1) + '</b> of the money put in' + (g.evUsd != null ? ' (' + egUsd(g.evUsd) + ' on ' + egUsd(g.costUsd) + ')' : '') + ', if the stock moves as forecast: ' + popSigned(fc.move, 2) + ' the trade’s way over ' + fc.sessions + ' session' + (fc.sessions === 1 ? '' : 's') + ' (' + escapeHtml(fc.from || 'no forecast') + ')' + (fc.learning ? ', still learning' : '') + '. ';
+    head += 'Chance of a gain under that forecast: ' + popPct(g.pop) + '.</p>';
+    out.push(head);
+    var hu = g.hurdle != null ? 'It breaks even at a move of <b>' + popSigned(g.hurdle, 2) + '</b> the trade’s way over those sessions' : 'Break-even move: ' + escapeHtml(g.hurdleWhy || 'not found');
+    out.push('<p class="pop-line">' + hu + '. With no move at all it would make ' + popSigned(g.ev0, 1) + ': that is the cost of the ' + (opt ? 'option (time decay, the spread and any IV above the stock’s own moves)' : 'trade (the round-trip cost)') + '.</p>');
+    var v = 'The stock path moves ' + popPct(vol.path) + ' a year (' + escapeHtml(vol.from || 'volatility') + ')';
+    if (vol.iv != null) v += ', while the option is priced at ' + popPct(vol.iv) + ' IV' + (vol.gap != null ? ' (' + (vol.gap >= 0 ? popPct(vol.gap) + ' above' : popPct(-vol.gap) + ' below') + ' the stock’s own moves)' : '') + '; IV ends near ' + popPct(g.ivEnd) + ' (' + escapeHtml(g.ivFrom || 'flat') + ')';
+    out.push('<p class="pop-line pop-sub">' + v + '. Same exits and fills as the chance of profit above.</p>');
+    if (g.twin){
+      out.push('<p class="pop-line"><b>Shares instead:</b> the same forecast on shares the same way would make ' + popSigned(g.twin.ev, 1) + ' of the money put in (break-even ' + (g.twin.hurdle != null ? popSigned(g.twin.hurdle, 2) : '—') + '). Per dollar of average loss: option ' + (g.perRisk != null ? g.perRisk.toFixed(2) : '—') + ', shares ' + (g.twin.perRisk != null ? g.twin.perRisk.toFixed(2) : '—') + '. Better vehicle by that measure: <b>' + escapeHtml(EG_BETTER[g.better] || g.better || '—') + '</b>.</p>');
+    }
+    if (fc.ref && fc.ref.optAvg != null) out.push('<p class="pop-line pop-sub">For reference, the history test’s option trades on this setup averaged ' + popSigned(fc.ref.optAvg, 1) + ' over ' + Number(fc.ref.optN || 0).toLocaleString('en-US') + ' trades, priced from a model, so not used here.</p>');
+    if (fc.ref && fc.ref.implied10 != null) out.push('<p class="pop-line pop-sub">The options imply a move of about ' + popSigned(fc.ref.implied10, 1).replace('+', '±') + ' over 10 sessions, either way.</p>');
+    out.push('<p class="pop-line pop-sub">Measure only: it changes nothing about this trade. It is set once and checked against the result in the Expected gain check.</p>');
+    return '<div class="pop-eg">' + out.join('') + '</div>';
+  }
+  function egCellHtml(t){
+    var g = t && t.pop && t.pop.eg;
+    if (!g) return '<span class="crd-dim">—</span>';
+    return '<b class="' + egCls(g.ev) + '" title="If the stock moves ' + escapeHtml(popSigned(g.fc && g.fc.move, 2)) + ' the trade’s way. Break-even move ' + escapeHtml(g.hurdle != null ? popSigned(g.hurdle, 2) : '—') + '. With no move ' + escapeHtml(popSigned(g.ev0, 1)) + '. Open the row for why.">' + popSigned(g.ev, 1) + '</b>' + (g.hurdle != null ? '<div class="crd-dim">needs ' + popSigned(g.hurdle, 1) + '</div>' : '');
+  }
+  function egSortOf(t){ var v = Number(t && t.pop && t.pop.eg && t.pop.eg.ev); return t && t.pop && t.pop.eg && isFinite(v) ? v : null; }
+  var EG_TIP = 'Expected gain, set when the trade opened: the average simulated result (% of the money put in) if the stock moves as forecast, through the trade’s real exits and fills. "needs" is the move the trade’s way it takes to break even. Measure only.';
+
   // A card line: the chance and a Why that opens in place.
   function popChipHtml(t){
     var s = t && t.pop;
     if (!s || !HAS_OWNER_ACCESS) return '';
-    return '<details class="pop-chip"><summary><span class="pop-lbl">Chance of profit</span> <b class="' + popCls(s.p) + '">' + popPct(s.p) + '</b> <small>model ' + popPct(s.m) + ' · record ' + popPct(s.r) + '</small> <span class="pop-open">Why</span></summary>' + popWhyHtml(s) + '</details>';
+    var eg = s.eg ? ' <span class="pop-lbl">Expected</span> <b class="' + egCls(s.eg.ev) + '">' + popSigned(s.eg.ev, 1) + '</b>' + (s.eg.hurdle != null ? ' <small>needs ' + popSigned(s.eg.hurdle, 1) + '</small>' : '') : '';
+    return '<details class="pop-chip"><summary><span class="pop-lbl">Chance of profit</span> <b class="' + popCls(s.p) + '">' + popPct(s.p) + '</b> <small>model ' + popPct(s.m) + ' · record ' + popPct(s.r) + '</small>' + eg + ' <span class="pop-open">Why</span></summary>' + popWhyHtml(s) + '</details>';
   }
   // A table cell: the chance and the row's expand button (the why sits in the row's detail).
   function popCellHtml(t, withExpand){
@@ -10623,13 +10659,32 @@ function engEvidenceNote(t){
     var recent = (c.recent || []).length ? '<h4 class="pd-h4">Latest closes</h4><div class="acc-tscroll"><table class="acc-qtable pop-table" data-nosort><thead><tr><th>Trade</th><th>Made by</th><th class="num">Stated</th><th class="num">Model</th><th class="num">Record</th><th>Result</th><th>Webull</th></tr></thead><tbody>' + c.recent.slice(0, 20).map(function(r){
       return '<tr><td><b>' + escapeHtml(r.sym || '') + '</b> ' + (r.g === 'engine-shares' ? 'shares' : escapeHtml(r.side || '')) + '</td><td>' + escapeHtml(r.eng ? (typeof engName === 'function' ? engName(r.eng) : r.eng) : 'Top Picks') + (r.g === 'trials' ? ' <small>trial</small>' : '') + '</td><td class="num">' + popPct(r.p) + '</td><td class="num">' + popPct(r.m) + '</td><td class="num">' + popPct(r.r) + '</td><td>' + (r.y === 1 ? '<span class="sig-pos">Gain ' + popSigned(r.pnl, 1) + '</span>' : r.y === 0 ? '<span class="sig-neg">No gain ' + popSigned(r.pnl, 1) + '</span>' : '<span class="crd-dim">Not counted</span>') + '</td><td>' + (r.wy === 1 ? 'Gain' : r.wy === 0 ? 'No gain' : '<span class="crd-dim">—</span>') + '</td></tr>';
     }).join('') + '</tbody></table></div>' : '';
+    var egc = egCheckHtml(c.eg);
     var off = c.enabled === false ? '<p class="hint">The switch is off in Owner Settings (Research, Chance of profit on Webull trades): new trades get no chance; the ones already stated are still graded.</p>' : '';
     return '<details class="accuracy-advanced pop-check" id="open-picks-pop"' + (VIEWS.get('open-picks.pop', true) ? ' open' : '') + ' data-pop-check><summary class="accuracy-advanced-summary">Chance of profit check <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body">' +
       off + kpis +
       '<p class="hint">' + escapeHtml((c.method && c.method.text) || '') + ' A verdict needs ' + (c.minN || 30) + ' closes; skill above zero means the stated chances beat always saying the base rate.</p>' +
-      table + buckets + wb + recent +
+      table + buckets + wb + egc + recent +
       '<p class="hint">The same chances are graded in Quant labs, Calibration, next to every other chance the site states.</p>' +
     '</div></details>';
+  }
+  var EG_VERDICT = { close: 'Close', over: 'Too hopeful', under: 'Too cautious', few: 'Too few closes yet' };
+  function egCheckHtml(e){
+    if (!e || !e.n) return '<h4 class="pd-h4">Expected gain check</h4><p class="hint">No trade has an expected gain yet; trades opened from 23 November 2026 carry one.</p>';
+    var rows = (e.groups || []).filter(function(g){ return g.id === 'all' || g.n; }).map(function(g){
+      return '<tr><td>' + escapeHtml(g.label) + '</td><td class="num">' + g.n + '</td><td class="num">' + popSigned(g.stated, 1) + '</td><td class="num">' + popSigned(g.noEdge, 1) + '</td><td class="num">' + popSigned(g.made, 1) + '</td><td class="num">' + popPct(g.won) + '</td></tr>';
+    }).join('');
+    var bands = (e.bands || []).map(function(b){
+      var lbl = b.lo == null ? 'under ' + b.hi + '%' : b.hi == null ? b.lo + '% or more' : b.lo + '% to ' + b.hi + '%';
+      return '<tr><td>' + escapeHtml(lbl) + '</td><td class="num">' + b.n + '</td><td class="num">' + (b.n ? popSigned(b.stated, 1) : '—') + '</td><td class="num">' + (b.n ? popSigned(b.made, 1) : '—') + '</td><td class="num">' + (b.n ? popPct(b.won) : '—') + '</td></tr>';
+    }).join('');
+    var veh = (e.vehicle || []).filter(function(v){ return v.open || v.closed; }).map(function(v){ return escapeHtml(EG_BETTER[v.better] || v.better) + ' ' + (v.open + v.closed); }).join(', ');
+    return '<h4 class="pd-h4">Expected gain check</h4>' +
+      '<p class="hint"><b>' + escapeHtml(EG_VERDICT[e.verdict] || e.verdict || '') + '.</b> ' + escapeHtml(e.text || '') + ' ' + e.n + ' trades carry one (' + e.open + ' open).' + (e.rank && e.rank.read && e.closed ? ' Ranking: ' + escapeHtml(e.rank.read) : '') + (e.rank && e.rank.rho != null ? ' Rank correlation of stated against made: ' + e.rank.rho.toFixed(2) + '.' : '') + '</p>' +
+      '<div class="acc-tscroll"><table class="acc-qtable pop-table" data-nosort><thead><tr><th>Closed trades</th><th class="num">Closed</th><th class="num" title="The average expected gain at entry, under the forecast">Expected</th><th class="num" title="The same run with no move: the cost of the vehicle">No move</th><th class="num">Made</th><th class="num">Won</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="acc-tscroll"><table class="acc-qtable pop-table" data-nosort><thead><tr><th>Expected at entry</th><th class="num">Closed</th><th class="num">Expected</th><th class="num">Made</th><th class="num">Won</th></tr></thead><tbody>' + bands + '</tbody></table></div>' +
+      (e.pop && e.pop.n ? '<p class="hint">Chance of a gain under the forecast: stated ' + popPct(e.pop.stated) + ', won ' + popPct(e.pop.rate) + ' over ' + e.pop.n + ' closes. ' + escapeHtml(e.pop.read || '') + '</p>' : '') +
+      (veh ? '<p class="hint">Better vehicle at entry, by the result per dollar of average loss: ' + veh + '.</p>' : '');
   }
   document.addEventListener('toggle', function(e){
     var d = e.target;
@@ -64921,6 +64976,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Mark', num: true, title: 'Latest model price per share, from the entry price and the marked P&L (for a credit spread, the cost to buy it back)', cell: function(o){ return money(openPickMark(o)); }, sort: openPickMark },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
       { label: 'Chance', num: true, title: POP_TIP, cell: function(o){ return popCellHtml(o, false); }, sort: popSortOf },
+      { label: 'Exp. gain', num: true, title: EG_TIP, cell: egCellHtml, sort: egSortOf },
       { label: 'Webull', title: typeof OP_WB_TIP === 'string' ? OP_WB_TIP : 'What the Webull paper account did with this trade', cell: function(o){ return typeof opWebullHtml === 'function' ? opWebullHtml(tlTradeId(o)) : ''; }, sort: function(o){ return typeof opWebullSort === 'function' ? opWebullSort(tlTradeId(o)) : null; } },
       { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },
