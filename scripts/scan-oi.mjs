@@ -476,8 +476,8 @@ function pickTopStrikes(contracts) {
     .slice(0, TOP_STRIKES);
 }
 
-// Call / put walls: the largest OI on the right side of the price
-// (oiWall in lib/gamma-squeeze.mjs, since 2026-11-22).
+// Call / put walls: the largest OI on the right side of the price and within
+// 10% of it (oiWall in lib/gamma-squeeze.mjs, since 2026-11-22).
 
 // Sum OI on one side across the full short-dated chain.
 function sumOi(contracts, side) {

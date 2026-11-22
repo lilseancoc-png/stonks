@@ -3754,6 +3754,7 @@ function recoveryEvidence(row, data, now = Date.now()) {
   function crowdLevFlowsHtml(d){
     var lf = d.levFlows;
     var h = crowdHead('Leveraged ETF creations and redemptions', lf, lf && lf.note);
+    if (lf && lf.disabled) return h;
     if (!lf || !lf.rows) return h + crowdEmpty('No fund read yet.');
     var t = lf.totals || {};
     var kpis = [['Bull funds, 5 days', crowdUsd(t.bullUsd5d)], ['Bear funds, 5 days', crowdUsd(t.bearUsd5d)], ['Bull funds, 1 day', crowdUsd(t.bullUsd1d)], ['Bear funds, 1 day', crowdUsd(t.bearUsd1d)], ['Funds with a flow', (lf.withFlow != null ? lf.withFlow : (lf.withShares || 0)) + ' of ' + (lf.funds || 0)]];
@@ -39278,7 +39279,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var watch = '';
     var ws = Array.isArray(it.watch) ? it.watch : [];
     for (var w=0; w<ws.length; w++){
-      watch += '<a class="cmd-watch" data-sym="' + escapeHtml(ws[w]) + '" href="' + symGradeHref(ws[w]) + '" title="' + escapeHtml(symOpenLabel(ws[w])) + '">' + escapeHtml(ws[w]) + '</a>';
+      watch += cmdWatchChip(ws[w], 'cmd-watch', symOpenLabel(ws[w]));
     }
     var src = it.sourceUrl
       ? '<a class="cmd-src" href="' + escapeHtml(it.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(it.sourceName || 'source') + '</a>'
@@ -39351,13 +39352,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
     });
   }
+  // A related stock links to its page only when the site covers it; the rest
+  // (NEM, HSY, GAP, ...) show as plain text instead of opening an empty page
+  // (2026-11-22).
+  function cmdWatchChip(sym, cls, label){
+    var s = String(sym || '').toUpperCase();
+    if (SYMBOLS.indexOf(s) >= 0) return '<a class="' + cls + '" data-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '" title="' + escapeHtml(label) + '">' + escapeHtml(s) + '</a>';
+    return '<span class="' + cls + ' cmd-watch-off" title="' + escapeHtml(s + ' is not covered on this site') + '">' + escapeHtml(s) + '</span>';
+  }
   function cmdDriverCard(it){
     var move = cmdPrimaryChange(it);
     if (!it || !move) return '';
     var up = move.pct >= 0;
     var watches = Array.isArray(it.watch) ? it.watch : [];
     var watch = watches.slice(0, 4).map(function(sym){
-      return '<a class="cmd-driver-watch" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in Grade">' + escapeHtml(sym) + '</a>';
+      return cmdWatchChip(sym, 'cmd-driver-watch', symOpenLabel(sym));
     }).join('');
     var note = String(it.note || 'Use the exposed equities to confirm whether the commodity move is transmitting.');
     var firstSentence = note.match(/^[\s\S]*?[.!?](?:\s|$)/);

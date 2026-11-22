@@ -325,12 +325,12 @@ ok("leveraged fund list and quote read", () => {
 okAsync("leveraged flows derive dollars from share-count changes", async () => {
   const funds = levFundList(singles, groups);
   const prior = { fetchedDate: "2026-11-06", rows: funds.map((f) => ({ ...f, history: [["2026-11-06", 1000000, 50, 50000000]] })) };
-  const out = await fetchLevFlows({ prior, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, sharesOutstanding: 1100000, navPrice: 52, netAssets: 57200000 })) });
+  const out = await fetchLevFlows({ prior, funds, enabled: true, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, sharesOutstanding: 1100000, navPrice: 52, netAssets: 57200000 })) });
   assert.equal(out.ok, true);
   assert.equal(out.rows[0].flowShares1d, 100000);
   assert.equal(out.rows[0].flowUsd1d, 5200000);
   assert.equal(out.withShares, 4);
-  const failed = await fetchLevFlows({ prior: out, funds, todayEt: "2026-11-10", nowIso: NOW, quoteFn: async () => { throw new Error("yahoo down"); } });
+  const failed = await fetchLevFlows({ prior: out, funds, enabled: true, todayEt: "2026-11-10", nowIso: NOW, quoteFn: async () => { throw new Error("yahoo down"); } });
   assert.equal(failed.ok, false);
   assert.equal(failed.rows.length, 4);
 });
@@ -340,7 +340,7 @@ okAsync("leveraged flows fall back to net assets net of the NAV move when share 
   assert.equal(assetFlowUsd(["d", null, 52, null], ["d0", null, 50, 50000000]), null);
   const funds = levFundList(singles, groups);
   const prior = { fetchedDate: "2026-11-06", rows: funds.map((f) => ({ ...f, history: [["2026-11-06", null, 50, 50000000]] })) };
-  const out = await fetchLevFlows({ prior, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
+  const out = await fetchLevFlows({ prior, funds, enabled: true, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
   assert.equal(out.withShares, 0);
   assert.equal(out.withFlow, 4);
   assert.equal(out.rows[0].flowUsd1d, 5200000);
@@ -348,14 +348,14 @@ okAsync("leveraged flows fall back to net assets net of the NAV move when share 
   assert.equal(out.rows[0].flowUsd5d, null);
   assert.equal(out.totals.bullUsd1d, 10400000);
   assert.equal(out.totals.bullUsd5d, null, "no 5-day flow measured is empty, not $0");
-  const first = await fetchLevFlows({ prior: {}, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
+  const first = await fetchLevFlows({ prior: {}, funds, enabled: true, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
   assert.equal(first.totals.bullUsd1d, null);
   assert.equal(first.withFlow, 0);
   assert.equal(first.aged, false, "a first read has nothing to compare, so it is not aged");
   assert.equal(out.aged, false);
   // Two stored days with frozen net assets: quotes came back but no flow can be measured.
   const flatPrior = { fetchedDate: "2026-11-06", rows: funds.map((f) => ({ ...f, history: [["2026-11-06", null, 50, 57200000]] })) };
-  const flat = await fetchLevFlows({ prior: flatPrior, funds, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
+  const flat = await fetchLevFlows({ prior: flatPrior, funds, enabled: true, todayEt: TODAY, nowIso: NOW, quoteFn: async (syms) => syms.map((s) => ({ symbol: s, navPrice: 52, netAssets: 57200000 })) });
   assert.equal(flat.withFlow, 0);
   assert.equal(flat.aged, true, "no measurable flow over two stored days is aged, not ok");
   assert.ok(/no fund has a flow/.test(flat.agedWhy));
@@ -552,6 +552,10 @@ okAsync("orchestrator runs every source fail-soft and the public payload passes 
   assert.equal(crowd2.perps.ok, true);
   assert.equal(crowd2.rollup.find((r) => r.symbol === "TSLA").perpVsClosePct, 1.25);
   assert.equal(crowd.sources.length, CROWD_SOURCE_IDS.length);
+  // Leveraged ETF flows are off by default (2026-11-22): empty block, nothing carried.
+  assert.equal(crowd.levFlows.disabled, true, "lev flows off by default");
+  assert.equal(crowd.levFlows.rows, undefined, "off carries no rows");
+  assert.equal(crowd.sources.find((s) => s.id === "levFlows").disabled, true, "source row says off");
   assert.equal(crowd.rollup.length, SYMS.length);
   assert.deepEqual(sessionDatesFromChain(chains.SPY), ["2026-11-05", "2026-11-06"]);
   assert.equal(refClosesFromChains(chains, SYMS).TSLA.close, 440);

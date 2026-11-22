@@ -35,7 +35,10 @@ assert.equal(accepted("MSFT", "Microsoft Corporation", ORCL_DEAL), false);
 assert.equal(accepted("NVDA", "NVIDIA Corporation", "Nvidia, AMD and Broadcom could buy Meta shares as part of $35 billion stock offering"), false);
 assert.equal(accepted("AVGO", "Broadcom Inc.", "Meta Launches $35B Stock Offering, Plans Another $60B Program In 2027: Nvidia, AMD, Broadcom Eye Up To $5B Investment"), false);
 assert.equal(accepted("META", "Meta Platforms, Inc.", "AMD To Invest $1B In Meta Stock Offering As AI Partnership Expands"), true);
-assert.equal(accepted("MS", "Morgan Stanley", "Morgan Stanley (MS) Could Be 18% Undervalued Following Its New Bond Offering"), true);
+assert.equal(accepted("MS", "Morgan Stanley", "Morgan Stanley (MS) Prices New Bond Offering"), true);
+// 2026-11-22: a valuation piece that cites the deal is commentary, not a raise.
+assert.equal(accepted("MS", "Morgan Stanley", "Morgan Stanley (MS) Could Be 18% Undervalued Following Its New Bond Offering"), false);
+assert.equal(classifyCapitalRaiseHeadline("Is It Time to Buy Acme After Its $2 Billion Stock Offering?"), null);
 // A filed amount from years ago is not "the latest filed" size.
 assert.equal(capitalRaiseFiledIsRecent("2017-09-30", "2026-11-11T21:00:00Z"), false);
 assert.equal(capitalRaiseFiledIsRecent("2026-06-30", "2026-11-11T21:00:00Z"), true);

@@ -141,4 +141,19 @@ assert.equal(res.statusCode, 200); assert.equal(res.body.sources, null);
   assert.ok(scanPayload({ items: [{ publishedAt: "2026-11-09T12:00:00Z" }] }, Date.parse("2026-11-10T00:00:00Z")).at != null, "publishedAt counts as an observation date");
 }
 
+// Dates for the three payloads that had none, and the capital-raises allowance
+// (2026-11-22).
+{
+  const at = Date.parse("2026-11-22T12:00:00Z");
+  const def = (id) => SOURCES.find((d) => d.id === id);
+  const hist = assessSource(def("historical-sources"), { records: { "^GSPC": { confirmedThrough: "2026-11-02", checkedAt: "2026-11-22T10:00:00Z" }, SPY: { confirmedThrough: "2026-11-03" } } }, at);
+  assert.equal(hist.state, "aged", "long history dated by its newest confirmed session");
+  assert.equal(assessSource(def("historical-sources"), { records: { SPY: { confirmedThrough: "2026-11-20" } } }, at).state, "ok");
+  assert.equal(assessSource(def("pending-buyouts"), { builtAtIso: "2026-11-22T11:00:00Z", asOf: "2026-11-10T21:00:00Z", deals: [] }, at).state, "aged", "buyouts dated by the last confirmed-table read");
+  assert.equal(assessSource(def("accelerator-prices"), { builtAtIso: "2026-11-22T11:00:00Z", sources: [{ id: "vast", ok: true, stale: false, asOf: "2026-10-30" }] }, at).state, "aged", "GPU prices dated by each provider's newest good read");
+  assert.equal(assessSource(def("capital-raises"), { items: [{ publishedAt: "2026-11-12T12:00:00Z" }] }, at).state, "ok", "ten quiet days is normal for capital raises");
+  assert.equal(assessSource(def("capital-raises"), { items: [{ publishedAt: "2026-11-02T12:00:00Z" }] }, at).state, "aged");
+  assert.equal(SOURCES.some((d) => d.id === "crowd-lev-flows"), false, "leveraged ETF flows are off and out of the list");
+}
+
 console.log("source-health-smoke: ok");

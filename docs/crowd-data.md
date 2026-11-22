@@ -91,6 +91,11 @@ measured flow) and totals a side with no measured fund as null, not $0. The
 IBKR borrow file times out on the GitHub runner, so the option-implied borrow
 rate from each chain (`ibr`) is logged beside `bf` as a stand-in.
 
+Since 2026-11-22 the leveraged-ETF flow read is off by default: with no share
+counts the net-asset fallback rarely measured a flow, so the card showed $0
+totals. The Crowd page says the read is off; Owner Settings `CROWD_LEV_FLOWS`
+(Data & desks) turns it back on.
+
 ## Switches
 
 | Env | Where | Effect |
