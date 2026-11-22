@@ -114,6 +114,19 @@ try {
     const webullText = await s.page.locator('#eng-all-webull').innerText();
     check(/Made by/i.test(webullText) && /made_by/.test(await s.page.locator('#eng-all-webull').textContent()), 'the paper account names the engine behind each order and says the downloads do too');
     check(/Webull order IDs start ms(ern|mac|tec|fun|flo|rev)/.test(webullText), 'each order shows the engine tag its Webull order IDs start with');
+    // Webull results by engine (2026-11-22): one row per engine, then one per setup and instrument.
+    const wbKey = (t) => (t.setup || '') + '|' + (t.instrument === 'stock' ? 'shares' : 'options');
+    const wbEngines = [...new Set(fx.mirror.trades.filter((t) => t.engine).map((t) => t.engine))];
+    const wbSetups = new Set(fx.mirror.trades.filter((t) => t.engine).map((t) => t.engine + '#' + wbKey(t)));
+    check(/Webull results by engine/.test(webullText), 'the paper account has a results-by-engine table');
+    check((await s.page.locator('#eng-all-webull tr.eng-wb-engine').count()) === wbEngines.length, 'one results row per engine with paper trades (' + wbEngines.length + ')');
+    check((await s.page.locator('#eng-all-webull tr.eng-wb-setup').count()) === wbSetups.size, 'one results row per engine setup and instrument (' + wbSetups.size + ')');
+    {
+      const first = wbEngines.find((id) => ENGINE_IDS.includes(id));
+      const sent = fx.mirror.trades.filter((t) => t.engine === first && t.fillOutcome !== 'shared' && t.fillOutcome !== 'not-bought').length;
+      const cells = await s.page.locator('#eng-all-webull tr.eng-wb-engine').filter({ has: s.page.locator('[data-eng-go="' + first + '"]') }).locator('td').allInnerTexts();
+      check(cells[1] === String(sent), first + ': the results row counts ' + sent + ' sent orders (read ' + cells[1] + ')');
+    }
     check(/Webull fill/.test(webullText) && /Partly filled/.test(webullText), 'the paper account shows filled / partly filled / missed per order');
     const partlyN = fx.mirror.trades.filter((t) => t.fillOutcome === 'partial').length;
     if (partlyN) check(new RegExp('\\d+ of \\d+ (contracts|shares)').test(webullText), 'a partly filled order shows what filled of what was asked');
@@ -161,6 +174,7 @@ try {
     check(mirrorAsks.length >= 1 && mirrorAsks.every((q) => /scope=engines/.test(q)), 'the page asks the mirror for engine trades only');
     await clean(s, 'All engines, desktop');
     await s.page.screenshot({ path: resolve(output, 'all-engines-1440.png'), fullPage: true });
+    await s.page.locator('#eng-all-webull .eng-wb-head + .acc-tscroll').screenshot({ path: resolve(output, 'webull-by-engine-1440.png') });
 
     // Jump from the table into one engine.
     await s.page.locator('#eng-all-cmp [data-eng-go="technicals"]').click();
@@ -265,6 +279,10 @@ try {
       await s.page.locator('#eng-pane .vt-table, #eng-pane .vt-empty').first().waitFor({ timeout: 15000 });
       const mine = fx.mirror.trades.filter((t) => t.engine === id);
       check((await s.page.locator('#eng-pane .eng-body .vt-table tbody tr').count()) === mine.length, id + ': only its own paper orders');
+      if (mine.length) {
+        const mineSetups = new Set(mine.map((t) => (t.setup || '') + '|' + (t.instrument === 'stock' ? 'shares' : 'options')));
+        check(/Webull results by setup/.test(await paneText(s)) && (await s.page.locator('#eng-pane tr.eng-wb-engine').count()) === 0 && (await s.page.locator('#eng-pane tr.eng-wb-setup').count()) === mineSetups.size, id + ': its Webull results by setup (' + mineSetups.size + ' rows)');
+      }
       await clean(s, id + ' webull');
     }
     // The core engines (2026-11-17): the monthly target, holdings, checks and the S&P line.
@@ -534,6 +552,7 @@ try {
     await settle(s.page, 900);
     await clean(s, 'All engines, phone');
     await s.page.screenshot({ path: resolve(output, 'all-engines-390-dark.png'), fullPage: true });
+    await s.page.locator('#eng-all-webull .eng-wb-head + .acc-tscroll').screenshot({ path: resolve(output, 'webull-by-engine-390-dark.png') });
     for (const id of ['technicals', 'macro', 'flow', 'trend', 'momentum']) {
       await pick(s, id);
       for (const v of ['now', 'record', 'learn', 'history', 'webull']) { await sub(s, v); await settle(s.page, 200); await clean(s, id + ' ' + v + ', phone'); }

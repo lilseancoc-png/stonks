@@ -1002,6 +1002,18 @@ partly filled or missed per trade, with what was asked and what filled; the
 Track record tab's open and closed tables carry the same read as an "At
 Webull" column beside the engine's own result.
 
+**Webull results by engine (2026-11-22).** All engines → The paper account
+opens with one row per engine and, under it, one row per setup (options,
+shares, paper trials and tests on their own rows); each engine's Webull paper
+tab shows the same table by setup. Columns: sent, filled, missed, open,
+closed, won, the average paper result and the engine record's own result on
+the same closed trades, the gap between them, paper dollars (fill prices times
+size less known fees) and the average entry gap. % results come from the fill
+prices before fees. It reads only the mirror's trade log
+(`/api/auth/webull-mirror`, `engWbByEngineHtml` in
+`scripts/render/engines-client.mjs`); no new file, fetch or AI call. Each
+trade row in the paper tables also names its setup under the trade ID.
+
 A file that is missing is a fresh start. A file that is there and cannot be
 read skips the engines for that build and keeps the stored copy (an empty
 record never replaces a real one).

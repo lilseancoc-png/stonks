@@ -588,10 +588,15 @@ and the backup: the order prices off Yahoo when Webull fails, its last trade
 is over 5 minutes old, or the two mids differ by more than 1%. Since
 2026-11-22 Yahoo's own last price referees that last case: Yahoo's bid/ask
 carries no time and can sit far from the last trade (QQQ bid 717 against a
-608 last after the 2026-11-20 close), so when Webull's mid is within 1% of
-Yahoo's last price and Yahoo's mid is not, the order keeps Webull and the run
+608 last after the 2026-11-20 close), so when Yahoo's mid is more than 1%
+from Yahoo's last price the order keeps the fresh Webull quote and the run
 log says "share order priced off Webull - Yahoo bid/ask away from its last
-price". Each attempt's
+price". The Yahoo backup passes the same check (code quality review,
+2026-11-22): when the order would price off Yahoo (Webull failed or stale, or
+`WEBULL_STOCK_QUOTES` off) and Yahoo's book sits more than 1% from Yahoo's
+last price, it prices at that last price (bid = ask = last,
+`yahooLastPriceQuote`), so an exit still gets a price that window; the
+`quoteSource` ends "priced at the last price". Each attempt's
 `quoteSource` says which ("Webull stock snapshot" or "Yahoo stock quote
 (<why>)"). Option orders keep Yahoo quotes: Webull's free option quotes are 15
 minutes late. At most two snapshot calls per share symbol a run.
