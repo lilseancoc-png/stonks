@@ -42,6 +42,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-22
+
+### Changed
+
+- The strategy engines' rate-hike pause (`ENGINES_HIKE_PAUSE`) is now off by default (owner decision): the signal engines no longer hold back new tech and index-fund longs while hikes are priced and QQQ is under its 200-day. Owner Settings can still turn it on. The $4,000 ceiling on one Downside put stays. No AI cost.
+
 ## 2026-11-21
 
 ### Added

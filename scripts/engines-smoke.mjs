@@ -763,20 +763,23 @@ ok("shares: learning counts a share result 5x and says so; the page splits them 
 
 // ---- the money-leak fixes (2026-11-17) ---------------------------------------
 const WASHOUT = (over = {}) => baseF({ c: 90, pc: 93, sma20: 97, sma200: 85, sd20: 3, z20: -2.3, rsi2: 4, move5Atr: -3, downStreak: 4, rangePos: 0.6, l: 89, ...over });
-ok("fixes: the Owner Settings switches, all on by default", () => {
+// Off by default: the rate-hike pause (owner, 2026-11-22). Every other fix is on.
+const DEFAULT_OFF_FIXES = new Set(["hikePause"]);
+ok("fixes: the Owner Settings switches, all on by default but the rate-hike pause", () => {
   assert.deepEqual(ENGINE_FIX_IDS, ["retirePuts", "bounce", "size", "stockStop", "fillBasis", "riskSize", "conviction", "tecShares", "crashStand", "fearBounce", "convNoScore", "runInShares", "funPuts", "newsGate", "tapeSize", "loserBrake", "tecNoScore", "vixPause", "hikePause", "momSectors", "volTarget", "dearFull", "allocAdvise", "heldSameSide", "slotRetry", "runInEarly"]);
   const sw = engineSwitches({});
-  assert.deepEqual(sw.fixes, Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, true])));
+  assert.deepEqual(sw.fixes, Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, !DEFAULT_OFF_FIXES.has(id)])));
   assert.equal(BOOK.optionUsd, 2000); assert.equal(sw.optionUsd, 2000);
   for (const f of ENGINE_FIXES) {
     for (const v of ["0", "off", "false", "no", " OFF "]) {
       const x = engineSwitches({ [f.env]: v });
       assert.equal(x.fixes[f.id], false, `${f.env}=${v}`);
-      assert.equal(Object.values(x.fixes).filter((on) => !on).length, 1, "one switch moves one fix");
+      assert.equal(Object.values(x.fixes).filter((on) => !on).length, DEFAULT_OFF_FIXES.has(f.id) ? DEFAULT_OFF_FIXES.size : DEFAULT_OFF_FIXES.size + 1, "one switch moves one fix");
     }
-    for (const v of ["", "1", "on", "true"]) assert.equal(engineSwitches({ [f.env]: v }).fixes[f.id], true, `${f.env}=${v}`);
+    for (const v of ["1", "on", "true"]) assert.equal(engineSwitches({ [f.env]: v }).fixes[f.id], true, `${f.env}=${v}`);
+    assert.equal(engineSwitches({ [f.env]: "" }).fixes[f.id], !DEFAULT_OFF_FIXES.has(f.id), `${f.env} unset`);
     const def = ownerSettingDef(f.env);
-    assert.ok(def && def.kind === "switch" && def.default === true && def.group === "Strategy engines" && def.scope === "build", f.env);
+    assert.ok(def && def.kind === "switch" && def.default === !DEFAULT_OFF_FIXES.has(f.id) && def.group === "Strategy engines" && def.scope === "build", f.env);
     assert.ok(f.engines.length && f.engines.every((id) => ENGINE_IDS.includes(id)), f.id);
   }
   assert.equal(engineSwitches({ ENGINES_FIX_SIZE: "0" }).optionUsd, null, "size off: one contract, as before");
@@ -1126,10 +1129,10 @@ ok("fixes: live against the history test, setup by setup, from the current rules
   // The page file carries it, the fixes, the size and each setup's own contract and exits.
   const state = emptyState(); state.engines.reversion = es;
   const view = buildEnginesView({ record: { open: [], closed }, state, ctx: CTX, builtAtIso: NOW_AM, fixes: { ...engineSwitches({}).fixes, bounce: false }, specs: engineSpecs({ bounce: false }) });
-  assert.deepEqual(view.fixes.map((f) => [f.id, f.on]), ENGINE_FIX_IDS.map((id) => [id, id !== "bounce"]));
+  assert.deepEqual(view.fixes.map((f) => [f.id, f.on]), ENGINE_FIX_IDS.map((id) => [id, id !== "bounce" && !DEFAULT_OFF_FIXES.has(id)]));
   assert.equal(view.book.optionUsd, 2000);
   const rev = view.engines.find((e) => e.id === "reversion");
-  assert.equal(rev.vsHistory.rows.length > 0, true); assert.deepEqual(rev.fixesOff, ["bounce"]);
+  assert.equal(rev.vsHistory.rows.length > 0, true); assert.deepEqual(rev.fixesOff, ["bounce"], "the hike pause never reaches Reversion");
   assert.equal(rev.setups.find((r) => r.key === "oversold-bounce").contract, null, "with the fix off the bounce has the engine's contract");
   assert.equal(rev.setups.find((r) => r.key === "overbought-fade").state, "retired");
   const on = buildEnginesView({ record: { open: [], closed: [] }, state: emptyState(), ctx: CTX, builtAtIso: NOW_AM });
@@ -2696,7 +2699,7 @@ ok("VIX and rates pack: the rate-hike pause needs hikes priced and QQQ under its
   assert.equal(hedgePauseWhy({ ...CTX, macro: { hikeGap: 0.8 }, byId: { QQQ: qOver } }, a, call, ENGINES.technicals), null);
   assert.equal(hedgePauseWhy({ ...CTX, macro: { hikeGap: 0.8 } }, a, call, ENGINES.technicals), null, "no QQQ read: no pause");
   assert.equal(hedgePauseWhy({ ...CTX, macro: { hikeGap: 0.8 }, byId: { QQQ: qUnder } }, a, call, engineSpecs({ hikePause: false }).technicals), null);
-  assert.equal(ownerSettingDef("ENGINES_HIKE_PAUSE")?.default, true);
+  assert.equal(ownerSettingDef("ENGINES_HIKE_PAUSE")?.default, false, "off by default since 2026-11-22 (owner)");
   assert.equal(engineSpecs({ hikePause: false }).reversion.rules.key, ENGINES.reversion.rules.key, "the switch does not reach Reversion");
 });
 ok("VIX and rates pack: the VIX-rollover trial buys $25,000 of QQQ shares for 20 sessions, with its own switch", () => {
@@ -2801,10 +2804,17 @@ ok("VIX and rates pack: sector-fund views from the wide tier's closes, never see
 ok("VIX and rates pack: switches, Owner Settings, rules step and the page's switch list", () => {
   for (const env of ["ENGINES_VIX_PAUSE", "ENGINES_HIKE_PAUSE", "ENGINES_MOM_SECTORS", "ENGINES_VOL_TARGET", "ENGINES_TRIAL_VIX_ROLLOVER"]) {
     const d = ownerSettingDef(env);
-    assert.ok(d && d.kind === "switch" && d.default === true && d.group === "Strategy engines" && d.scope === "build", env);
+    // The rate-hike pause is off by default since 2026-11-22 (owner).
+    assert.ok(d && d.kind === "switch" && d.default === (env !== "ENGINES_HIKE_PAUSE") && d.group === "Strategy engines" && d.scope === "build", env);
   }
   const sw = engineSwitches({ ENGINES_VIX_PAUSE: "0", ENGINES_MOM_SECTORS: "off" });
-  assert.equal(sw.fixes.vixPause, false); assert.equal(sw.fixes.momSectors, false); assert.equal(sw.fixes.hikePause, true); assert.equal(sw.fixes.volTarget, true);
+  assert.equal(sw.fixes.vixPause, false); assert.equal(sw.fixes.momSectors, false); assert.equal(sw.fixes.hikePause, false); assert.equal(sw.fixes.volTarget, true);
+  assert.equal(engineSwitches({}).fixes.hikePause, false, "the rate-hike pause is off unless switched on");
+  assert.equal(engineSwitches({ ENGINES_HIKE_PAUSE: "1" }).fixes.hikePause, true);
+  assert.equal(engineSwitches({ ENGINES_HIKE_PAUSE: "0" }).fixes.hikePause, false);
+  // Live specs with the default env: no hike pause on any signal engine.
+  { const live = engineSwitches({}); const sp = engineSpecs(live.fixes, live.trials, live.inst, live.maxQty, live.putMaxQty);
+    assert.equal(sp.technicals.hikePause, false); assert.equal(sp.technicals.vixPause !== false, true); }
   // The newest step on every signal engine and on Momentum and Rotation, dated 2026-11-21; Trend untouched.
   for (const id of [...FIXED_IDS.filter((x) => x !== "reversion"), "momentum"]) {
     // (The logic audit fixes, also 2026-11-21, sit on top of the signal engines.)

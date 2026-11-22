@@ -579,7 +579,9 @@ download.
   2-year yield is 0.5 points or more over fed funds (`hikeGap`, the FRED
   lags the macro reads already use) and QQQ closes under its 200-day average,
   the same longs are held back the same way. Trade-list test: +$12K, worst drop -$64.7K
-  to -$59.7K, t 0.9: weak, kept because it is cheap and switchable.
+  to -$59.7K, t 0.9: weak. **Off by default since 2026-11-22 (owner)**:
+  `engineSwitches` reads it as on only with `1` / `on`, and the Owner Settings
+  switch defaults off; turning it on is a dated rules change on its engines.
 - **VIX-rollover buy** (`ENGINES_TRIAL_VIX_ROLLOVER`, a Macro paper trial,
   setup `vix-rollover`, `trials3` layer). After VIX has closed at 25 or more
   within ten sessions and then closes 15% or more under that peak (at most one
