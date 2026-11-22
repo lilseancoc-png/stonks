@@ -11700,7 +11700,7 @@ function validNewsFeedPayload(data) {
   var CLOSE_REASON = {
     'hit-tp-prem': 'take-profit hit', 'trail-stop': 'trail stop', 'hit-stop-prem': 'premium stop hit',
     'hit-stop-under': 'stock stop hit', 'thesis-broken': 'thesis broken', 'theta-stop': 'theta stop',
-    'event-review': 'event review', 'shock-time': 'post-shock time limit', 'expired': 'contract expired',
+    'event-review': 'event review', 'shock-time': 'post-shock time limit', 'time-limit': 'hold time limit', 'expired': 'contract expired',
     'dropped': 'left the universe', 'left-coverage': 'left coverage (not counted)',
     'owner-avoid': "closed by the owner's Avoid"
   };
@@ -12568,7 +12568,7 @@ function validNewsFeedPayload(data) {
   var STATUS_LABEL = {
     'hit-tp-prem': 'take-profit', 'trail-stop': 'trail stop (half banked)', 'hit-stop-prem': 'premium stop',
     'hit-stop-under': 'stock stop', 'thesis-broken': 'thesis broken', 'event-review': 'event review',
-    'shock-time': 'post-shock time limit', 'theta-stop': 'theta stop', 'timed-out': '14-day time stop (retired)',
+    'shock-time': 'post-shock time limit', 'time-limit': 'hold time limit', 'theta-stop': 'theta stop', 'timed-out': '14-day time stop (retired)',
     'expired': 'expired', 'pre-earnings': 'pre-earnings exit (retired)', 'dropped': 'left universe',
     'left-coverage': 'name left coverage (not counted)', 'reset': 'weekly reset close (retired)',
     'owner-avoid': "closed by the owner's Avoid"
@@ -59954,7 +59954,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // time stop, the pre-earnings close and the weekly reset) kept only so
   // legacy resolved rows still label + sort; new closes use 'thesis-broken'
   // for the invalidation path.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','reset'];
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','time-limit','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -60208,7 +60208,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // splits the record. Riskier is stamped for the scorecard, no divider.
     { key:'dial', get:function(e){ return e && e.ownerControls && e.ownerControls.dial === 'safer' ? 'safer' : ''; } }
   ];
-  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MARKET_SIDE":"Market-side lanes","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","FLOW_OPEN_WINDOW":"Flow scan: count the opening half hour","FLOW_STOCK_BARS":"Flow scan: a bar per stock","VOLUME_MEASURED_CURVE":"Measured intraday volume curve","VOLUME_SESSION_READ":"Session-so-far volume vote","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","AI_TICKER_EXPLICIT_CACHE":"Explicit prompt cache","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
+  var OWNER_SETTING_LABELS = {"PICKS_EVENT_AWARE":"Event plays","PICKS_MARKET_SIDE":"Market-side lanes","PICKS_MACRO_CONTEXT":"Macro context block","FLOW_SIGNED":"Signed option flow","FLOW_OPEN_WINDOW":"Flow scan: count the opening half hour","FLOW_STOCK_BARS":"Flow scan: a bar per stock","VOLUME_MEASURED_CURVE":"Measured intraday volume curve","VOLUME_SESSION_READ":"Session-so-far volume vote","PICKS_MACRO_BLOCK_PTS":"Macro block strength","PICKS_SINGLES_DEFAULT":"Single options by default","PICKS_STRATEGY_AUTO":"Pick the option structure","PICKS_EDGE_GATE":"Raise the bar after losses","PICKS_SOFT_WAITS":"Lift soft timing waits","PICKS_CALL_HOLD":"Hold exit for calls","PICKS_CALL_HOLD_SESSIONS":"Hold exit: sessions","PICKS_SKEW_RELATIVE":"Put skew against the market","PICKS_EDGE_GATE_LAST_N":"Losing-streak brake: newest closes","PICKS_COUNT":"Most picks per run","PICKS_MAX_OPEN_POSITIONS":"Most open trades","PICKS_MAX_NEW_PER_FACTOR_RUN":"New trades per stock group per run","PICKS_SINGLE_MAX_COST":"Single option cost cap","PICKS_FOMC_ALWAYS_DEFER":"Wait out Fed, CPI, PPI and jobs days","PICKS_EVENT_RISK":"Event risk check","PICKS_STRATEGY_EARNINGS_DAYS":"Earnings window for spreads","PICKS_CREDIT_INTO_MACRO_EVENT":"Credit spreads into macro events","PICKS_MACRO_REGIME":"Market tape on the picks","PICKS_MACRO_INDEX":"Indexes (SPY and QQQ)","PICKS_MACRO_CREDIT":"Credit spreads","PICKS_MACRO_BREADTH":"Breadth","PICKS_MACRO_PUTCALL":"Put/call","PICKS_MACRO_BONDVOL":"Bond volatility (MOVE)","PICKS_MACRO_SENTIMENT":"Fear & Greed","PICKS_MACRO_INFLATION":"Inflation and jobs","PICKS_MACRO_COMMODITY":"Oil and gold shocks","PICKS_MACRO_NEWS":"War, tariff and Iran headlines","PICKS_MACRO_GLOBAL":"Overnight markets","PICKS_MACRO_ROTATION":"Sector rotation","AI_THESIS":"AI final grader","AI_THESIS_SEARCH":"Web search before grading","AI_TICKER_EXPLICIT_CACHE":"Explicit prompt cache","PREDICTION_MARKETS":"Prediction-market odds","PICKS_CROWD_SQUEEZE_VETO":"Crowd squeeze veto","PICKS_CROWD_GRADER":"Crowd lines in the AI grader","PICKS_ODDS_GRADER":"Prediction odds in the AI grader","PICKS_MACRO_PUTCALL_SRC":"Put/call source for the market tape","SELF_TUNE":"Self-tuning"};
   function ownerSettingsTagText(tag){
     if (tag === 'default') return 'back on the defaults';
     return String(tag || '').split(',').filter(Boolean).map(function(part){
@@ -62699,7 +62699,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'time-limit':'hold time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
@@ -64560,7 +64560,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // text, and "Copy all" copies exactly what the feed link shows). Change one,
   // change the other. Ids and times are always ET so the tab matches the feed.
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control' };
+  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'time-limit':'held its sessions (hold exit)', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control' };
   var TL_RULE = '============================================================';
   var TL_LABEL_W = 10;
   var tlFmt = null;
@@ -65329,6 +65329,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '" title="' + optTip + '">' +
         '<span class="accuracy-chip-num">' + accPct(st.optionExpectancyPct) + '</span>' +
         '<span class="accuracy-chip-lbl">expectancy · option (modeled)</span>' +
+      '</div>';
+    }
+    // Real fills beside the model in the headline (2026-11-22 review): the
+    // same closed trades booked at the ask in and the bid out.
+    if (st.realFillDecided) {
+      chips += '<div class="accuracy-chip' + (st.realFillExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="The same closed trades booked at the ask going in and the bid going out, from the quotes saved at each mark. Closer to what a real order gets than the modeled mid.">' +
+        '<span class="accuracy-chip-num">' + accPct(st.realFillExpectancyPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">expectancy · real fills (' + st.realFillDecided + ')</span>' +
+      '</div>';
+    }
+    // Shadow exit check (lib/top-picks-exit-review.mjs): what the hold exit
+    // would have made on the same trades, on live marks.
+    var xr = d.exitReview && d.exitReview.holdShadow && d.exitReview.holdShadow.all;
+    if (xr && xr.n) {
+      chips += '<div class="accuracy-chip' + (xr.diff >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="Each closed trade also ran the hold exit (10 sessions, -60% stop, no take-profit) on the same modeled marks. Average gain of the hold exit minus the real exit, ' + xr.n + ' trades' + (d.exitReview.pending ? ', ' + d.exitReview.pending + ' still running' : '') + '. Measurement only.">' +
+        '<span class="accuracy-chip-num">' + accPct(xr.diff) + '</span>' +
+        '<span class="accuracy-chip-lbl">hold exit vs real exit (' + xr.n + ')</span>' +
       '</div>';
     }
     // The OPTION win rate already leads above. Keep a generic win-rate chip ONLY

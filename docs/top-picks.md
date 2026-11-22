@@ -2086,3 +2086,63 @@ else the Similar-setup odds. The outcome is stamped when the trade closes.
 Shown on Open picks with a Why and graded in the Chance of profit check.
 Nothing here changes a pick, a gate or the record. Switch `TRADE_POP`
 (Owner Settings, Research). Spec: `docs/trade-pop.md`.
+
+## Flagship review changes, November 22, 2026
+
+Four rule changes from the November 22 flagship review, each an Owner
+Settings switch (Top Picks → Engine) and **off by default**, plus three
+measurement additions that are on. Settings live in `lib/top-picks-config.mjs`.
+
+- **Lift soft timing waits** (`PICKS_SOFT_WAITS`). `entryGateBlocked` in
+  `build.mjs` runs today's full `entryPromotionBlocked` check, or only
+  `entryHardBlocked` while the switch is on. Hard (still binding): the top
+  guard, an event or earnings defer (`wait-event`), a reclaim or reversal
+  wait, a hard wait or veto, an unclear stop (`structure.clear`), a payoff
+  under 1.5:1 (`payoffOk`). Soft (lifted): one evidence family, direction or
+  structure not yet confirmed, an unproven crowded or countertrend read, a
+  negative timing score. A lifted name enters unless the AI grader says wait
+  (no verdict enters, the way the history test ran it); its entry reads
+  `basis: "soft-wait-lifted"`, the run lists it in `rosterMeta.softWaitLifted`
+  and the trade carries `softWaitVersion`. The precheck (`openPickPrecheck`)
+  uses the same gate, so a lifted name can take an AI grader slot.
+- **Hold exit for calls** (`PICKS_CALL_HOLD`, `PICKS_CALL_HOLD_SESSIONS`,
+  `PICKS_CALL_HOLD_STOP_PCT`). A new single call's `exitPolicy` is
+  `{ style: "hold", holdSessions: 10, stopPct: 60, takeProfitPct: null }`
+  (`holdExitPolicy` in `lib/top-picks-exit-review.mjs`). `resolvePickOutcome`
+  skips the take-profit, the stock stop and the theta stop for it, closes at
+  the premium stop, at expiry, at `time-limit` once `heldSessions` reaches the
+  hold, and early only on a grade flip (`thesisFlip`; the drivers-quiet and
+  stop-level parts of the thesis check do not close a hold trade). Puts,
+  spreads and open trades keep their frozen rules.
+- **Put skew against the market** (`PICKS_SKEW_RELATIVE`). In
+  `selectStrategy`, a put's skew is adverse (forcing a debit spread) only when
+  its 25-delta skew z-score is 1.5+ above SPY's (`skewBasis: "vs-market-z"`).
+  SPY's z is read once per scoring pass (`setTopPicksMarketSkew`). Calls and a
+  missing SPY read keep the absolute test. Not testable on the bench (no skew
+  history there).
+- **Losing-streak brake on the newest closes** (`PICKS_EDGE_GATE_LAST_N`).
+  Above 0, `edgeGateWindow` reads the newest N decided closes instead of the
+  10-day window, which held 12 closes about once a quarter.
+
+Measurement (changes no trade):
+
+- **Shadow exit** (`PICKS_SHADOW_EXIT`, on). Every open single option also runs
+  the other exit rule (hold for a trade on today's exits, today's exits for a
+  hold trade) on the same mark (`shadowExit` on the trade). When the trade
+  closes first, its shadow moves to `shadowOpen` in `picks-accuracy.json` and
+  keeps being marked (price, expiry and the grade flip) until it closes, then
+  `settleShadows` writes it onto the closed trade (archive included).
+  `exitReview` (`shadowExitStats`) compares them, by side; the Track Record
+  headline shows "hold exit vs real exit".
+- **AI vs rules.** Each gated name's deterministic read before the AI's call
+  (`buy-now` / `wait` / `soft-wait` / `blocked`) is kept in
+  `rosterMeta.entryRules`, the run archive (`rl`), the trade (`entryRules`)
+  and the self-loop ledger (`rl`); the loop scorecard splits outcomes by
+  "ai <verdict> / rules <read>" (`aiVsRules`).
+- **Hold exit in the ledger.** The self-loop ledger replays every scored
+  name's planned option under the hold exit too (`oh`, beside `o`), and the
+  scorecard's `exits` compares the two on the same rows.
+- **Real fills in the headline.** The Track Record headline shows the
+  real-fill expectancy (ask in, bid out) beside the modeled one.
+
+Test: `node scripts/top-picks-review-smoke.mjs`.
