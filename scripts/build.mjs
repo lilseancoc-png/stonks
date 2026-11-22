@@ -32642,6 +32642,13 @@ function buildOvernightContext(globalMarkets, markets, priorContext = null) {
   };
 }
 
+// A market level rounded for the Overnight tab: cents at 10 and above, four
+// decimals below (currency pairs, yields, copper, natural gas).
+export function globalLevelRound(v) {
+  if (v == null || !isFinite(v)) return null;
+  return Math.abs(v) >= 10 ? Math.round(v * 100) / 100 : Math.round(v * 10000) / 10000;
+}
+
 // overnight: { log, todayCall, nowMs } — the saved pre-open call history
 // (data/overnight-log.json) and today's call when one exists.
 export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior = null, overnight = null) {
@@ -32681,8 +32688,12 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
           .filter((b) => b?.t && b.c != null && isFinite(b.c))
           .slice(-CORR_SPARK_BARS)
       : [];
+    // Cents for anything priced 10 or more; four decimals below that, so a
+    // currency pair (AUD/USD 0.66, EUR/USD 1.10) keeps its moves. Two
+    // decimals flattened those lines and turned rounding into 1-2% jumps
+    // (audit 2026-11-22).
     const closes = usableBars
-          .map((b) => Math.round(b.c * 100) / 100)
+          .map((b) => globalLevelRound(b.c))
           .slice(-CORR_SPARK_BARS);
     const seriesDates = usableBars.map((b) => b.t);
     const moves = {
@@ -32697,7 +32708,7 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
       type,
       sessionClass: globalSessionClass(sym),
       lead: meta.lead || null,
-      last: g.last == null ? null : Math.round(g.last * 100) / 100,
+      last: g.last == null ? null : globalLevelRound(g.last),
       chPct: g.chPct,
       chgBp,
       chgPt,
