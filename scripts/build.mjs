@@ -18739,7 +18739,7 @@ import {
   PICKS_MAX_AI_THESES, PICKS_MAX_PER_SIDE, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG,
   PICKS_EDGE_GATE, PICKS_EDGE_GATE_SOFT, PICKS_EDGE_GATE_HARD, PICKS_EDGE_GATE_MIN_N,
   PICKS_EDGE_GATE_WINDOW_DAYS, PICKS_EDGE_GATE_STRONG_BAR, PICKS_PILLAR_CLAMP,
-  PICKS_TRAJECTORY_CLAMP, PICKS_MIN_DTE, PICKS_MAX_DTE, PICKS_IDEAL_DTE_LO, PICKS_IDEAL_DTE_HI,
+  PICKS_TRAJECTORY_CLAMP, PICKS_MIN_DTE, PICKS_MAX_DTE, PICKS_IDEAL_DTE_LO, PICKS_IDEAL_DTE_HI, PICKS_DTE_VERSION, PICKS_DTE_LO, PICKS_DTE_HI,
   PICKS_DELTA_MIN, PICKS_DELTA_MAX, PICKS_SINGLE_DELTA_IDEAL, PICKS_DELTA_IDEAL,
   PICKS_MAX_SPREAD_PCT, PICKS_MIN_OI, PICKS_MAX_IV, PICKS_MAX_PREMIUM_PCT, PICKS_MAX_PREMIUM_ABS,
   PICKS_MIN_QUALITY, PICKS_STRATEGY_AUTO, PICKS_SKEW_ADVERSE_RAW, PICKS_CREDIT_WIDTH_FRAC,
@@ -18773,7 +18773,13 @@ import {
   PICKS_TIMING_EARNINGS_HARD_DAYS, PICKS_TIMING_EARNINGS_DEFER_DAYS, PICKS_TIMING_EVENT_HARD_DAYS,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS, PICKS_IVRANK_MIN_N, PICKS_MACRO_GLOBAL,
   PICKS_MARKET_SIDE, PICKS_MARKET_SIDE_BAR, PICKS_MARKET_AGAINST_BAR, PICKS_MARKET_SIDE_VERSION,
+  PICKS_EDGE_GATE_LAST_N, PICKS_CALL_HOLD, PICKS_CALL_HOLD_SESSIONS, PICKS_CALL_HOLD_STOP_PCT,
+  PICKS_SHADOW_EXIT, PICKS_SOFT_WAITS, PICKS_SOFT_WAITS_VERSION, PICKS_SKEW_RELATIVE,
 } from "../lib/top-picks-config.mjs";
+import {
+  holdExitPolicy, isHoldPolicy, shadowPolicyFor, stepShadow, shadowCarry, settleShadows,
+  shadowExitStats, SHADOW_MAX_SESSIONS,
+} from "../lib/top-picks-exit-review.mjs";
 export {
   PICKS_MAX_AI_THESES, PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TACTICAL_SIZE_MULT,
   PICKS_ENTRY_TIMING_VERSION, PICKS_TIMING_THRESHOLDS,
@@ -18781,6 +18787,7 @@ export {
   PICKS_MACRO_CONTEXT, PICKS_MACRO_POINTS, PICKS_MACRO_BLOCK_PTS, PICKS_FLOW_SIGNED,
   PICKS_CROWD_SQUEEZE_VETO, PICKS_CROWD_GRADER, PICKS_ODDS_GRADER, PICKS_MACRO_PUTCALL_SRC,
   PICKS_MARKET_SIDE, PICKS_MARKET_SIDE_BAR, PICKS_MARKET_AGAINST_BAR, PICKS_MARKET_SIDE_VERSION,
+  PICKS_SOFT_WAITS, PICKS_CALL_HOLD, PICKS_SKEW_RELATIVE, PICKS_EDGE_GATE_LAST_N,
 };
 // Sector / factor caps live in lib/top-picks-caps.mjs (re-exported here).
 export { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION };
@@ -21880,6 +21887,30 @@ export function entryPromotionBlocked(entry, timing) {
   );
 }
 
+// The part of entryPromotionBlocked that stays binding when the soft timing
+// waits are lifted (PICKS_SOFT_WAITS, 2026-11-22 review): the documented hard
+// risk vetoes. What it leaves out is soft: one evidence family, direction or
+// structure not yet confirmed, an unproven crowded or countertrend read, a
+// negative timing score.
+export function entryHardBlocked(entry, timing) {
+  const ready = timing?.readiness || {};
+  return (
+    entry?.basis === "top-guard"
+    || entry?.signal === "wait-event"
+    || entry?.signal === "wait-reclaim"
+    || entry?.signal === "wait-reversal"
+    || !!timing?.hardWait
+    || !!timing?.hardVeto
+    || timing?.structure?.clear !== true
+    || ready.payoffOk !== true
+  );
+}
+// The entry gate as it runs: today's full check, or only the hard part while
+// PICKS_SOFT_WAITS is on.
+export function entryGateBlocked(entry, timing, softWaits = PICKS_SOFT_WAITS) {
+  return softWaits ? entryHardBlocked(entry, timing) : entryPromotionBlocked(entry, timing);
+}
+
 function tierForScore(total) {
   const a = Math.abs(total);
   if (a >= PICKS_TIER_STRONG) return total >= 0 ? { tier: "strong-call", label: "Strong Call", conviction: "Very High" } : { tier: "strong-put", label: "Strong Put", conviction: "Very High" };
@@ -22011,8 +22042,13 @@ function flowPersistBySymbol(flowLog, nowMs = Date.now()) {
 }
 
 // Score the whole universe once. Shared by buildTopPicks & buildGradesIndex.
+// SPY's 25-delta skew z-score for this scoring pass: the market's own put
+// skew, read by selectStrategy when PICKS_SKEW_RELATIVE is on.
+let TOP_PICKS_MARKET_SKEW = { z: null, asOf: null };
+export function setTopPicksMarketSkew(z, asOf = null) { TOP_PICKS_MARKET_SKEW = { z: pnumN(z), asOf: asOf || null }; }
 export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts = {}) {
   const asOfIso = opts.builtAtIso || null;
+  setTopPicksMarketSkew(chains?.SPY?.ivSurface?.skewZ, chains?.SPY?.ivSurface?.asOf);
   const sectorMedianPE = sectorMedianPEs(chains);
   const sectorCapex = sectorCapexBenchmarks(chains, asOfIso);
   const ivUniverse = computeIvUniverseContext(chains, opts.ivAsOfDate || opts.ivAsOfIso || asOfIso);
@@ -22104,7 +22140,7 @@ export function rankSinglePickContracts(side, data, rfr = FALLBACK_RISK_FREE_RAT
   const requireClean = !!opts.requireClean;
   // One DTE floor for both modes now that the base window starts at 30 (the old
   // roster-only 21-day floor existed because the lenient/autoPick minimum was 14).
-  const minDte = PICKS_MIN_DTE;
+  const minDte = PICKS_DTE_LO;
   const minOi = requireClean ? PICKS_MIN_OI : 50;
   const maxSpread = requireClean ? 0.10 : PICKS_MAX_SPREAD_PCT;
   const premCap = Math.max(PICKS_MAX_PREMIUM_ABS, spot * PICKS_MAX_PREMIUM_PCT);
@@ -22117,7 +22153,7 @@ export function rankSinglePickContracts(side, data, rfr = FALLBACK_RISK_FREE_RAT
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
     const dte = Math.round((expiryCloseEpochSec(expSec) * 1000 - nowMs) / 86400000);
-    if (dte < minDte || dte > PICKS_MAX_DTE) continue;
+    if (dte < minDte || dte > PICKS_DTE_HI) continue;
     const rows = isCall ? chain.c : chain.p;
     if (!Array.isArray(rows)) continue;
     const T = yearsToExpiry(expSec);
@@ -22225,11 +22261,16 @@ export function selectStrategy(r, side, opts = {}) {
   // skew) make a naked long put unattractive; rich calls do the mirror image.
   // It never changes direction or conviction. Before the 60-session z-score
   // matures, a five-vol-point raw side premium routes naked -> debit.
-  const adverseSkewByZ = skewZ != null && (side === "put" ? skewZ >= 1.5 : skewZ <= -1.5);
+  // PICKS_SKEW_RELATIVE (2026-11-22 review): a put's skew is judged against
+  // SPY's, so a market-wide fear premium alone no longer forces a spread.
+  // Calls and a missing SPY read keep the absolute test.
+  const mktSkewZ = opts.marketSkewZ !== undefined ? pnumN(opts.marketSkewZ) : TOP_PICKS_MARKET_SKEW.z;
+  const relSkew = PICKS_SKEW_RELATIVE && side === "put" && skewZ != null && mktSkewZ != null;
+  const adverseSkewByZ = skewZ != null && (side === "put" ? (relSkew ? skewZ - mktSkewZ >= 1.5 : skewZ >= 1.5) : skewZ <= -1.5);
   const adverseSkewByRaw = skewZ == null && skew25 != null
     && (side === "put" ? skew25 >= PICKS_SKEW_ADVERSE_RAW : skew25 <= -PICKS_SKEW_ADVERSE_RAW);
   const adverseSkew = adverseSkewByZ || adverseSkewByRaw;
-  const skewBasis = adverseSkewByZ ? "history-z" : adverseSkewByRaw ? "raw-fallback" : null;
+  const skewBasis = adverseSkewByZ ? (relSkew ? "vs-market-z" : "history-z") : adverseSkewByRaw ? "raw-fallback" : null;
   const eventImminent = !!(opts.eventRisk && opts.eventRisk.active);
   const earningsInWindow = !!opts.earningsInWindow;
   // IV reads come from the site's one "expensive options" rule
@@ -22286,7 +22327,7 @@ export function selectStrategy(r, side, opts = {}) {
     "Current IV history is unavailable — relative premium value is unknown. Use a debit spread to limit premium outlay; a single long is not eligible.");
   const adverseSkewDebit = () => {
     const skewRichness = skewZ != null
-      ? `${Math.abs(skewZ).toFixed(1)}σ rich versus its own history`
+      ? (relSkew ? `${(skewZ - mktSkewZ).toFixed(1)}σ richer than SPY's (${skewZ.toFixed(1)}σ vs ${mktSkewZ.toFixed(1)}σ, each against its own history)` : `${Math.abs(skewZ).toFixed(1)}σ rich versus its own history`)
       : `${(Math.abs(skew25) * 100).toFixed(1)} volatility points rich while history matures`;
     return mk("debit", debitLabel,
       `Recommended: 25-delta ${side} skew is ${skewRichness}; cap premium outlay with a debit spread instead of a naked long.`);
@@ -22377,7 +22418,7 @@ export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
 
 export function rankVerticalPickContracts(side, data, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   const type = opts.type === "credit" ? "credit" : "debit";
-  const minDte = pnum(opts.minDte) ?? PICKS_MIN_DTE;
+  const minDte = pnum(opts.minDte) ?? PICKS_DTE_LO;
   const spot = pnum(data?.spot);
   const chains = data?.chains;
   if (!spot || spot <= 0 || !chains) return [];
@@ -22395,7 +22436,7 @@ export function rankVerticalPickContracts(side, data, rfr = FALLBACK_RISK_FREE_R
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
     const dte = Math.round((expiryCloseEpochSec(expSec) * 1000 - nowMs) / 86400000);
-    if (dte < minDte || dte > PICKS_MAX_DTE) continue;
+    if (dte < minDte || dte > PICKS_DTE_HI) continue;
     const rows = isCallLeg ? chain.c : chain.p;
     if (!Array.isArray(rows)) continue;
     const T = yearsToExpiry(expSec);
@@ -22533,8 +22574,8 @@ export function buildPickContract(side, data, rfr, strategyIn, opts = {}) {
   let permitted = want === "debit" ? ["debit"] : [want, "debit"];
   const rankers = {
     long: () => rankSinglePickContracts(side, data, rfr, { requireClean: true, ...(opts.evaluateEconomics ? {} : { limit: 1 }) }),
-    debit: () => rankVerticalPickContracts(side, data, rfr, { type: "debit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
-    credit: () => rankVerticalPickContracts(side, data, rfr, { type: "credit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
+    debit: () => rankVerticalPickContracts(side, data, rfr, { type: "debit", minDte: PICKS_DTE_LO, expand: !!opts.evaluateEconomics }),
+    credit: () => rankVerticalPickContracts(side, data, rfr, { type: "credit", minDte: PICKS_DTE_LO, expand: !!opts.evaluateEconomics }),
   };
   // Per-contract cost cap (singles by default, 2026-11-07): when one contract
   // of the single the engine would buy costs more than PICKS_SINGLE_MAX_COST,
@@ -22997,23 +23038,32 @@ export function computeEdgeScale(closed) {
 // Returns { bar, edge, n } so the roster meta can show WHY it stood down.
 // Closes whose exitDate falls inside the gate's look-back window. An undated
 // close can't be placed in the window, so it is left out.
-export function edgeGateWindow(closed, nowIso = null) {
+export function edgeGateWindow(closed, nowIso = null, lastN = PICKS_EDGE_GATE_LAST_N) {
   if (!Array.isArray(closed)) return [];
-  if (!(PICKS_EDGE_GATE_WINDOW_DAYS > 0)) return closed;
   const parsed = nowIso ? Date.parse(nowIso) : NaN;
   const nowMs = Number.isFinite(parsed) ? parsed : Date.now();
+  // PICKS_EDGE_GATE_LAST_N (2026-11-22 review): the newest N decided closes,
+  // however long ago, instead of the calendar-day window.
+  if (lastN > 0) {
+    return closed
+      .filter((c) => { const t = c && c.exitDate ? Date.parse(c.exitDate) : NaN; return Number.isFinite(t) && t <= nowMs && edgeSampleRs([c]).length === 1; })
+      .sort((a, b) => Date.parse(b.exitDate) - Date.parse(a.exitDate))
+      .slice(0, lastN);
+  }
+  if (!(PICKS_EDGE_GATE_WINDOW_DAYS > 0)) return closed;
   const cutoff = nowMs - PICKS_EDGE_GATE_WINDOW_DAYS * 86400000;
   return closed.filter((c) => {
     const t = c && c.exitDate ? Date.parse(c.exitDate) : NaN;
     return Number.isFinite(t) && t >= cutoff && t <= nowMs;
   });
 }
-export function edgeGatedConviction(closed, nowIso = null) {
+export function edgeGatedConviction(closed, nowIso = null, opts = {}) {
   const base = PICKS_MIN_CONVICTION;
   const strong = PICKS_TIER_STRONG;
-  const windowDays = PICKS_EDGE_GATE_WINDOW_DAYS > 0 ? PICKS_EDGE_GATE_WINDOW_DAYS : null;
+  const lastN = opts.lastN ?? PICKS_EDGE_GATE_LAST_N;
+  const windowDays = lastN > 0 ? null : PICKS_EDGE_GATE_WINDOW_DAYS > 0 ? PICKS_EDGE_GATE_WINDOW_DAYS : null;
   if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, strongBar: strong, edge: null, n: 0, windowDays };
-  const rs = edgeSampleRs(edgeGateWindow(closed, nowIso));
+  const rs = edgeSampleRs(edgeGateWindow(closed, nowIso, lastN));
   if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, strongBar: strong, edge: null, n: rs.length, windowDays };
   const edge = rs.reduce((a, x) => a + x, 0) / rs.length;
   if (edge == null || edge >= 0) return { bar: base, strongBar: strong, edge, n: rs.length, windowDays };
@@ -23049,7 +23099,7 @@ export function openPickPrecheck(r, side, tactical, ctx = {}) {
   if (Math.abs(pnum(r.total) ?? 0) < laneBar) return "below-bar";
   if (pillarsAlignedFor(r, side) < 2) return "confluence";
   const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
-  if (entryPromotionBlocked(entry, r.timing)) return "timing";
+  if (entryGateBlocked(entry, r.timing)) return "timing";
   const fac = factorOfTicker(r.sym);
   if (side === "call" && fac && ctx.factorHealth?.[fac]?.weak
     && !(r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG)) return "factor-trend";
@@ -23429,7 +23479,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const minConv = loopTradeBar(edgeGate.bar, opts.loopBar, PICKS_MIN_CONVICTION);
   const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, ...(minConv !== edgeGate.bar ? { edgeBar: edgeGate.bar } : {}), edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, structurePolicy: { version: PICKS_STRUCTURE_POLICY_VERSION, singlesDefault: PICKS_SINGLES_DEFAULT, maxSingleCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null }, costCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, ...(minConv !== edgeGate.bar ? { edgeBar: edgeGate.bar } : {}), edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorRunCapped: [], factorRunLimit: PICKS_MAX_NEW_PER_FACTOR_RUN, capsVersion: PICKS_CAPS_VERSION, structurePolicy: { version: PICKS_STRUCTURE_POLICY_VERSION, singlesDefault: PICKS_SINGLES_DEFAULT, maxSingleCost: PICKS_SINGLES_DEFAULT ? PICKS_SINGLE_MAX_COST : null }, costCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], softWaitLifted: [], entryRules: {}, ...(PICKS_SOFT_WAITS_VERSION ? { softWaits: PICKS_SOFT_WAITS_VERSION } : {}), reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // GATE TRACE (measurement only): the first rule that kept each candidate off
   // the open-pick path, plus the names that made it ("picked"). The Track
@@ -23613,11 +23663,27 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // AI can adjudicate only an ordinary, non-negative soft wait. Every audited
     // GO invariant remains deterministic and binding even when the price-only
     // entry helper would otherwise report a usable trigger.
-    const entryBlocked = entryPromotionBlocked(entry, r.timing) || (r.marketAdjustment && !r.marketAdjustment.eligible);
+    const softOnly = !tactical && PICKS_SOFT_WAITS && entryPromotionBlocked(entry, r.timing) && !entryHardBlocked(entry, r.timing);
+    const entryBlocked = entryGateBlocked(entry, r.timing) || (r.marketAdjustment && !r.marketAdjustment.eligible);
     if (r.marketAdjustment && !r.marketAdjustment.eligible) {
       entry.now = false; entry.signal = 'wait-market'; entry.headline = 'Wait — current index and volatility evidence is required';
     }
-    let entryConfirmed = entryBlocked ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
+    // The deterministic read before the AI's call (2026-11-22 review): frozen
+    // on the trade as entryRules so the record can show AI-vs-rules.
+    entry.rulesRead = entryBlocked ? "blocked" : softOnly ? "soft-wait" : entry.now === true ? "buy-now" : "wait";
+    // SOFT TIMING WAITS lifted: the soft checks no longer hold the name, so it
+    // enters unless the AI grader says wait (no verdict = enter, as tested).
+    let entryConfirmed = entryBlocked ? false : aiVerdict ? aiVerdict === "buy-now" : (softOnly ? true : entry.now === true);
+    if (!tactical) meta.entryRules[`${r.sym}:${side}`] = entry.rulesRead;
+    if (softOnly && entryConfirmed && !entryBlocked) {
+      entry.softWaitLifted = true;
+      meta.softWaitLifted.push(r.sym);
+      if (entry.now !== true && aiVerdict !== "buy-now") {
+        entry.now = true; entry.signal = "buy-now"; entry.basis = "soft-wait-lifted";
+        entry.trigger = r2(pnum(r.data.spot)); entry.zone = null;
+        entry.headline = "Buy now — only soft timing checks were waiting, and those no longer hold a trade";
+      }
+    }
     const heldBackBefore = meta.aiEntryHeldBack.length;
     if (aiVerdict) {
       entry.ai = { verdict: aiVerdict, reason: aiThesis.entryReason || null, blocked: entryBlocked, overrode: !entryBlocked && (aiVerdict === "buy-now") !== (entry.now === true) };
@@ -30606,7 +30672,9 @@ export function excursionOutcome(mfePct, maePct) {
   return up >= Math.abs(dn) ? "win" : "loss";
 }
 
-export function pickExitPolicy(structure = "long") {
+export function pickExitPolicy(structure = "long", side = null) {
+  // The hold exit (PICKS_CALL_HOLD, 2026-11-22 review): new single calls only.
+  if (PICKS_CALL_HOLD && side === "call" && (structure || "long") === "long") return holdExitPolicy(PICKS_CALL_HOLD_SESSIONS, PICKS_CALL_HOLD_STOP_PCT);
   const credit = structure === "credit_vertical";
   return { version: "2026-10-22-tp25", takeProfitPct: (credit ? PICKS_CREDIT_TP_PCT : PICKS_OPT_TP_PCT) * 100,
     stopPct: (credit ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT) * 100 };
@@ -30620,7 +30688,11 @@ export function resolvePickOutcome(opts) {
   // Credit verticals take profit / stop on a different scale (% of the credit),
   // and a theta stop never applies (a credit spread benefits from decay).
   const credit = o.structure === "credit_vertical";
-  const tpGate = o.exitPolicy?.takeProfitPct ?? (credit ? PICKS_CREDIT_TP_PCT : PICKS_OPT_TP_PCT) * 100;
+  // The hold style (lib/top-picks-exit-review.mjs): no take-profit, no stock
+  // stop, no theta stop; a fixed number of sessions, the premium stop, expiry,
+  // and an early close only when the grade flips to the other side.
+  const hold = !credit && isHoldPolicy(o.exitPolicy);
+  const tpGate = hold ? Infinity : o.exitPolicy?.takeProfitPct ?? (credit ? PICKS_CREDIT_TP_PCT : PICKS_OPT_TP_PCT) * 100;
   const stopGate = o.exitPolicy?.stopPct ?? (credit ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT) * 100;
   const heldDays = (pnum(o.nowSec) != null && pnum(o.entrySec) != null) ? (o.nowSec - o.entrySec) / 86400 : 0;
   // Once the scale-out banked half (o.scaledOutPnlPct, non-credit only — armed
@@ -30665,7 +30737,7 @@ export function resolvePickOutcome(opts) {
   // cur must be a real positive spot: pnum(null) is 0, and a null spot (data
   // missing this build) read as $0 fired the call-side stock stop on any
   // transient Yahoo flake.
-  for (const stop of [o.stopUnder, o.vehicleStopUnder]) {
+  for (const stop of (hold ? [] : [o.stopUnder, o.vehicleStopUnder])) {
     if (PICKS_UNDERLYING_STOP && stop != null && Number.isFinite(Number(stop)) && Number(stop) > 0 && o.cur != null && pnum(o.cur) > 0) {
       if (o.isCall ? o.cur <= stop : o.cur >= stop) return { status: "hit-stop-under", outcome: byPnl };
     }
@@ -30682,6 +30754,12 @@ export function resolvePickOutcome(opts) {
   // every supporting driver gone quiet). The old pre-earnings exit (≤2 days
   // before a print) and the 14-day time stop were removed in favor of this:
   // both force-closed trades whose thesis was still valid.
+  if (hold) {
+    const held = o.heldSessions == null ? null : pnum(o.heldSessions);
+    if (held != null && held >= (pnum(o.exitPolicy.holdSessions) || 10)) return { status: "time-limit", outcome: byPnl };
+    if (o.thesisFlip) return { status: "thesis-broken", outcome: byPnl };
+    return null;
+  }
   if (o.thesisBroken) return { status: "thesis-broken", outcome: byPnl };
   if (!credit && heldDays >= PICKS_THETA_STOP_MIN_HOLD && pnum(o.thetaPctDay) != null && o.thetaPctDay >= PICKS_THETA_STOP_PCT && pnl != null && pnl < 0) return { status: "theta-stop", outcome: byPnl };
   return null;
@@ -30722,6 +30800,7 @@ export async function readPicksAccuracyState() {
     open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null,
     gateLog: Array.isArray(p.gateLog) ? p.gateLog : [], gateTotals: p.gateTotals && typeof p.gateTotals === "object" ? p.gateTotals : {},
     archive: Array.isArray(p.archive) ? p.archive : [],
+    shadowOpen: Array.isArray(p.shadowOpen) ? p.shadowOpen : [],
     ...studyState,
     baseline: p.baseline && typeof p.baseline === "object"
       ? { open: Array.isArray(p.baseline.open) ? p.baseline.open : [], closed: Array.isArray(p.baseline.closed) ? p.baseline.closed : [] }
@@ -31181,7 +31260,18 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       };
     }
     marked.exitPolicy = e.exitPolicy || pickExitPolicy(e.contract?.structure);
-    let res = resolvePickOutcome({ exitPolicy: marked.exitPolicy, isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut), vehicleStopUnder: pnumN(e.vehicleCut), thesisBroken: marked.thesisStatus ? marked.thesisStatus.verdict === "broken" : false });
+    const heldSessions = tradingSessionsBetween(etDateKey(new Date(e.entryDate)), etDateKey(new Date(builtAtIso)));
+    const outcomeArgs = { isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, structure: e.contract?.structure || "long", stopUnder: pnum(e.cut), vehicleStopUnder: pnumN(e.vehicleCut), thesisBroken: marked.thesisStatus ? marked.thesisStatus.verdict === "broken" : false, thesisFlip: !!marked.thesisStatus?.gradeFlip, heldSessions };
+    let res = resolvePickOutcome({ ...outcomeArgs, exitPolicy: marked.exitPolicy, scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null });
+    // SHADOW EXIT (lib/top-picks-exit-review.mjs): the other exit rule on the
+    // same mark, measurement only. Never closes or changes the real trade.
+    if (PICKS_SHADOW_EXIT && !scaleOut) {
+      const shadowPol = shadowPolicyFor(marked, pickExitPolicy("long"), holdExitPolicy(PICKS_CALL_HOLD_SESSIONS, PICKS_CALL_HOLD_STOP_PCT));
+      if (shadowPol && !e.shadowExit?.closed) {
+        const sres = resolvePickOutcome({ ...outcomeArgs, exitPolicy: shadowPol });
+        marked.shadowExit = stepShadow(e.shadowExit || null, { policy: shadowPol, res: sres, pnlPct: optionPnlPct, sessions: heldSessions, builtAtIso });
+      }
+    }
     // EVENT PLAY exits (lib/event-play.mjs), checked after every price exit:
     // one post-event review (the live grade on the trade's side must still
     // clear the trade bar once the event has resolved) and the post-shock
@@ -31216,6 +31306,33 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     else stillOpen.push(marked);
   }
   open = stillOpen;
+
+  // Shadow exits that outlive their trade (lib/top-picks-exit-review.mjs):
+  // marked each run until the shadow rule closes them, then written onto the
+  // closed trade. The continuation reads price, expiry and the grade flip
+  // (the drivers check needs the trade's live thesis, gone once it closed).
+  let shadowOpen = [];
+  if (PICKS_SHADOW_EXIT) {
+    const todayEt = etDateKey(new Date(builtAtIso));
+    const holdPol = holdExitPolicy(PICKS_CALL_HOLD_SESSIONS, PICKS_CALL_HOLD_STOP_PCT), todayPol = pickExitPolicy("long");
+    shadowOpen = (Array.isArray(state.shadowOpen) ? state.shadowOpen : []).map((sh) => {
+      if (!sh || !sh.contract) return null;
+      if (sh.shadowExit?.closed) return sh;
+      const pol = shadowPolicyFor(sh, todayPol, holdPol);
+      if (!pol) return null;
+      const data = chains?.[sh.symbol] || null;
+      const spot = pnum(data?.spot) || null;
+      const pnl = markOptionToMarket(sh, data) ?? (sh.shadowExit?.lastPnlPct == null ? null : pnum(sh.shadowExit.lastPnlPct));
+      const held = tradingSessionsBetween(etDateKey(new Date(sh.entryDate)), todayEt);
+      const isCall = sh.side === "call";
+      const gNow = gradesIndex && gradesIndex[sh.symbol] ? pnumN(gradesIndex[sh.symbol].total) : null;
+      const flip = gNow != null && (isCall ? gNow <= -PICKS_MIN_CONVICTION : gNow >= PICKS_MIN_CONVICTION);
+      let sres = resolvePickOutcome({ exitPolicy: pol, isCall, cur: spot, ref: sh.entrySpot, expSec: sh.contract.expiry, entrySec: Math.floor(Date.parse(sh.entryDate) / 1000), nowSec, inUniverse: true, modeledOptPnlPct: pnl, thetaPctDay: sh.contract.thetaDay && sh.contract.mid ? Math.abs(sh.contract.thetaDay) / sh.contract.mid : null, structure: "long", stopUnder: pnum(sh.cut), vehicleStopUnder: pnumN(sh.vehicleCut), thesisBroken: flip, thesisFlip: flip, heldSessions: held });
+      if (!sres && held != null && held >= SHADOW_MAX_SESSIONS) sres = { status: "shadow-timeout" };
+      return { ...sh, shadowExit: stepShadow(sh.shadowExit, { policy: pol, res: sres, pnlPct: pnl, sessions: held, builtAtIso }) };
+    }).filter(Boolean);
+    for (const c of closed) if (c && c.exitDate === builtAtIso && c.shadowExit && !c.shadowExit.closed) shadowOpen.push(shadowCarry(c));
+  }
 
   // Enroll the freshly-shipped roster (dedup per symbol:side).
   const enrolledNow = new Set();
@@ -31302,7 +31419,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // settings.mjs picksTag), so the Track Record draws a dated divider when
       // one changes. Absent while every Top Picks setting is the default.
       ...(OWNER_SETTINGS_REPORT?.picksTag ? { ownerSettings: OWNER_SETTINGS_REPORT.picksTag } : {}),
-      exitPolicy: pickExitPolicy(p.contract?.structure),
+      exitPolicy: pickExitPolicy(p.contract?.structure, p.side),
+      // Shorter contracts (PICKS_SHORT_DTE, since 2026-11-22): the window the
+      // contract was bought from, so the Track Record draws a divider.
+      ...(PICKS_DTE_VERSION ? { dtePolicyVersion: PICKS_DTE_VERSION } : {}),
+      // 2026-11-22 review stamps: the soft-wait lift (when it opened this
+      // trade) and the deterministic entry read beside the AI's final call.
+      ...(p.entry?.softWaitLifted ? { softWaitVersion: PICKS_SOFT_WAITS_VERSION } : {}),
+      ...(p.entry?.rulesRead ? { entryRules: p.entry.rulesRead } : {}),
       // Event play tag, frozen at entry (macro / earnings / shock). Drives the
       // one post-event review and the shock time limit, and the Track Record's
       // event split. Null for an ordinary entry.
@@ -31444,6 +31568,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   const keptSet = new Set(keptClosed);
   const archive = mergeArchive(state.archive, closed.filter((c) => !keptSet.has(c)), PICKS_ACCURACY_MAX_ARCHIVE);
   closed = keptClosed;
+  if (PICKS_SHADOW_EXIT) shadowOpen = settleShadows(shadowOpen, [closed, archive]);
+  let exitReview = null;
+  try { exitReview = shadowExitStats(closed.concat(archive)); } catch { exitReview = null; }
 
   const spyBars = chains?.SPY ? timingBarsFrom(chains.SPY) : null;
   const stats = computePicksAccuracyStats(open, closed, builtAtIso, spyBars);
@@ -31476,7 +31603,8 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     console.warn(`  picks-accuracy: setup odds skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, allTimeStats, gateLog, gateTotals, gateStats, baseline, baselineStats, archive,
-    ...(studyReport?{marketStudy:studyReport}:{}), ...(setupOdds ? { setupOdds } : {}) };
+    ...(studyReport?{marketStudy:studyReport}:{}), ...(setupOdds ? { setupOdds } : {}),
+    ...(shadowOpen.length ? { shadowOpen } : {}), ...(exitReview ? { exitReview } : {}) };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the

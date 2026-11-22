@@ -208,6 +208,9 @@ try {
   const shockState = structuredClone(first);
   shockState.open[0].eventPlay = { kind: 'shock', key: 'shock:risk-off', date: etDateKey(new Date(ms - 20 * DAY)) };
   shockState.open[0].entryDate = new Date(ms - 20 * DAY).toISOString();
+  // The fixture trade is a call; a real shock trade is a put, which keeps the
+  // +25% / -50% rule, so take the call hold exit off it here.
+  shockState.open[0].exitPolicy = engine.pickExitPolicy('long', 'put');
   await engine.updatePicksAccuracyFile(chains, later, shockState, grade(6), { enrollNewPicks: false });
   const shocked = JSON.parse(await readFile(join(storage, 'data/picks-accuracy.json'), 'utf8'));
   await check('record: a post-shock put closes at the 10-session limit', () => {

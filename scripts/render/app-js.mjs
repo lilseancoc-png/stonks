@@ -1,6 +1,7 @@
 import { updateCheckerClient } from './update-checker-client.mjs';
 import { ownerSettingsClient, ownerDisplayBoot } from './owner-settings-client.mjs';
 import { OWNER_SETTINGS } from '../../lib/owner-settings.mjs';
+import { PICKS_DTE_LO, PICKS_DTE_HI } from '../../lib/top-picks-config.mjs';
 import { closureTables } from '../../lib/us-equity-calendar.mjs';
 import { contactClient } from './contact-client.mjs';
 import { ownerMarketBriefDisplayFactory } from '../../lib/owner-market-brief-display.mjs';
@@ -2144,7 +2145,7 @@ ${scenarioEventPhase.toString()}
     var body;
     if (!pick){
       body = '<div class="opt-toppick-empty">No ' + escapeHtml(sym) + ' ' + sideWord + ' clear the contract candidate screen in this build. ' +
-        '<span class="opt-toppick-crit">Needs 30–90 days · |Δ| 0.30–0.50 (prefer 0.40) · at most 15% OTM · OI ≥ 50 · spread ≤ 12% · IV ≤ 200% · premium ≤ max($35, 12% of spot). A contract candidate is not an entry confirmation; Top Picks also checks strategy, timing and option feasibility.</span></div>';
+        '<span class="opt-toppick-crit">Needs ${PICKS_DTE_LO}–${PICKS_DTE_HI} days · |Δ| 0.30–0.50 (prefer 0.40) · at most 15% OTM · OI ≥ 50 · spread ≤ 12% · IV ≤ 200% · premium ≤ max($35, 12% of spot). A contract candidate is not an entry confirmation; Top Picks also checks strategy, timing and option feasibility.</span></div>';
     } else {
       body = topPickCardHtml(pick, side, sym);
     }
@@ -37493,7 +37494,7 @@ ${renderExportBindings()}
   // time stop, the pre-earnings close and the weekly reset) kept only so
   // legacy resolved rows still label + sort; new closes use 'thesis-broken'
   // for the invalidation path.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','reset'];
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','time-limit','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -37668,6 +37669,8 @@ ${renderExportBindings()}
     // Market-side lanes (bar 5 with the market, 8 against; the grader runs
     // every run; macro block only against the market), stamped from 2026-11-20.
     { key:'marketside', get:function(e){ return (e && typeof e.marketSideVersion === 'string' && e.marketSideVersion) || ''; } },
+    // Contract window (shorter contracts, about a month), stamped from 2026-11-22.
+    { key:'dte', get:function(e){ return (e && typeof e.dtePolicyVersion === 'string' && e.dtePolicyVersion) || ''; } },
     // Owner risk dial (lib/owner-controls.mjs, from 2026-11-19): Safer is the
     // only setting that changes Top Picks (one new trade a run), so only it
     // splits the record. Riskier is stamped for the scorecard, no divider.
@@ -37694,7 +37697,8 @@ ${renderExportBindings()}
       '2026-11-signed-flow': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold, in delta dollars, confirmed by next-day open interest' },
       '2026-11-signed-flow-no-macro': { since:'2026-11-16', note:'Unusual flow vote reads whether each trade was bought or sold (macro read off)' }
     },
-    exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
+    exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' }, '2026-11-22-hold10-stop60': { note:'Single calls held 10 sessions with a -60% stop: no take-profit and no stock stop (puts and spreads keep +25% / -50%)' } },
+    dte: { '2026-11-22-short-dte': { note:'New picks buy contracts about a month out (21-45 days, ideal 25-35) instead of 30-90' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
     timing: { '4': { since:'2026-10-23', note:'Volatility-aware entry timing' }, '5': { since:'2026-11-06', note:'Event-aware: trades through macro events and earnings when the evidence agrees' } },
     caps: { '2026-11-06-factor-run-2': { since:'2026-11-06', note:'At most 2 new trades per run from one stock group (the tech/AI group)' } },
@@ -39938,7 +39942,7 @@ ${renderExportBindings()}
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'time-limit':'hold time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
@@ -41799,7 +41803,7 @@ ${renderExportBindings()}
   // text, and "Copy all" copies exactly what the feed link shows). Change one,
   // change the other. Ids and times are always ET so the tab matches the feed.
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control' };
+  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'time-limit':'held its sessions (hold exit)', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control' };
   var TL_RULE = '============================================================';
   var TL_LABEL_W = 10;
   var tlFmt = null;
@@ -42568,6 +42572,25 @@ ${renderExportBindings()}
         '" title="' + optTip + '">' +
         '<span class="accuracy-chip-num">' + accPct(st.optionExpectancyPct) + '</span>' +
         '<span class="accuracy-chip-lbl">expectancy · option (modeled)</span>' +
+      '</div>';
+    }
+    // Real fills beside the model in the headline (2026-11-22 review): the
+    // same closed trades booked at the ask in and the bid out.
+    if (st.realFillDecided) {
+      chips += '<div class="accuracy-chip' + (st.realFillExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="The same closed trades booked at the ask going in and the bid going out, from the quotes saved at each mark. Closer to what a real order gets than the modeled mid.">' +
+        '<span class="accuracy-chip-num">' + accPct(st.realFillExpectancyPct) + '</span>' +
+        '<span class="accuracy-chip-lbl">expectancy · real fills (' + st.realFillDecided + ')</span>' +
+      '</div>';
+    }
+    // Shadow exit check (lib/top-picks-exit-review.mjs): what the hold exit
+    // would have made on the same trades, on live marks.
+    var xr = d.exitReview && d.exitReview.holdShadow && d.exitReview.holdShadow.all;
+    if (xr && xr.n) {
+      chips += '<div class="accuracy-chip' + (xr.diff >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
+        '" title="Each closed trade also ran the hold exit (10 sessions, -60% stop, no take-profit) on the same modeled marks. Average gain of the hold exit minus the real exit, ' + xr.n + ' trades' + (d.exitReview.pending ? ', ' + d.exitReview.pending + ' still running' : '') + '. Measurement only.">' +
+        '<span class="accuracy-chip-num">' + accPct(xr.diff) + '</span>' +
+        '<span class="accuracy-chip-lbl">hold exit vs real exit (' + xr.n + ')</span>' +
       '</div>';
     }
     // The OPTION win rate already leads above. Keep a generic win-rate chip ONLY

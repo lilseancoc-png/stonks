@@ -31,7 +31,7 @@ assert.equal(fallback.economics.comparison.primary.key,null,'a missing preferred
 assert.equal(fallback.economics.comparison.primary.reason,'no-qualified-contract');
 assert.equal(fallback.strategy.label,'Bull debit spread','fallback label must match the selected contract');
 
-const highExpiry=Math.floor((Date.now()+85*86400000)/86400000)*86400,highChain={c:[],p:[]};
+const highExpiry=Math.floor((Date.now()+40*86400000)/86400000)*86400,highChain={c:[],p:[]};
 for(let strike=20;strike<=200;strike++)for(const [type,key]of [['call','c'],['put','p']]){
   const mid=bsPrice(type,100,strike,yearsToExpiry(highExpiry),1.99,.045);
   highChain[key].push({s:strike,b:mid*.99,a:mid*1.01,iv:1.99,oi:1000,v:50});
