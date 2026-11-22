@@ -2074,3 +2074,15 @@ the chains map, never in a public file), so the earnings-window rules
 Owner Settings `WEBULL_BACKUPS` (off = no backups anywhere). Every fill and
 every disagreement with the main source is listed in the Owner-only
 `webull-backup-check.json` and on Market analysis.
+
+## Chance of profit, November 22, 2026
+
+Every new record trade gets a `pop` stamp at enrollment (`picksTradePop` in
+`lib/trade-pop.mjs`, called from `updatePicksAccuracyFile`): a simulation of
+the stock at the contract's own implied volatility through the record's
+exits (+25% / -50% on the mid, the stock stop, no time stop, to expiry),
+blended with the self-improving loop's chance once it has stopped learning,
+else the Similar-setup odds. The outcome is stamped when the trade closes.
+Shown on Open picks with a Why and graded in the Chance of profit check.
+Nothing here changes a pick, a gate or the record. Switch `TRADE_POP`
+(Owner Settings, Research). Spec: `docs/trade-pop.md`.

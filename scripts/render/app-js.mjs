@@ -63,6 +63,7 @@ import { renderValuationLabJs } from './valuation-lab-client.mjs';
 import { renderEnginesJs } from './engines-client.mjs';
 import { renderOwnerControlsJs } from './owner-controls-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
+import { renderTradePopJs } from './trade-pop-client.mjs';
 import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
 import { renderI18nJs, I18N_LANGS } from './i18n-client.mjs';
 import { readFileSync } from 'node:fs';
@@ -138,6 +139,7 @@ ${renderValuationLabJs()}
 ${renderEnginesJs()}
 ${renderOwnerControlsJs()}
 ${renderOwnerInsightJs()}
+${renderTradePopJs()}
 ${calendarSourceLabel.toString()}
 ${calendarScheduleFallbackUsable.toString()}
 ${calendarHealth.toString()}
@@ -15786,9 +15788,9 @@ ${renderExportBindings()}
       { label: 'Stock', cell: function(t){ return VIEWS.expandHtml('Show the strike ladder for ' + t.symbol) + '<a href="' + symGradeHref(t.symbol) + '">' + escapeHtml(t.symbol) + '</a>'; }, sort: function(t){ return t.symbol; } },
       { label: 'Price', num: true, cell: function(t){ return t.spot != null ? '<span class="oi-spot">$' + Number(t.spot).toFixed(2) + '</span>' : ''; }, sort: function(t){ return t.spot; } },
       { label: 'Squeeze score', num: true, title: 'Gamma squeeze score, 0 to 5. 4 or more is a potential setup, not an entry.', cell: function(t){ var sc = t.score || 0; return '<span class="oi-score ' + oiScoreTier(sc) + (t.flagged ? ' is-flagged' : '') + '">' + sc + '/5' + (t.flagged ? ' ⚠' : '') + '</span>'; }, sort: function(t){ return t.score || 0; } },
-      { label: 'Put wall', num: true, title: 'Strike with the most put contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'putWall'); }, sort: function(t){ return oiWallDistPct(t, 'putWall'); } },
+      { label: 'Put wall', num: true, title: 'Strike at or below the price with the most put contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'putWall'); }, sort: function(t){ return oiWallDistPct(t, 'putWall'); } },
       { label: 'Price between the walls', cls: 'oi-range-col', title: 'Left end: OI put wall. Right end: OI call wall. The dot is the price.', cell: function(t){ return '<span data-oi-range>' + oiRangeInner(t, t.spot) + '</span>'; }, sort: rangePos },
-      { label: 'Call wall', title: 'Strike with the most call contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'callWall'); }, sort: function(t){ return oiWallDistPct(t, 'callWall'); } },
+      { label: 'Call wall', title: 'Strike at or above the price with the most call contracts open (front two expirations)', cell: function(t){ return wallCell(t, 'callWall'); }, sort: function(t){ return oiWallDistPct(t, 'callWall'); } },
       { label: 'Calls per put', num: true, title: 'Calls per put (C/P): total call OI divided by total put OI', cell: function(t){ return t.cpRatio != null ? Number(t.cpRatio).toFixed(2) : ''; }, sort: function(t){ return t.cpRatio; } },
       { label: 'Total OI', num: true, cell: function(t){ return fmtOiNum((t.callOiTotal || 0) + (t.putOiTotal || 0)); }, sort: function(t){ return (t.callOiTotal || 0) + (t.putOiTotal || 0); } },
       { label: 'Biggest OI change', num: true, title: 'Largest day-over-day open interest change (ΔOI) among the top strikes', cell: function(t){ var d = topDelta(t); return d == null ? '' : '<span class="' + (d >= 0 ? 'pos' : 'neg') + '">' + fmtOiPct(d, true) + '</span>'; }, sort: topDelta },
@@ -41696,6 +41698,7 @@ ${renderExportBindings()}
       '</div>' +
       accEventPlayLine(e) +
       oddsLineHtml(oddsLookup(oddsTableNow(), e.symbol, e.side), false) +
+      popChipHtml(e) +
       (accRangeBarHtml(e) || (targets ? '<div class="acc-targets">' + targets + '</div>' : '')) +
       accStrategyBlock(e, false) +
       accCheckpointsBlock(e) +
@@ -42117,7 +42120,7 @@ ${renderExportBindings()}
       return m >= 0 ? Math.round(m * 100) / 100 : null;
     }
     var cols = [
-      { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml('Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
+      { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml(o.pop ? 'Why this chance, and notes' : 'Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
       { label: 'Side', cell: function(o){ var sd = o.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(o){ return o.side || null; } },
       { label: 'Structure', cell: function(o){ return escapeHtml(openPickStructure(o)); }, sort: openPickStructure },
       { label: 'Strike', num: true, cell: function(o){ var c = o.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(o){ var c = o.contract || {}; return isFinite(Number(c.strike)) ? Number(c.strike) : null; } },
@@ -42129,13 +42132,15 @@ ${renderExportBindings()}
       { label: 'Entry', num: true, title: 'Entry premium per share (the credit received for a credit spread)', cell: function(o){ return money(accBasisPerShare(o.contract)); }, sort: function(o){ var v = Number(accBasisPerShare(o.contract)); return isFinite(v) ? v : null; } },
       { label: 'Mark', num: true, title: 'Latest model price per share, from the entry price and the marked P&L (for a credit spread, the cost to buy it back)', cell: function(o){ return money(openPickMark(o)); }, sort: openPickMark },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
+      { label: 'Chance', num: true, title: POP_TIP, cell: function(o){ return popCellHtml(o, false); }, sort: popSortOf },
       { label: 'Webull', title: typeof OP_WB_TIP === 'string' ? OP_WB_TIP : 'What the Webull paper account did with this trade', cell: function(o){ return typeof opWebullHtml === 'function' ? opWebullHtml(tlTradeId(o)) : ''; }, sort: function(o){ return typeof opWebullSort === 'function' ? opWebullSort(tlTradeId(o)) : null; } },
       { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },
       { label: 'Conviction', cell: function(o){ return escapeHtml(o.conviction || o.label || ''); }, sort: function(o){ var v = Number(o.score); return isFinite(v) ? Math.abs(v) : null; } }
     ];
     // Owner trade journal: the trade and ticker notes open under each row.
-    var detail = HAS_OWNER_ACCESS ? function(o){ return '<div class="acc-notes">' + accNoteBoxHtml('trade', accNoteTradeId(o)) + accNoteBoxHtml('ticker', o.symbol) + '</div>'; } : null;
+    // The chance of profit's "why" opens in the same row detail (lib/trade-pop.mjs).
+    var detail = HAS_OWNER_ACCESS ? function(o){ return (o.pop ? popWhyHtml(o.pop) : '') + '<div class="acc-notes">' + accNoteBoxHtml('trade', accNoteTradeId(o)) + accNoteBoxHtml('ticker', o.symbol) + '</div>'; } : null;
     return VIEWS.tableHtml(cols, items, { key: 'open-picks-table', empty: 'No open trades.', detail: detail });
   }
   function openPicksControlsHtml(sortKey){
@@ -42154,6 +42159,12 @@ ${renderExportBindings()}
     });
     VIEWS.onFlip('open-picks', renderOpenPicks);
     VIEWS.onView('open-picks', renderOpenPicks);
+  }
+  // The chance of profit check (Owner): engines.json carries it as popCheck.
+  function popCheckOpenHtml(){
+    if (!HAS_OWNER_ACCESS || typeof engState === 'undefined') return '';
+    if (!engState.data) return '';
+    return popCheckHtml(engState.data.popCheck || null);
   }
   function renderOpenPicks(){
     var root = $('open-picks-root'); if (!root) return;
@@ -42192,13 +42203,13 @@ ${renderExportBindings()}
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg Top Picks mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open Top Picks trades (unrealized).' } : null,
     ]);
     if (!open.length){
-      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + popCheckOpenHtml() + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
       openPicksRunHealth(root, d);
       return;
     }
     loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
-    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + popCheckOpenHtml() + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
     // Strategy engines: a note when a Top Picks trade and an engine trade are on the exact same contract.
     var engNote = typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '';
     if (engNote){ var engAfter = root.querySelector('.book-risk'); if (engAfter) engAfter.insertAdjacentHTML('afterend', engNote); else root.insertAdjacentHTML('afterbegin', engNote); }

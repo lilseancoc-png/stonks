@@ -44,6 +44,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-22
 
+### Added
+
+- Every trade the Webull paper mirror takes (Top Picks, the strategy engines, their paper trials and tests; options and shares) now gets a stated chance of profit when it opens: a simulation at the option's own implied volatility through the trade's real exits and booking (ask in, bid out for engine options), blended with how often the same kind of trade has won (the engines' history test, live and shadow closes; for Top Picks the Similar-setup odds until the self-improving loop stops learning). Open picks shows it in a Chance column and on the Top Picks cards with an expandable Why; the outcome is written when the record closes the trade, and the Owner "Chance of profit check" (and Quant labs Calibration) compares the stated chances with the record and the Webull fills. Owner Settings switch `TRADE_POP` (on). Changes no trade, size or exit. No AI cost (`docs/trade-pop.md`).
+
 ### Changed
 
 - The strategy engines read today's VIX (and its 3-month term) on the run day instead of the prior close, so a sell-off that started that morning reaches their market read (Nov 20: 28.4 at the prior close against 35.9 live). Owner Settings switch "Engines read today's VIX, not the prior close" (`ENGINES_LIVE_VIX`, on); the history test keeps the prior close. No AI cost.
