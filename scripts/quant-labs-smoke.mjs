@@ -20,7 +20,7 @@ import { evaluateVolModels, buildVolLab, VOL_MODELS } from "../lib/labs/vol.mjs"
 import { evaluateFactors, publicFactorRows, exposures, gradeVsFactors, foldPanel, panelSnapshot, percentiles, PRICE_FACTORS, ALL_FACTORS } from "../lib/labs/factors.mjs";
 import { evaluateUniverse, UNIVERSE_FACTORS } from "../lib/labs/factor-universe.mjs";
 import { universeFixture } from "./fixtures/factor-universe.mjs";
-import { htmlToLines, riskSection, compareSections, refreshFilingText, buildFilingLab, archiveUrl } from "../lib/labs/filing-text.mjs";
+import { htmlToLines, riskSection, sectionOf, compareSections, refreshFilingText, buildFilingLab, archiveUrl, FILING_TEXT_VERSION } from "../lib/labs/filing-text.mjs";
 import { runQuantLabs, loadQuantLabs, writeQuantLabs, carryQuantLabs, quantLabsEnabled, quantLabsTextEnabled, QUANT_LABS_KEY, QUANT_LABS_STATE_KEY } from "../lib/labs/index.mjs";
 
 let checks = 0;
@@ -382,6 +382,14 @@ async function main() {
     eq(htmlToLines("<p>a&amp;b</p><div>c&nbsp;d</div><script>x()</script>"), ["a&b", "c d"], "HTML to lines");
     const sec = riskSection(htmlToLines(last), "10-K");
     ok(sec && sec.length === 40, "the risk section is the long one, not the contents line"); eq(riskSection(htmlToLines("<p>Item 1A. Risk Factors</p><p>short</p>"), "10-K"), null, "a stub section is refused");
+    // audit 2026-11-22: headings with an em dash, split over two lines, or styled letter by letter.
+    const body40 = base.join("");
+    const dashed = `<html><body><h2>Item 1A \u2014 Risk Factors</h2>${body40}<h2>Item 1B \u2014 Unresolved Staff Comments</h2></body></html>`;
+    ok(riskSection(htmlToLines(dashed), "10-K")?.length === 40, "an em-dash heading is found");
+    const split = `<html><body><div>Item 1A.</div><div>Risk Factors</div>${body40}<div>Item 1B.</div><div>Unresolved Staff Comments</div></body></html>`;
+    ok(riskSection(htmlToLines(split), "10-K")?.length === 40, "a heading split over two lines is found");
+    const styled = `<html><body><p><span>I</span><span>TEM 1A. R</span><span>ISK </span><span>F</span><span>ACTORS</span></p>${body40}<p><span>I</span><span>TEM 1B. U</span><span>NRESOLVED</span></p></body></html>`;
+    ok(riskSection(htmlToLines(styled), "10-K") === null && sectionOf(styled, "10-K")?.length === 40, "a letter-by-letter heading is found on the glued retry");
     const copy = compareSections(riskSection(htmlToLines(last)), riskSection(htmlToLines(same)));
     near(copy.sim, 1, 1e-6, "a straight copy is 100% similar"); eq(copy.added, 0, "a straight copy adds nothing");
     const diff = compareSections(riskSection(htmlToLines(last)), riskSection(htmlToLines(changed)));
@@ -401,6 +409,9 @@ async function main() {
     eq(two.run.read, 2, "already compared reports are not read again"); ok(two.store.DDD.failedAcc && two.run.errors.length === 1, "a failed read is recorded, not thrown");
     const three = await refreshFilingText({ prior: two.store, companies, symbols: Object.keys(companies), fetchImpl, maxNames: 5, gapMs: 0 });
     eq(three.run.requests, 0, "a failed report waits a week before a retry");
+    const oldFail = { ...two.store, DDD: { ...two.store.DDD, v: FILING_TEXT_VERSION - 1 } };
+    const four = await refreshFilingText({ prior: oldFail, companies, symbols: Object.keys(companies), fetchImpl, maxNames: 5, gapMs: 0 });
+    ok(four.run.requests > 0, "a report that failed under an older parser is read again");
     let threw = false; try { await refreshFilingText({ companies, symbols: ["AAA"], fetchImpl: async () => { throw new Error("offline"); }, gapMs: 0 }); } catch { threw = true; }
     ok(!threw, "a network failure never throws into the build");
     const lab = buildFilingLab(two.store, { symbols: Object.keys(companies), waiting: 0 });

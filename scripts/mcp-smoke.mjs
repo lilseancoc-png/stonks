@@ -618,7 +618,12 @@ async function tool(name, args, opts) {
   assert.equal((await tool("get_prediction_markets", { contract_id: "K:NOPE" })).structuredContent.error.code, "NOT_FOUND");
   const fed = (await tool("get_prediction_markets", { topic: "fed" })).structuredContent.results;
   assert.ok(fed.contracts.length && fed.contracts.every((c) => c.topic === "fed"));
-  assert.equal(fed.gauges.chance_of_cut_next_fed_pct, 42);
+  // The fixture's last trades sum past 100% (cut 42 + hold + hike); the gauge
+  // scales them back to 100 (audit 2026-11-22).
+  const fg = fed.gauges;
+  assert.ok(fg.chance_of_cut_next_fed_pct > 38 && fg.chance_of_cut_next_fed_pct < 42, `cut ${fg.chance_of_cut_next_fed_pct}`);
+  assert.ok(Math.abs(fg.chance_of_cut_next_fed_pct + fg.chance_of_hold_next_fed_pct + fg.chance_of_hike_next_fed_pct - 100) < 0.2, "the next-meeting odds total 100");
+  assert.equal(fg.next_fed_meeting, "Dec 2026");
   const q = (await tool("get_prediction_markets", { query: "tariffs china" })).structuredContent.results;
   assert.deepEqual(q.contracts.map((c) => c.id), ["K:KXTARIFFCN-26-T60"]);
   const rel = (await tool("get_prediction_markets", { view: "releases" })).structuredContent.results;

@@ -54,6 +54,13 @@ assert.equal(assessSource(def("webull-flow"), { lastDate: "2026-11-06" }, now).s
 assert.equal(assessSource(def("webull-breadth"), { lastDate: "2026-11-03" }, now).state, "aged");
 assert.equal(assessSource(def("webull-flow"), { note: "switched off" }, now).state, "ok");
 assert.equal(assessSource(def("webull-flow"), null, now).state, "missing");
+// AI lab release-note readers (audit 2026-11-22): a failed reader is a
+// partial read; the newest good read is the observation date.
+assert.equal(assessSource(def("ai-disruption"), { sources: [{ lab: "a", ok: true, lastOk: "2026-11-09" }, { lab: "b", ok: true, lastOk: "2026-11-08" }] }, now).state, "ok");
+const aiPart = assessSource(def("ai-disruption"), { sources: [{ lab: "a", ok: true, lastOk: "2026-11-09" }, { lab: "b", ok: false, lastOk: "2026-11-02" }] }, now);
+assert.equal(aiPart.state, "partial"); assert.match(aiPart.detail, /1 of 2 source checks not ok/);
+assert.equal(assessSource(def("ai-disruption"), { sources: [{ lab: "a", ok: true, lastOk: "2026-11-01" }] }, now).state, "aged");
+assert.equal(assessSource(def("ai-disruption"), { enabled: false }, now).state, "missing");
 const partial = assessSource(def("commodities"), { builtAtIso: built, items: [{ key: "a", asOf: "2026-11-09", stale: false }, { key: "b", asOf: "2026-11-09", stale: false }, { key: "c", asOf: "2026-11-01", stale: true }] }, now);
 assert.equal(partial.state, "partial"); assert.match(partial.detail, /1 of 3 parts carried/);
 const mostly = assessSource(def("commodities"), { builtAtIso: built, items: [{ key: "a", stale: true }, { key: "b", stale: true }, { key: "c", stale: false }] }, now);
