@@ -170,7 +170,7 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
     const fill = shared || missed ? null : +(t.contract.mid * (1 + ((i % 5) - 1) * 0.008)).toFixed(2);
     const exit = closed && fill != null ? +((t.exitMid ?? t.contract.mid) * (1 - (i % 3) * 0.01)).toFixed(2) : null;
     return {
-      tradeId: t.tradeId, engine: t.engine, symbol: t.symbol, side: t.side, structure: "long", state: shared ? "skipped" : missed ? "missed" : closed ? "closed" : "open",
+      tradeId: t.tradeId, engine: t.engine, setup: t.setup || null, symbol: t.symbol, side: t.side, structure: "long", state: shared ? "skipped" : missed ? "missed" : closed ? "closed" : "open",
       sharedContract: shared ? { heldBy: t.shared?.heldBy || "flagship", heldById: t.shared?.heldById || null } : null, sharedWith: null,
       legs: leg(t), engineEntryPrice: t.contract.mid, engineEntryIso: t.entryDate, fillPrice: fill, fillIso: fill != null ? t.entryDate : null, entryDiffPct: fill != null ? +(((fill - t.contract.mid) / t.contract.mid) * 100).toFixed(1) : null,
       engineExitPrice: closed ? t.exitMid ?? null : null, engineExitIso: closed ? t.exitDate : null, engineCloseReason: closed ? t.status : null, enginePnlPct: closed ? t.optionPnlPct : null,
