@@ -747,6 +747,8 @@ try {
       assert(pOv <= 1, 'a parlay entry has no sideways scroll at ' + width);
       await page.locator(R + '[data-sp-save]').click();
       await page.locator(R + '[data-sp-part="save-msg"]').filter({ hasText: 'Saved to the paper journal' }).waitFor();
+      // The journal list re-draws after the save message; under load the old list can still be showing.
+      await page.locator(R + '.sp-entry').first().filter({ hasText: 'Sportsbook · Parlay' }).waitFor({ timeout: 15000 }).catch(() => {});
       const pcard = await page.locator(R + '.sp-entry').first().innerText();
       assert(/Sportsbook · Parlay/.test(pcard) && /Parlay at \+218/.test(pcard) && /GS to win/.test(pcard) && /GS −5\.5/.test(pcard), 'the journal shows the parlay: ' + pcard);
       await page.locator(R + '.sp-entry').first().locator('[data-sp-withdraw]').click();

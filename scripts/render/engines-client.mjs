@@ -227,7 +227,8 @@ function engEvidenceNote(t){
   }
   function opDays(iso){ var t = Date.parse(iso); return isFinite(t) ? Math.max(0, (Date.now() - t) / 86400000) : null; }
   function opEntry(t){ var c = (t && t.contract) || {}; var f = t && t.fill; var v = f && f.entry != null ? Number(f.entry) : Number(c.mid); return isFinite(v) && v > 0 ? v : null; }
-  function opMark(t){ var v = Number(t && t.lastMid); return t && t.lastMid != null && isFinite(v) && v >= 0 ? v : null; }
+  function opBidMark(t){ return !!(t && t.fill && (t.fill.exitBasis === 'bid' || t.fill.basis === 'ask-bid') && t.lastBid != null && isFinite(Number(t.lastBid)) && Number(t.lastBid) >= 0); }
+  function opMark(t){ if (opBidMark(t)) return Number(t.lastBid); var v = Number(t && t.lastMid); return t && t.lastMid != null && isFinite(v) && v >= 0 ? v : null; }
   function opPositionHtml(t){
     var c = (t && t.contract) || {};
     if (c.structure === 'shares') return (c.shares || '?') + ' shares';
@@ -245,7 +246,7 @@ function engEvidenceNote(t){
       { label: 'Chance', num: true, title: POP_TIP, cell: function(t){ return popCellHtml(t, true); }, sort: popSortOf },
       { label: 'Webull', title: OP_WB_TIP, cell: function(t){ return opWebullHtml(t.tradeId); }, sort: function(t){ return opWebullSort(t.tradeId); } },
       { label: 'Entry', num: true, title: 'Entry price per share (an option at the ask when the record books ask and bid)', cell: function(t){ var v = opEntry(t); return v == null ? '' : engMoney(v); }, sort: opEntry },
-      { label: 'Mark', num: true, title: 'Latest mid price per share on the engine record', cell: function(t){ var v = opMark(t); return v == null ? '' : engMoney(v); }, sort: opMark },
+      { label: 'Mark', num: true, title: 'Price the engine record would sell at now: the bid for options booked ask in, bid out, else the mid. P&L uses the same price.', cell: function(t){ var v = opMark(t); return v == null ? '' : engMoney(v) + (opBidMark(t) ? ' <span class="crd-dim">bid</span>' : ''); }, sort: opMark },
       { label: 'Opened (ET)', cell: function(t){ return t.entryDate && typeof accOpenedEt === 'function' ? escapeHtml(accOpenedEt(t.entryDate)) : ''; }, sort: function(t){ var x = Date.parse(t.entryDate); return isFinite(x) ? x : null; } },
       { label: 'Days held', num: true, cell: function(t){ var x = opDays(t.entryDate); return x == null ? '' : x.toFixed(x < 10 ? 1 : 0); }, sort: function(t){ return opDays(t.entryDate); } },
       { label: 'Setup', cell: function(t){ return escapeHtml(t.setup || ''); }, sort: function(t){ return t.setup || null; } },
