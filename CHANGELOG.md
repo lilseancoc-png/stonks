@@ -44,6 +44,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-11-22
 
+### Added
+
+- Every trade the Webull paper mirror takes (Top Picks, the strategy engines, their paper trials and tests; options and shares) now gets a stated chance of profit when it opens: a simulation at the option's own implied volatility through the trade's real exits and booking (ask in, bid out for engine options), blended with how often the same kind of trade has won (the engines' history test, live and shadow closes; for Top Picks the Similar-setup odds until the self-improving loop stops learning). Open picks shows it in a Chance column and on the Top Picks cards with an expandable Why; the outcome is written when the record closes the trade, and the Owner "Chance of profit check" (and Quant labs Calibration) compares the stated chances with the record and the Webull fills. Owner Settings switch `TRADE_POP` (on). Changes no trade, size or exit. No AI cost (`docs/trade-pop.md`).
+
 ### Changed
 
 - The strategy engines' Reversion engine no longer buys a washout bounce or an RSI(2) dip while VIX is under 30 and either rate hikes are priced (2-year yield 0.5+ points over fed funds) or the market is grinding lower (SPY under its 50-day with more than 60% of covered names under theirs); a panic (VIX 30+) still trades. Owner Settings switch `ENGINES_BOUNCE_SKIP` (on), logged as Reversion rules 11; a skipped washout bounce is tracked as a shadow trade. On the backtest bench the book's total is unchanged (+$835K over 2007-2026) with a smaller worst drop (-$52K against -$64K) and better trades kept (bounce calls +12.2% a trade against +9.1%). No AI cost, no new download; changes no Top Pick.

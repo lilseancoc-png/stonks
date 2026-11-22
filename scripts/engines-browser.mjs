@@ -170,7 +170,7 @@ try {
       await sub(s, 'now');
       text = await paneText(s);
       check(text.includes(e.name) && text.includes(e.idea.slice(0, 40)), id + ': the idea is shown: ' + text.slice(0, 160).replace(/\n/g, ' / '));
-      check((await s.page.locator('#eng-open .vt-table tbody tr').count()) === e.open.length, id + ': one row per open trade');
+      check((await s.page.locator('#eng-open .vt-table tbody tr:not(.vt-detail)').count()) === e.open.length, id + ': one row per open trade');
       check(/The rules/.test(text) && /Never a spread/.test(text), id + ': the rules are shown');
       const shareSetups = e.setups.filter((x) => x.calls === 'shares' && !x.retired);
       check(/never short stock/.test(text) === shareSetups.length > 0, id + ': the rules say which setups buy shares (' + shareSetups.length + ')');
@@ -272,7 +272,7 @@ try {
       check(text.includes(e.name) && text.includes(e.idea.slice(0, 40)), id + ': the idea is shown');
       check(/Core engine/i.test(text), id + ': marked as a core engine');
       check((await s.page.locator('#eng-core-target').count()) === 1 && /T-bills/.test(await s.page.locator('#eng-core-target').innerText()), id + ': this month’s target and its reads');
-      check((await s.page.locator('#eng-open .vt-table tbody tr').count()) === e.open.length, id + ': one row per holding');
+      check((await s.page.locator('#eng-open .vt-table tbody tr:not(.vt-detail)').count()) === e.open.length, id + ': one row per holding');
       check((await s.page.locator('#eng-open .eng-shr').count()) === e.open.length, id + ': every holding is shares');
       if (e.open.length) check(/Held until a monthly check swaps it/.test(await s.page.locator('#eng-open').innerText()), id + ': no stop or target, held to the monthly check');
       check((await s.page.locator('#eng-core-log tbody tr').count()) === e.holdings.log.length && e.holdings.log.length >= 2, id + ': one row per monthly check (' + e.holdings.log.length + ')');
@@ -429,7 +429,7 @@ try {
     const trials = view.engines.flatMap((e) => e.open).filter((t) => t.trial).length;
     if (trials) check((await group.locator('.eng-trial').count()) >= trials, 'paper trials carry their badge');
     // Webull column: filled, held by another and missed rows read from the paper account.
-    const wbTexts = await group.locator('tbody tr td:nth-child(5)').allInnerTexts();
+    const wbTexts = await group.locator('tbody tr td:nth-child(6)').allInnerTexts();
     const openRows = fx.mirror.trades.filter((t) => engIds.includes(t.tradeId));
     check(openRows.some((t) => t.fillOutcome === 'filled') && wbTexts.some((x) => /Filled/.test(x)), 'filled engine trades say Filled');
     if (openRows.some((t) => t.fillOutcome === 'shared')) check(wbTexts.some((x) => /Held by another/.test(x)), 'a follower on a shared contract says Held by another');
@@ -441,6 +441,21 @@ try {
     if (await tp.locator('table').count()){
       check(/Filled/.test(tpText) && /\+3\.6%/.test(tpText), 'the Top Picks row shows its Webull fill and paper result');
     }
+    // Chance of profit (2026-11-22): a Chance column with a Why under each stamped row, and the Owner check.
+    const engHead = await group.locator('table').first().locator('thead').innerText();
+    check(/Chance/.test(engHead), 'the engine table has a Chance column');
+    const stampedOpen = view.engines.flatMap((e) => e.open).filter((t) => t.pop);
+    check(stampedOpen.length > 0, 'the fixture opens engine trades with a stated chance (' + stampedOpen.length + ')');
+    const chanceCells = await group.locator('table').first().locator('tbody tr:not(.vt-detail) td:nth-child(5)').allInnerTexts();
+    check(chanceCells.some((x) => /\d+%/.test(x)), 'engine rows show their chance');
+    const why = group.locator('table').first().locator('td:nth-child(5) [data-vt-expand]').first();
+    if (await why.count()){
+      await why.click(); await settle(s.page, 200);
+      const whyText = await group.locator('.vt-detail:not([hidden]) .pop-why').first().innerText();
+      check(/Our estimate: \d+%/.test(whyText) && /Market model/.test(whyText) && /Track record/.test(whyText), 'the Why lays out the estimate, the model and the record');
+    } else check(false, 'a stamped engine row has a Why button');
+    check(await s.page.locator('#open-picks-pop').count() === 1, 'Open picks has the Chance of profit check');
+    check(/Chance of profit check/i.test(await s.page.locator('#open-picks-pop summary').innerText()), 'the check is labelled');
     // Still working at Webull: the closed engine trade still selling.
     if (exitingWb) check(groupText.includes(exitingWb.tradeId) && /Still working at Webull/i.test(groupText) && /Selling/.test(groupText), 'a trade still selling at Webull after its record closed is listed');
     const sumText = await s.page.locator('#open-picks-sum').innerText();

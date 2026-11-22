@@ -8886,6 +8886,7 @@ function engEvidenceNote(t){
       { label: 'Made by', title: 'The strategy engine that opened this trade', cell: opSourceHtml, sort: function(t){ return engName(t.engine); } },
       { label: 'Position', cell: opPositionHtml, nosort: true },
       { label: 'P&L', num: true, title: 'The engine record’s open result: % of the premium for an option, % of the share price for shares', cell: function(t){ return t.optionPnlPct == null ? '' : engPnl(t.optionPnlPct); }, sort: function(t){ var v = Number(t.optionPnlPct); return t.optionPnlPct != null && isFinite(v) ? v : null; } },
+      { label: 'Chance', num: true, title: POP_TIP, cell: function(t){ return popCellHtml(t, true); }, sort: popSortOf },
       { label: 'Webull', title: OP_WB_TIP, cell: function(t){ return opWebullHtml(t.tradeId); }, sort: function(t){ return opWebullSort(t.tradeId); } },
       { label: 'Entry', num: true, title: 'Entry price per share (an option at the ask when the record books ask and bid)', cell: function(t){ var v = opEntry(t); return v == null ? '' : engMoney(v); }, sort: opEntry },
       { label: 'Mark', num: true, title: 'Latest mid price per share on the engine record', cell: function(t){ var v = opMark(t); return v == null ? '' : engMoney(v); }, sort: opMark },
@@ -8898,7 +8899,7 @@ function engEvidenceNote(t){
     var note = '<p class="eng-open-link">Paper trades from the strategy engines, including the paper trials and tests, in the same Webull paper account as Top Picks. They count on each engine’s own record, never on the Top Picks track record. <button type="button" class="eng-link" data-wf-go="engines">Open the Strategy engines page</button></p>';
     var body;
     if (!d) body = '<p class="hint">' + (engState.error ? 'The engine trades could not be read (' + escapeHtml(String(engState.error)) + ').' : 'Loading the engine trades…') + '</p>';
-    else body = VIEWS.tableHtml(cols, rows, { key: 'open-picks-engines', empty: 'No engine trades are open right now.' });
+    else body = VIEWS.tableHtml(cols, rows, { key: 'open-picks-engines', empty: 'No engine trades are open right now.', detail: function(t){ return t.pop ? popWhyHtml(t.pop) : ''; } });
     var tail = '';
     if (extra && extra.length){
       var xcols = [
@@ -8969,8 +8970,9 @@ function engEvidenceNote(t){
       { label: 'Contract', cell: function(r){ return engContract(r.t) + '<div class="crd-dim">opened ' + escapeHtml(rglEt(r.t.entryDate)) + '</div>'; }, sort: function(r){ return Date.parse(r.t.entryDate) || 0; } },
       { label: 'Result', num: true, cell: function(r){ return engPnl(r.t.optionPnlPct) + '<div class="crd-dim">' + engMoney(r.t.contract && r.t.contract.mid) + ' → ' + engMoney(r.t.lastMid) + '</div>'; }, sort: function(r){ return r.t.optionPnlPct; } },
       { label: 'Sessions', num: true, cell: function(r){ return String(r.t.sessions || 0) + (r.t.exits && r.t.exits.maxSessions ? '<span class="crd-dim"> of ' + r.t.exits.maxSessions + '</span>' : ''); }, sort: function(r){ return r.t.sessions || 0; } },
+      { label: 'Chance', num: true, title: POP_TIP, cell: function(r){ return popCellHtml(r.t, true); }, sort: function(r){ return popSortOf(r.t); } },
     ];
-    return VIEWS.tableHtml(cols, rows, { key: 'eng-open-all', empty: 'No engine has an open trade. New ones open at the 11:00 and 15:30 ET runs when a setup clears its bar.' });
+    return VIEWS.tableHtml(cols, rows, { key: 'eng-open-all', empty: 'No engine has an open trade. New ones open at the 11:00 and 15:30 ET runs when a setup clears its bar.', detail: function(r){ return r.t.pop ? popWhyHtml(r.t.pop) : ''; } });
   }
   function engStatKpis(s, extra){
     s = s || {};
@@ -9046,9 +9048,10 @@ function engEvidenceNote(t){
       { label: 'Result', num: true, cell: function(t){ return engPnl(t.optionPnlPct) + (t.markPnlPct != null && t.fill ? '<div class="crd-dim">at the mid ' + slpPts(t.markPnlPct, 1) + '%</div>' : '') + '<div class="crd-dim">best ' + slpPts(t.hiPct, 0) + '%, worst ' + slpPts(t.loPct, 0) + '%</div>'; }, sort: function(t){ return t.optionPnlPct; } },
       { label: 'At Webull', title: ENG_AT_WEBULL_TIP, cell: engAtWebullHtml, sort: engAtWebullSort },
       { label: 'Sessions', num: true, cell: function(t){ return String(t.sessions || 0) + (t.exits && t.exits.maxSessions ? '<span class="crd-dim"> of ' + t.exits.maxSessions + '</span>' : ''); }, sort: function(t){ return t.sessions || 0; } },
+      { label: 'Chance', num: true, title: POP_TIP, cell: function(t){ return popCellHtml(t, true); }, sort: popSortOf },
       { label: 'Exit plan', cell: function(t){ return engExitPlan(t); }, nosort: true },
     ];
-    return VIEWS.tableHtml(cols, e.open || [], { key: 'eng-open-' + e.id, empty: 'No open trades. New ones open at the 11:00 and 15:30 ET runs when a setup clears the bar.' });
+    return VIEWS.tableHtml(cols, e.open || [], { key: 'eng-open-' + e.id, empty: 'No open trades. New ones open at the 11:00 and 15:30 ET runs when a setup clears the bar.', detail: function(t){ return t.pop ? popWhyHtml(t.pop) : ''; } });
   }
   function engCandTable(e){
     var rows = e.candidates || [];
@@ -10446,6 +10449,110 @@ function engEvidenceNote(t){
     return sectorSplitBarsHtml(rows, { title: 'Long vs short exposure by sector group', aLabel: 'long delta $', bLabel: 'short delta $', fmt: usd,
       key: 'open-picks.bookSplit', defaultOpen: true, note: 'Calls carry long stock exposure, puts short; a group with both is partly hedged, one bar alone is a one-way bet.' });
   }
+
+
+  // ---- Chance of profit ---------------------------------------------------------
+  function popPct(v){ var n = Number(v); return v == null || v === '' || !isFinite(n) ? '—' : Math.round(n * 100) + '%'; }
+  function popSigned(v, d){ var n = Number(v); if (v == null || !isFinite(n)) return '—'; var s = n.toFixed(d == null ? 0 : d); return (n > 0 ? '+' : n < 0 ? '−' : '') + s.replace('-', '') + '%'; }
+  function popMoney(v){ var n = Number(v); return v == null || !isFinite(n) ? '—' : '$' + n.toFixed(2); }
+  function popCls(v){ var n = Number(v); return !isFinite(n) ? '' : n >= 0.55 ? 'sig-pos' : n < 0.45 ? 'sig-neg' : ''; }
+  // The plain-English "why" behind one stamp.
+  function popWhyHtml(s){
+    if (!s) return '<p class="hint">No chance was stated for this trade (it opened before the chance of profit started on 22 November 2026, or the switch was off).</p>';
+    var m = s.mod || null, out = [];
+    var wR = Number(s.w) || 0;
+    var head = '<p class="pop-line"><b>Our estimate: ' + popPct(s.p) + '</b> chance this trade closes with a gain. ';
+    if (s.m != null && s.r != null) head += 'It blends the market model (' + popPct(s.m) + ', weight ' + Math.round((1 - wR) * 100) + '%) with the track record (' + popPct(s.r) + ', weight ' + Math.round(wR * 100) + '%). The record’s weight is its trades counted (' + escapeHtml(String(s.rn)) + ') over that number plus 40, so it grows as the sample does.';
+    else if (s.m != null) head += 'It is the market model alone: there is no track record for this kind of trade yet.';
+    else if (s.r != null) head += 'It is the track record (' + popPct(s.r) + ' over ' + escapeHtml(String(s.rn)) + ' trades) pulled toward a coin flip, because the market model had no usable volatility.';
+    out.push(head + '</p>');
+    if (m){
+      if (m.none) out.push('<p class="pop-line"><b>Market model:</b> not run (' + escapeHtml(m.none) + ').</p>');
+      else {
+        var ex = [];
+        if (m.tp != null) ex.push('take-profit ' + popSigned(m.tp));
+        if (m.stop != null) ex.push('stop ' + popSigned(m.stop));
+        if (m.sStop != null) ex.push('stock stop ' + popMoney(m.sStop));
+        if (m.sTarget != null) ex.push('stock target ' + popMoney(m.sTarget));
+        ex.push('at most ' + m.sessions + ' session' + (m.sessions === 1 ? '' : 's') + (m.hw ? ' (' + escapeHtml(m.hw) + ')' : ''));
+        var basis = m.kind === 'shares' ? 'Shares: the result is the stock’s move less ' + (m.cost != null ? m.cost + '%' : 'the') + ' round-trip cost.'
+          : m.entryRatio > 1.0005 ? 'Bought at the ask (' + Math.round((m.entryRatio - 1) * 1000) / 10 + '% over the mid) and sold at the bid (' + Math.round((m.haircut || 0) * 1000) / 10 + '% under the mid), as the record books it.'
+          : 'Valued at the mid, as the record marks it.';
+        var o = m.out || {};
+        var ends = [];
+        if (o.tp) ends.push(popPct(o.tp) + ' reached the take-profit');
+        if (o.stop) ends.push(popPct(o.stop) + ' the stop');
+        if (o.sStop) ends.push(popPct(o.sStop) + ' the stock stop');
+        if (o.sTarget) ends.push(popPct(o.sTarget) + ' the stock target');
+        if (o.end) ends.push(popPct(o.end) + ' ran to the last session');
+        out.push('<p class="pop-line"><b>Market model: ' + popPct(s.m) + '.</b> ' + Number(m.paths || 0).toLocaleString('en-US') + ' simulated paths of the stock at ' + popPct(m.sigma) + ' a year (' + escapeHtml(m.from || 'volatility') + '), drifting at the risk-free rate, so no edge is assumed. Each path runs through this trade’s exits: ' + escapeHtml(ex.join(', ')) + '. ' + basis + '</p>');
+        if (ends.length) out.push('<p class="pop-line pop-sub">Of the paths, ' + escapeHtml(ends.join(', ')) + '. The model’s average result is ' + popSigned(m.avg, 1) + '.' + (m.held != null ? ' Held to expiry with no exits, the textbook chance of finishing past the ' + popMoney(m.be) + ' breakeven would be ' + popPct(m.held) + '.' : '') + '</p>');
+      }
+    }
+    var src = s.src || [];
+    if (src.length){
+      out.push('<p class="pop-line"><b>Track record: ' + popPct(s.r) + '.</b></p><ul class="pop-src">' + src.map(function(x){
+        return '<li>' + escapeHtml(x.label || x.id) + ': ' + popPct(x.p) + ' won over ' + Number(x.n).toLocaleString('en-US') + ' trade' + (x.n === 1 ? '' : 's') + (x.cap != null ? ' (counted as ' + x.cap + ', because the history test priced options from a model)' : '') + '</li>';
+      }).join('') + '</ul>');
+    } else out.push('<p class="pop-line"><b>Track record:</b> none yet for this kind of trade.</p>');
+    if (s.note) out.push('<p class="pop-line pop-sub">' + escapeHtml(s.note) + '</p>');
+    out.push('<p class="pop-line pop-sub">Set once when the trade opened and never changed. Not modeled: thesis, news and earnings exits, gaps inside a day, and any edge the setup really has (which is what the check below measures).' + (s.res ? ' Outcome: ' + (s.res.y === 1 ? 'closed with a gain' : s.res.y === 0 ? 'closed without a gain' : 'not counted') + (s.res.pnl != null ? ' (' + popSigned(s.res.pnl, 1) + ')' : '') + '.' : '') + '</p>');
+    return '<div class="pop-why">' + out.join('') + '</div>';
+  }
+  // A card line: the chance and a Why that opens in place.
+  function popChipHtml(t){
+    var s = t && t.pop;
+    if (!s || !HAS_OWNER_ACCESS) return '';
+    return '<details class="pop-chip"><summary><span class="pop-lbl">Chance of profit</span> <b class="' + popCls(s.p) + '">' + popPct(s.p) + '</b> <small>model ' + popPct(s.m) + ' · record ' + popPct(s.r) + '</small> <span class="pop-open">Why</span></summary>' + popWhyHtml(s) + '</details>';
+  }
+  // A table cell: the chance and the row's expand button (the why sits in the row's detail).
+  function popCellHtml(t, withExpand){
+    var s = t && t.pop;
+    if (!s) return '<span class="crd-dim">—</span>';
+    return (withExpand ? VIEWS.expandHtml('Why this chance') : '') + '<b class="' + popCls(s.p) + '" title="Model ' + popPct(s.m) + ', record ' + popPct(s.r) + '. Open the row for why.">' + popPct(s.p) + '</b>';
+  }
+  function popSortOf(t){ var v = Number(t && t.pop && t.pop.p); return t && t.pop && isFinite(v) ? v : null; }
+  var POP_TIP = 'Our stated chance, set when the trade opened, that it closes with a gain: a simulation at the option’s own implied volatility through the trade’s real exits, blended with how often the same kind of trade has won. Open the row for the inputs.';
+
+  // ---- The check ------------------------------------------------------------------
+  var POP_VERDICT = { good: 'Honest and useful', flat: 'Honest, no better than the base rate', over: 'Too high', under: 'Too low', uneven: 'Uneven', worse: 'Worse than the base rate', few: 'Too few closes yet' };
+  var POP_GROUP_NAMES = { 'top-picks': 'Top Picks', 'engine-options': 'Engine options', 'engine-shares': 'Engine shares', trials: 'Paper trial' };
+  function popCheckHtml(c){
+    if (!HAS_OWNER_ACCESS) return '';
+    if (!c) return '<details class="accuracy-advanced pop-check"><summary class="accuracy-advanced-summary">Chance of profit check <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body"><p class="hint">The check appears after the next 11:00 or 15:30 ET run.</p></div></details>';
+    var all = (c.groups || [])[0] || null, est = all && (all.methods || [])[0];
+    var kpis = '<div class="mm-kpis">' +
+      '<div class="mm-kpi"><span>Trades with a stated chance</span><b>' + (c.stamped || 0) + '</b></div>' +
+      '<div class="mm-kpi"><span>Closed and graded</span><b>' + (c.closed || 0) + '</b></div>' +
+      (est && est.n ? '<div class="mm-kpi"><span>Stated on average</span><b>' + popPct(est.stated) + '</b></div><div class="mm-kpi"><span>Closed with a gain</span><b>' + popPct(est.rate) + '</b></div>' : '') +
+    '</div>';
+    var rows = [];
+    (c.groups || []).forEach(function(g){
+      (g.methods || []).forEach(function(m, i){
+        rows.push('<tr' + (i === 0 ? ' class="pop-grp"' : '') + '><td>' + (i === 0 ? '<b>' + escapeHtml(g.label) + '</b> <small>' + g.closed + ' closed · ' + g.open + ' open</small>' : '') + '</td><td>' + escapeHtml(m.label) + '</td><td class="num">' + (m.n || 0) + '</td><td class="num">' + popPct(m.stated) + '</td><td class="num">' + popPct(m.rate) + '</td><td class="num">' + (m.skill == null ? '—' : (m.skill > 0 ? '+' : '') + Math.round(m.skill * 100) + '%') + '</td><td title="' + escapeHtml(m.read || '') + '">' + escapeHtml(POP_VERDICT[m.verdict] || m.verdict || '') + '</td></tr>');
+      });
+    });
+    var table = '<div class="acc-tscroll"><table class="acc-qtable pop-table" data-nosort><thead><tr><th>Trades</th><th>Method</th><th class="num">Closed</th><th class="num">Stated</th><th class="num">Won</th><th class="num" title="Brier skill against always saying the base rate: above zero means the stated chances beat it">Skill</th><th>Read</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+    var buckets = est && est.buckets ? '<h4 class="pd-h4">Every Webull trade: stated against won</h4><div class="acc-tscroll"><table class="acc-qtable pop-table" data-nosort><thead><tr><th>We said</th><th class="num">Closed</th><th class="num">Stated (avg)</th><th class="num">Won</th><th>Gap</th></tr></thead><tbody>' + est.buckets.map(function(b){
+      var gap = b.n && b.stated != null && b.won != null ? Math.round((b.won - b.stated) * 100) : null;
+      return '<tr><td>' + Math.round(b.lo * 100) + '–' + Math.round(b.hi * 100) + '%</td><td class="num">' + b.n + '</td><td class="num">' + (b.n ? popPct(b.stated) : '—') + '</td><td class="num">' + (b.n ? popPct(b.won) : '—') + '</td><td>' + (gap == null ? '' : vtCbarHtml(gap, 30, (gap > 0 ? '+' : gap < 0 ? '−' : '') + Math.abs(gap) + ' pts')) + '</td></tr>';
+    }).join('') + '</tbody></table></div>' : '';
+    var wb = c.webull && c.webull.n ? '<p class="hint">Against the Webull fills (' + c.webull.n + ' closed in the paper account): stated ' + popPct(c.webull.stated) + ', closed with a gain ' + popPct(c.webull.rate) + '. ' + escapeHtml(c.webull.read || '') + '</p>' : '<p class="hint">No closed Webull fill has a stated chance yet; the fills are graded here once they do.</p>';
+    var recent = (c.recent || []).length ? '<h4 class="pd-h4">Latest closes</h4><div class="acc-tscroll"><table class="acc-qtable pop-table" data-nosort><thead><tr><th>Trade</th><th>Made by</th><th class="num">Stated</th><th class="num">Model</th><th class="num">Record</th><th>Result</th><th>Webull</th></tr></thead><tbody>' + c.recent.slice(0, 20).map(function(r){
+      return '<tr><td><b>' + escapeHtml(r.sym || '') + '</b> ' + (r.g === 'engine-shares' ? 'shares' : escapeHtml(r.side || '')) + '</td><td>' + escapeHtml(r.eng ? (typeof engName === 'function' ? engName(r.eng) : r.eng) : 'Top Picks') + (r.g === 'trials' ? ' <small>trial</small>' : '') + '</td><td class="num">' + popPct(r.p) + '</td><td class="num">' + popPct(r.m) + '</td><td class="num">' + popPct(r.r) + '</td><td>' + (r.y === 1 ? '<span class="sig-pos">Gain ' + popSigned(r.pnl, 1) + '</span>' : r.y === 0 ? '<span class="sig-neg">No gain ' + popSigned(r.pnl, 1) + '</span>' : '<span class="crd-dim">Not counted</span>') + '</td><td>' + (r.wy === 1 ? 'Gain' : r.wy === 0 ? 'No gain' : '<span class="crd-dim">—</span>') + '</td></tr>';
+    }).join('') + '</tbody></table></div>' : '';
+    var off = c.enabled === false ? '<p class="hint">The switch is off in Owner Settings (Research, Chance of profit on Webull trades): new trades get no chance; the ones already stated are still graded.</p>' : '';
+    return '<details class="accuracy-advanced pop-check" id="open-picks-pop"' + (VIEWS.get('open-picks.pop', true) ? ' open' : '') + ' data-pop-check><summary class="accuracy-advanced-summary">Chance of profit check <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body">' +
+      off + kpis +
+      '<p class="hint">' + escapeHtml((c.method && c.method.text) || '') + ' A verdict needs ' + (c.minN || 30) + ' closes; skill above zero means the stated chances beat always saying the base rate.</p>' +
+      table + buckets + wb + recent +
+      '<p class="hint">The same chances are graded in Quant labs, Calibration, next to every other chance the site states.</p>' +
+    '</div></details>';
+  }
+  document.addEventListener('toggle', function(e){
+    var d = e.target;
+    if (d && d.hasAttribute && d.hasAttribute('data-pop-check')) VIEWS.set('open-picks.pop', !!d.open);
+  }, true);
 
 function calendarSourceLabel(key) {
   const labels = { bls: 'BLS', bea: 'BEA', 'kc-fed-jackson-hole': 'Kansas City Fed · Jackson Hole' };
@@ -63410,6 +63517,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '</div>' +
       accEventPlayLine(e) +
       oddsLineHtml(oddsLookup(oddsTableNow(), e.symbol, e.side), false) +
+      popChipHtml(e) +
       (accRangeBarHtml(e) || (targets ? '<div class="acc-targets">' + targets + '</div>' : '')) +
       accStrategyBlock(e, false) +
       accCheckpointsBlock(e) +
@@ -63843,13 +63951,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Entry', num: true, title: 'Entry premium per share (the credit received for a credit spread)', cell: function(o){ return money(accBasisPerShare(o.contract)); }, sort: function(o){ var v = Number(accBasisPerShare(o.contract)); return isFinite(v) ? v : null; } },
       { label: 'Mark', num: true, title: 'Latest model price per share, from the entry price and the marked P&L (for a credit spread, the cost to buy it back)', cell: function(o){ return money(openPickMark(o)); }, sort: openPickMark },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
+      { label: 'Chance', num: true, title: POP_TIP, cell: function(o){ return popCellHtml(o, HAS_OWNER_ACCESS); }, sort: popSortOf },
       { label: 'Webull', title: typeof OP_WB_TIP === 'string' ? OP_WB_TIP : 'What the Webull paper account did with this trade', cell: function(o){ return typeof opWebullHtml === 'function' ? opWebullHtml(tlTradeId(o)) : ''; }, sort: function(o){ return typeof opWebullSort === 'function' ? opWebullSort(tlTradeId(o)) : null; } },
       { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },
       { label: 'Conviction', cell: function(o){ return escapeHtml(o.conviction || o.label || ''); }, sort: function(o){ var v = Number(o.score); return isFinite(v) ? Math.abs(v) : null; } }
     ];
     // Owner trade journal: the trade and ticker notes open under each row.
-    var detail = HAS_OWNER_ACCESS ? function(o){ return '<div class="acc-notes">' + accNoteBoxHtml('trade', accNoteTradeId(o)) + accNoteBoxHtml('ticker', o.symbol) + '</div>'; } : null;
+    // The chance of profit's "why" opens in the same row detail (lib/trade-pop.mjs).
+    var detail = HAS_OWNER_ACCESS ? function(o){ return (o.pop ? popWhyHtml(o.pop) : '') + '<div class="acc-notes">' + accNoteBoxHtml('trade', accNoteTradeId(o)) + accNoteBoxHtml('ticker', o.symbol) + '</div>'; } : null;
     return VIEWS.tableHtml(cols, items, { key: 'open-picks-table', empty: 'No open trades.', detail: detail });
   }
   function openPicksControlsHtml(sortKey){
@@ -63868,6 +63978,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     VIEWS.onFlip('open-picks', renderOpenPicks);
     VIEWS.onView('open-picks', renderOpenPicks);
+  }
+  // The chance of profit check (Owner): engines.json carries it as popCheck.
+  function popCheckOpenHtml(){
+    if (!HAS_OWNER_ACCESS || typeof engState === 'undefined') return '';
+    if (!engState.data) return '';
+    return popCheckHtml(engState.data.popCheck || null);
   }
   function renderOpenPicks(){
     var root = $('open-picks-root'); if (!root) return;
@@ -63906,13 +64022,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg Top Picks mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open Top Picks trades (unrealized).' } : null,
     ]);
     if (!open.length){
-      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + popCheckOpenHtml() + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
       openPicksRunHealth(root, d);
       return;
     }
     loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
-    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + popCheckOpenHtml() + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
     // Strategy engines: a note when a Top Picks trade and an engine trade are on the exact same contract.
     var engNote = typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '';
     if (engNote){ var engAfter = root.querySelector('.book-risk'); if (engAfter) engAfter.insertAdjacentHTML('afterend', engNote); else root.insertAdjacentHTML('afterbegin', engNote); }
