@@ -196,7 +196,8 @@ async function fetchOptionsWithRetry(symbol, opts) {
 // Where the last print sat against the quote (ask/abv/mid/blw/bid) now comes
 // from lib/flow-direction.mjs (tapeTag): compared in whole cents, so a print at
 // the bid on a 1-cent-wide market is no longer tagged "ask". A last trade more
-// than 15 minutes older than the scan is not tagged at all (tapeStale).
+// than 15 minutes older than the feed's own clock (the scan less Yahoo's
+// ~15-minute delay, capped at the close) is not tagged at all (tapeStale).
 
 // Calendar days from the scan's ET date to the expiration date. Yahoo's
 // expiration epoch is 00:00 UTC of the expiry date, i.e. the evening BEFORE

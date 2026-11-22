@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buyoutQuoteMatches, classifyPendingBuyoutStage, enrichConfirmedBuyouts, normalizeBuyoutRumors, parsePendingBuyoutTable } from "./build.mjs";
+import { buyoutQuoteMatches, buyoutSpreadRead, classifyPendingBuyoutStage, enrichConfirmedBuyouts, normalizeBuyoutRumors, parsePendingBuyoutTable } from "./build.mjs";
 
 const confirmedHtml = `
   <table><tbody><tr>
@@ -108,5 +108,33 @@ assert.equal(zim.currency, "USD");
 assert.equal(zim.estimatedEquityValue, Math.round(3373347840 * (35 / 27.96)));
 assert.equal(vau.currency, null, "no quote at all: currency unknown, not USD");
 assert.equal(vau.targetPrice, 5.84);
+
+// The spread and the yearly figure are worked out from the price and date
+// shown, not copied from the source table (ZIM's 27.3% spread came from an
+// older price; deals past their guided close showed a yearly figure).
+assert.equal(zim.grossSpreadPct, Math.round((35 / 27.96 - 1) * 10000) / 100, "spread from the shown price");
+assert.equal(zim.sourceSpreadPct, 27.3, "the table's own spread is kept beside it");
+const past = buyoutSpreadRead({ price: 18.2, consideration: 20, closeAt: "2026-11-10", todayKey: "2026-11-22" });
+assert.equal(past.pastGuidedClose, true);
+assert.equal(past.annualizedSpreadPct, null, "no yearly figure past the guided close");
+assert.equal(past.daysLeft, -12);
+const soon = buyoutSpreadRead({ price: 18.2, consideration: 20, closeAt: "2026-12-02", todayKey: "2026-11-22" });
+assert.equal(soon.daysLeft, 10);
+assert.equal(soon.annualizedSpreadPct, Math.round(9.89 * 365 / 10 * 10) / 10);
+assert.equal(soon.annualizedFlag, true, "a short window blows the yearly figure up; flag it");
+const calm = buyoutSpreadRead({ price: 19.6, consideration: 20, closeAt: "2027-05-22", todayKey: "2026-11-22" });
+assert.equal(calm.annualizedFlag, false);
+const noDate = buyoutSpreadRead({ price: 19.6, consideration: 20, closeAt: null, todayKey: "2026-11-22", fallbackDays: 30 });
+assert.equal(noDate.daysLeft, 30, "no close date: the table's days count");
+const [stockDeal] = enrichConfirmedBuyouts(
+  [{ targetTicker: "STK", dealType: "stock", targetPrice: 40, considerationPerShare: 44, expectedCloseAt: "2027-03-01" }],
+  { STK: { symbol: "STK", price: 41, marketCap: 4.1e9, currency: "USD" } },
+  "2026-11-22T15:00:00Z",
+);
+assert.equal(stockDeal.targetPrice, 40, "stock deal: the offer and the price come from the same table row");
+assert.equal(stockDeal.priceBasis, "deal-table");
+assert.equal(stockDeal.marketPrice, 41);
+assert.equal(stockDeal.grossSpreadPct, 10);
+assert.equal(stockDeal.estimatedEquityValue, Math.round(4.1e9 * (44 / 41)), "equity value uses the market price with the market cap");
 
 console.log("pending-buyouts smoke: ok");

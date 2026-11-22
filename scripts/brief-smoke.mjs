@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { collectBriefSiteTools, briefUserMessage } from "./build.mjs";
+import { collectBriefSiteTools, briefUserMessage, briefClause, briefTakeNoMoves, pmNamesOneMeeting } from "./build.mjs";
 
 const nowIso = new Date().toISOString();
 const scan = await collectBriefSiteTools({
@@ -108,5 +108,17 @@ const closing = await collectBriefSiteTools({
 const heatFact = closing.facts.find((row) => row.source === "Heatmap")?.text || "";
 assert.match(heatFact, /cap-weighted \+1\.53%/);
 assert.equal((heatFact.match(/cap-weighted/gi) || []).length, 1, "cap-weighted move is stated once");
+
+// Headline cuts skip abbreviations; watchlist notes never quote an old move
+// from a cached news take (2026-11-22: AMD "nearly 8%" on a -13% day).
+assert.equal(briefClause("The U.S. Commerce Department widened chip export curbs. Shares fell."), "The U.S. Commerce Department widened chip export curbs");
+assert.equal(briefClause("Nvidia Corp. said demand stays strong; guidance raised"), "Nvidia Corp. said demand stays strong");
+assert.equal(briefTakeNoMoves("AMD shares rose nearly 8% after the deal. The company expects data center demand to keep growing."), "The company expects data center demand to keep growing.");
+assert.equal(briefTakeNoMoves("AMD fell 13 percent today on guidance."), null);
+// A two-meeting Polymarket event never fills one meeting's row.
+assert.equal(pmNamesOneMeeting({ title: "Fed decision in March?", slug: "fed-decision-in-march-2027" }, "march"), true);
+assert.equal(pmNamesOneMeeting({ title: "Fed decisions Dec - Mar", slug: "fed-decisions-dec-mar" }, "march"), false);
+assert.equal(pmNamesOneMeeting({ title: "How many Fed cuts between December and March?" }, "december"), false);
+assert.equal(pmNamesOneMeeting({ title: "What may the Fed do in March?" }, "may"), false, "may the verb is not May");
 
 console.log("brief cross-tool coverage smoke: ok");

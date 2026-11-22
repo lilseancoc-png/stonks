@@ -41,7 +41,7 @@ import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { TICKERS } from "./build.mjs";
 import { expiryCloseEpochSec } from "../lib/greeks.mjs";
-import { concentratedNearMoneyCall } from "../lib/gamma-squeeze.mjs";
+import { concentratedNearMoneyCall, oiWall } from "../lib/gamma-squeeze.mjs";
 import { previousDaySnapshot } from "../lib/oi-baseline.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -476,15 +476,8 @@ function pickTopStrikes(contracts) {
     .slice(0, TOP_STRIKES);
 }
 
-// Find the highest-OI strike for one side.
-function highestOi(contracts, side) {
-  let best = null;
-  for (const c of contracts) {
-    if (c.side !== side) continue;
-    if (!best || c.oi > best.oi) best = c;
-  }
-  return best;
-}
+// Call / put walls: the largest OI on the right side of the price
+// (oiWall in lib/gamma-squeeze.mjs, since 2026-11-22).
 
 // Sum OI on one side across the full short-dated chain.
 function sumOi(contracts, side) {
@@ -642,8 +635,8 @@ async function main() {
         }
       }
 
-      const callWall = highestOi(decorated, "call");
-      const putWall = highestOi(decorated, "put");
+      const callWall = oiWall(decorated, "call", result.spot);
+      const putWall = oiWall(decorated, "put", result.spot);
       const callOiTotal = sumOi(decorated, "call");
       const putOiTotal = sumOi(decorated, "put");
       const cpRatio = putOiTotal > 0 ? callOiTotal / putOiTotal : (callOiTotal > 0 ? Infinity : 0);

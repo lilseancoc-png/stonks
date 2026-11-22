@@ -50,9 +50,27 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- The strategy engines read today's VIX (and its 3-month term) on the run day instead of the prior close, so a sell-off that started that morning reaches their market read (Nov 20: 28.4 at the prior close against 35.9 live). Owner Settings switch "Engines read today's VIX, not the prior close" (`ENGINES_LIVE_VIX`, on); the history test keeps the prior close. No AI cost.
+- Anthropic (ANT) leaves the covered list until its options list (owner decision): with no option chain it had no grade, engine read or forecast. It stays on the wide heat map, and its labels stay for when it comes back. The AI disruption tracker keeps Anthropic as a lab with no stock ticker until then.
+- The LEAPS page says it is research only for now: no contracts, no trades and no paper record yet.
+- The pre-market follow-through card calls it "Defensive rotation" (not "Selective risk-on") when the leaders that hold up are mostly defensive names (retail, health care) while the laggards keep falling.
+- The Market odds card names the close it reads in its title and says when it is a session or more behind.
+- On weekends and outside trading hours a held Top Pick says the market is closed and shows the last session's review, instead of "stale or unavailable".
+
 - The strategy engines' Reversion engine no longer buys a washout bounce or an RSI(2) dip while VIX is under 30 and either rate hikes are priced (2-year yield 0.5+ points over fed funds) or the market is grinding lower (SPY under its 50-day with more than 60% of covered names under theirs); a panic (VIX 30+) still trades. Owner Settings switch `ENGINES_BOUNCE_SKIP` (on), logged as Reversion rules 11; a skipped washout bounce is tracked as a shadow trade. On the backtest bench the book's total is unchanged (+$835K over 2007-2026) with a smaller worst drop (-$52K against -$64K) and better trades kept (bounce calls +12.2% a trade against +9.1%). No AI cost, no new download; changes no Top Pick.
 
 - The strategy engines' rate-hike pause (`ENGINES_HIKE_PAUSE`) is now off by default (owner decision): the signal engines no longer hold back new tech and index-fund longs while hikes are priced and QQQ is under its 200-day. Owner Settings can still turn it on. The $4,000 ceiling on one Downside put stays. No AI cost.
+
+### Fixed
+
+- Fix the signed option flow: almost every flagged trade (68 of 69 on Nov 20) read as stale because the 15-minute check ignored Yahoo's 15-minute data delay, so the grade's flow vote and the Flow engine saw no buy or sell sides. Prints are now measured against the feed's own clock; new trades carry flow scan version `2026-11-22` (Track Record divider).
+- Fix the OI tracker's walls: the call wall is now the largest open interest at or above the price and the put wall at or below it (AMD's call wall read 240 with the stock near 200).
+- Fix Pending buyouts: the spread and the yearly figure are worked out from the price and close date shown, as a simple (not compounded) rate; a figure over 100% a year is marked "check", and a deal past its guided close shows "past close" with no yearly figure (UNF read 2,167% a year). The Brief no longer leads with a deal past its close date.
+- Fix the Brief: a watchlist note no longer quotes an old move from a cached news take (AMD "nearly 8%" on a -13% day), and a headline is no longer cut at "U.S.".
+- Fix the Calendar: a Polymarket market that covers two Fed meetings (Dec to Mar) no longer fills a single meeting's row.
+- Fix the Kalshi S&P 500 read: when an open-ended range holds most of the odds it says "below X" (or "above X") instead of a made-up mean (it showed 7,261 with 98.5% of the odds at or below 7,225 and the S&P near 6,940).
+- Fix the NBA research capture on busy slates: a game's record may now be 32 MB raw / 4 MB packed (two Nov 21 captures stopped at the old 16 MB / 2 MB limit; the props were recorded either way).
+- Fix the MCP ticker filter: rows that name their stock as `t` (heat map, pre-market movers, wide tier) now match.
 
 ## 2026-11-21
 

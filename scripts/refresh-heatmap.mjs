@@ -25,7 +25,7 @@ import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
-import { TICKERS, computeSectorRotation } from "./build.mjs";
+import { TICKERS, SECTORS, computeSectorRotation } from "./build.mjs";
 import { cumFracExpected, etMinutesSinceOpen } from "../lib/volume-flags.mjs";
 import { updatePremarketMovers } from "../lib/premarket-movers.mjs";
 import { refreshWideIntraday, wideSymbols, unusualSymbols, WIDE_TIER_KEY } from "../lib/wide-tier.mjs";
@@ -450,6 +450,7 @@ async function main() {
     date: todayEt,
     capturedAtIso: builtAtIso,
     marketState,
+    sectorOf: (sym) => SECTORS[sym] || null,
   });
   const marketAnalysisPayload = {
     ...(priorMarketAnalysis && typeof priorMarketAnalysis === "object"

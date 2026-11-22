@@ -1,6 +1,6 @@
 // Premarket leaders follow-through labels (lib/premarket-movers.mjs).
 import assert from "node:assert/strict";
-import { updatePremarketMovers } from "../lib/premarket-movers.mjs";
+import { updatePremarketMovers, summarizePremarketMovers } from "../lib/premarket-movers.mjs";
 
 const rows = ["AAA", "BBB", "CCC", "DDD"].map((t) => ({ t, n: t }));
 const pre = (price) => ({ marketState: "PRE", preMarketPrice: price, regularMarketPreviousClose: 100 });
@@ -37,4 +37,17 @@ const realOpen = updatePremarketMovers({
   quotes: { AAA: { marketState: "POST", regularMarketPrice: 835.06, regularMarketPreviousClose: 806.43 } },
 });
 assert.equal(realOpen.gainers.find((r) => r.t === "AAA")?.currentPct, 3.55, "the close is marked against the same last close");
+// Defensive leaders holding while the laggards keep falling is a rotation
+// into safety, not selective risk-on (2026-11-20: UNH, COST, HD, WMT held
+// while tech fell).
+const row = (t, s, prePct, currentPct, status) => ({ t, s, prePct, currentPct, status, stale: false });
+const defensive = summarizePremarketMovers(
+  [row("UNH", "Insurance", 2, 2.4, "held"), row("COST", "Retail", 1.5, 1.6, "held"), row("HD", "Retail", 1.2, 1.3, "held")],
+  [row("NVDA", "Semis", -2, -3, "worsened"), row("AMD", "Semis", -3, -4, "worsened")], "REGULAR");
+assert.equal(defensive.state, "defensive-rotation");
+assert.equal(defensive.tone, "risk-off");
+const growth = summarizePremarketMovers(
+  [row("NVDA", "Semis", 2, 2.4, "held"), row("META", "Mega-cap tech", 1.5, 1.6, "held"), row("HD", "Retail", 1.2, 1.3, "held")],
+  [row("UNH", "Insurance", -2, -3, "worsened"), row("PFE", "Pharma", -3, -4, "worsened")], "REGULAR");
+assert.equal(growth.state, "selective-risk-on", "growth leaders holding stays selective risk-on");
 console.log("premarket-movers smoke ok");

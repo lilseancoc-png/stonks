@@ -445,6 +445,17 @@ export function renderQuantLabsJs() {
 
   // ---- "Market odds" card on the Bottom tracker and Risk analysis -------------
   // Context only: it votes on nothing and changes no verdict on either page.
+  // Completed sessions since the card's close: today counts once it is past
+  // 16:00 ET, so a Friday read on a Saturday is current and a Thursday read
+  // on Friday evening is one session behind.
+  function qlSessionsBehind(asOf){
+    if (!asOf || !/^\\d{4}-\\d{2}-\\d{2}/.test(String(asOf))) return null;
+    var gap = marketSessionGap(String(asOf).slice(0, 10) + 'T21:00:00Z');
+    if (gap == null) return null;
+    var et = etNowParts();
+    if (gap > 0 && et && et.hour < 16 && isMarketSessionDay(new Date(et.dateKey + 'T12:00:00Z'))) gap--;
+    return gap;
+  }
   function qlCardHtml(d){
     var c = d && d.card;
     if (!c || !c.fall || !c.fall.length) return '';
@@ -455,7 +466,10 @@ export function renderQuantLabsJs() {
     var chip = function(t, label){ return t ? '<span class="ql-chip' + (t.status !== 'working' ? ' ql-chip-weak" title="No proven skill on held-out history; a rough guide only' : '') + '"><span>' + label + '</span><b>' + qlFrac(t.p) + '</b><small>normal ' + qlFrac(t.base) + (t.status !== 'working' ? ' · rough' : '') + '</small></span>' : ''; };
     var rec = (c.recovery || []).map(function(t){ return chip(t, escapeHtml(t.label)); }).join('');
     var weak = head.status !== 'working';
-    return '<div class="ql-card"><span class="ql-kicker">Context, not a vote · Market odds</span>' +
+    var behind = qlSessionsBehind(c.asOf);
+    var asOfTag = c.asOf ? ' · ' + escapeHtml(evbDate(c.asOf)) + ' close' : '';
+    var behindNote = behind > 0 ? '<p class="ql-card-note"><span class="ql-warn-inline">' + behind + ' session' + (behind === 1 ? '' : 's') + ' behind: the market has closed since this read, so these chances do not include the latest moves.</span></p>' : '';
+    return '<div class="ql-card"><span class="ql-kicker">Context, not a vote · Market odds' + asOfTag + '</span>' + behindNote +
       '<p class="ql-card-lead">' + qlHeadline(head) + (weak ? ' <span class="ql-warn-inline">This model has not shown skill on held-out history; treat it as a rough guide.</span>' : '') + '</p>' +
       '<div class="ql-chips">' + chip(by.fall10_3m, 'Within 3 months') + chip(by.fall10_12m, 'Within 12 months') + chip(by.fall20_12m, '20%+ within 12 months') + '</div>' +
       (rec ? '<div class="ql-chips"><span class="ql-chips-lbl">Inside this decline</span>' + rec + '</div>' : '') +

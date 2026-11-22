@@ -217,7 +217,8 @@ export function renderCrowdJs() {
         var isBest = dist.mostLikely && b.floor === dist.mostLikely.floor && b.cap === dist.mostLikely.cap;
         return '<div class="crd-dist-row' + (isBest ? ' is-best' : '') + '"><span class="crd-dist-label">' + escapeHtml(label) + '</span><span class="crd-dist-bar"><i style="width:' + (b.prob / max * 100).toFixed(1) + '%"></i></span><span class="crd-dist-p">' + Math.round(b.prob * 100) + '%</span></div>';
       }).join('') + '</div>' +
-      '<p class="crd-fact">Market-implied mean <b>' + crowdInt(dist.impliedMean) + '</b>' + (dist.band80 ? '; 80% of the priced probability sits between ' + crowdInt(dist.band80[0]) + ' and ' + crowdInt(dist.band80[1]) : '') + (dist.overround ? '; prices sum to ' + Math.round(dist.overround * 100) + '% before scaling' : '') + '.</p>';
+      (dist.tail ? '<p class="crd-fact">' + Math.round(dist.tail.prob * 100) + '% of the priced odds sit ' + (dist.tail.side === 'below' ? 'at or below ' : 'at or above ') + '<b>' + crowdInt(dist.tail.level) + '</b>, the edge of the ladder, so there is no fair mean to show.</p>' :
+      '<p class="crd-fact">Market-implied mean <b>' + crowdInt(dist.impliedMean) + '</b>' + (dist.band80 ? '; 80% of the priced probability sits between ' + crowdInt(dist.band80[0]) + ' and ' + crowdInt(dist.band80[1]) : '') + (dist.overround ? '; prices sum to ' + Math.round(dist.overround * 100) + '% before scaling' : '') + '.</p>');
     } else if (def.kind === 'binary'){
       var bp = ev.binary && ev.binary.prob;
       body = bp != null ? '<div class="crd-ladder"><div class="crd-dist-row"><span class="crd-dist-label">' + escapeHtml(ev.binary.title || 'Yes') + '</span><span class="crd-dist-bar"><i style="width:' + (bp * 100).toFixed(1) + '%"></i></span><span class="crd-dist-p">' + Math.round(bp * 100) + '%</span></div></div>' : crowdEmpty('No price yet.');
@@ -301,6 +302,7 @@ export function renderCrowdJs() {
     var inxDay = '';
     try { inxDay = inxEv && inxEv.closeTime ? new Date(inxEv.closeTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : ''; } catch (e) { inxDay = ''; }
     if (inx && inx.impliedMean != null) k.push(['Kalshi S&P close' + (inxDay ? ' ' + inxDay : '') + ', implied mean', crowdInt(inx.impliedMean)]);
+    else if (inx && inx.tail) k.push(['Kalshi S&P close' + (inxDay ? ' ' + inxDay : ''), (inx.tail.side === 'below' ? 'below ' : 'above ') + crowdInt(inx.tail.level) + ' <small class="crd-dim">' + Math.round(inx.tail.prob * 100) + '%</small>']);
     if (rd) k.push(['Most mentioned on Reddit', (rd.tracked ? vnSym(rd.symbol) : escapeHtml(rd.symbol)) + ' <small class="crd-dim">' + crowdInt(rd.mentions) + '</small>']);
     return k.length ? '<div class="mm-kpis">' + k.map(function(x){ return '<div class="mm-kpi"><span>' + escapeHtml(x[0]) + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>' : '';
   }

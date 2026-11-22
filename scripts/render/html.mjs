@@ -481,7 +481,7 @@ export function topPicksSection() {
 function leapsSection() {
   return `<section class="card" id="leaps-section">
     <header class="card-header">
-      <div class="picks-heading"><span class="picks-kicker">Owner research</span><h2 class="card-title">LEAPS</h2><p class="picks-intro">A stock research shortlist. Entry readiness is separate from qualification.</p></div>
+      <div class="picks-heading"><span class="picks-kicker">Owner research</span><h2 class="card-title">LEAPS</h2><p class="picks-intro">A stock research shortlist. Entry readiness is separate from qualification.</p><p class="picks-intro leaps-research-only"><b>Research only for now.</b> This desk picks no contracts, places no trades and keeps no paper record yet, so nothing here has a track record behind it.</p></div>
       <span class="card-eyebrow" id="leaps-eyebrow" aria-live="polite"></span>
       <span class="idea-record-slot" id="leaps-record-chip"></span>
     </header>

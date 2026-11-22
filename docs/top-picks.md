@@ -1967,7 +1967,9 @@ read:
 - **Tag** (scanner, always on): the last print against the bid and ask in whole
   cents; at or past the ask = bought, at or past the bid = sold, within 5% of
   the spread of the midpoint = no side. A last trade more than 15 minutes older
-  than the scan (or the 16:00 ET close) gets no tag (`tapeStale`).
+  than the feed's own clock (the scan less Yahoo's ~15-minute delay, capped at
+  the 16:00 ET close; `FEED_DELAY_MS`, since 2026-11-22) gets no tag
+  (`tapeStale`). Before that fix the scan clock marked about 99% of prints stale.
 - **Sign**: call bought +1, call sold −1, put bought −1, put sold +1.
 - **Weight**: delta dollars (contracts × |delta| × 100 × spot), delta from the
   contract's own IV. Same-day expiries and contracts under $0.10 are left out.

@@ -33,12 +33,22 @@ ok("sign: call bought +1, call sold -1, put bought -1, put sold +1, midpoint 0",
   assert.equal(flowSign("put", "ask"), -1); assert.equal(flowSign("put", "bid"), 1);
   assert.equal(flowSign("call", "mid"), 0); assert.equal(flowSign("call", null), 0);
 });
-ok("stale: a last trade 15+ minutes before the scan (or the close) can't be read", () => {
+ok("stale: a last trade 15+ minutes before the feed's own clock (scan - 15 min, or the close) can't be read", () => {
   const scan = Date.parse("2026-11-16T16:00:00Z"); // 11:00 ET
   assert.equal(stalePrint(new Date(scan - 5 * 60000), scan), false);
-  assert.equal(stalePrint(new Date(scan - 20 * 60000), scan), true);
+  // Yahoo's ~15-minute delay: a print 16-29 minutes before the scan is the
+  // freshest the feed can show, not stale (68 of 69 were wrongly dropped on Nov 20).
+  assert.equal(stalePrint(new Date(scan - 16.5 * 60000), scan), false);
+  assert.equal(stalePrint(new Date(scan - 29 * 60000), scan), false);
+  assert.equal(stalePrint(new Date(scan - 31 * 60000), scan), true);
   assert.equal(stalePrint(null, scan), false);
-  assert.equal(stalePrint((scan - 20 * 60000) / 1000, scan), true); // epoch seconds
+  assert.equal(stalePrint((scan - 31 * 60000) / 1000, scan), true); // epoch seconds
+  // Nov 20 15:00 ET scan: NVDA 132C last traded 19:45:32 UTC, scan 20:00:52 UTC.
+  assert.equal(stalePrint(Date.parse("2026-11-20T19:45:32Z"), Date.parse("2026-11-20T20:00:52Z")), false);
+  // Post-close scan 21:00:53 UTC: a 20:44:20 print sits right at the feed's close.
+  assert.equal(stalePrint(Date.parse("2026-11-20T20:44:20Z"), Date.parse("2026-11-20T21:00:53Z")), false);
+  // A 2-hour-old print in a quiet chain is still stale.
+  assert.equal(stalePrint(Date.parse("2026-11-20T17:44:15Z"), Date.parse("2026-11-20T20:00:52Z")), true);
   // A 16:05 ET scan reads a 15:58 ET print against the 16:00 close.
   const close = etCloseMs(Date.parse("2026-11-16T21:05:00Z"));
   assert.equal(new Date(close).toISOString(), "2026-11-16T21:00:00.000Z");

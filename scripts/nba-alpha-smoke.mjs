@@ -214,7 +214,8 @@ objects.set(inputKey, originalInput);
 assert.notEqual(saved.points[0].picks[0].market.probability, saved.points[1].picks[0].market.probability);
 const exported = await exportNBAResearch({ store, season: 2026, gameId: game.game_id });
 const exportedData = JSON.parse(gunzipSync(exported)); assert.equal(exportedData.research.points.length, 2);
-assert.throws(() => encodeNBAResearch({ too_big: 'x'.repeat(16 * 1024 * 1024) }), (e) => e.status === 413);
+assert.throws(() => encodeNBAResearch({ too_big: 'x'.repeat(32 * 1024 * 1024) }), (e) => e.status === 413);
+assert.doesNotThrow(() => encodeNBAResearch({ busy_slate: 'x'.repeat(17 * 1024 * 1024) }), 'a 17 MB game record (Nov 21 slate) now fits');
 // An interrupted index write is repaired from the self-contained game object,
 // even if the game starts before the next collector gets to it.
 const clone = new Map(objects), indexKey = sportsKey('nba-research-index', { sport: 'nba', season: 2026 });
