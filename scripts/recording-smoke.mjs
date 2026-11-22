@@ -8,7 +8,7 @@ import {
   AUCTION_TRAIL_N, COUPON_TYPES, TREASURY_AUCTIONS_KEEP, TREASURY_AUCTIONS_KEY,
   emptyTreasuryAuctions, parseTreasuryAuctionRows, parseTreasuryAuctions, summarizeTreasuryAuctions,
   termSortKey, treasuryAuctionsFetchedToday, treasuryAuctionsUrl, upsertTreasuryAuctions,
-  newestTreasuryResultDate, parseTreasuryDirectRows, treasuryDirectNeeded, treasuryDirectUrl,
+  newestTreasuryResultDate, parseTreasuryDirectRows, treasuryDirectNeeded, treasuryDirectUrl, treasuryFallbackDue, canonicalTerm,
 } from "../lib/treasury-auctions.mjs";
 import { chainPutCallTotals, impliedBorrowRate } from "../lib/market-structure.mjs";
 import { CREDIT_RATIO_PAIRS, buildCreditRatios } from "../lib/historical-data.mjs";
@@ -76,7 +76,7 @@ const tipsRows = parseTreasuryAuctionRows({ data: [
 ] });
 ok("TIPS and FRN typed from their flags", tipsRows[0].type === "TIPS" && tipsRows[1].type === "Note" && tipsRows[2].type === "FRN");
 const tipsSm = summarizeTreasuryAuctions(upsertTreasuryAuctions(null, tipsRows), { today: "2026-11-17" });
-const nominal10 = tipsSm.byTerm.find((t) => t.term === "9-Year 10-Month" && t.type === "Note");
+const nominal10 = tipsSm.byTerm.find((t) => t.term === "10-Year" && t.type === "Note");
 ok("TIPS not pooled with the nominal note", tipsSm.byTerm.length === 3 && nominal10 && nominal10.yieldChange == null && nominal10.trailN === 0);
 ok("stalled feed flagged from the newest coupon result", tipsSm.couponAsOf === "2026-10-07" && tipsSm.couponAgeDays === 41 && tipsSm.couponStale === true);
 ok("url carries the TIPS / FRN flags and a coupon filter", /inflation_index_security/.test(treasuryAuctionsUrl("2024-11-18", { couponsOnly: true })) && /security_type%3Ain%3A%28Note%2CBond%29/.test(treasuryAuctionsUrl("2024-11-18", { couponsOnly: true })));
@@ -108,6 +108,20 @@ ok("fallback needed when results are 5+ days behind", treasuryDirectNeeded(stale
 ok("fallback needed with no results; not with a bad date", treasuryDirectNeeded({ auctions: [] }, "2026-11-20") && !treasuryDirectNeeded(staleFiscal, "x"));
 const filled = upsertTreasuryAuctions(upsertTreasuryAuctions(null, [{ ...tdRows[1], pending: true, btc: null, yield: null }]), tdRows, { fetchedDate: "2026-11-20" });
 ok("fallback result replaces the pending Fiscal Data row", filled.auctions.find((a) => a.cusip === "912797AA1").btc === 2.9);
+// Same-day fallback (2026-11-22): runs once when stale even after the daily
+// Fiscal read; a failed try is remembered for the day.
+ok("fallback due when stale and not read today", treasuryFallbackDue({ ...staleFiscal, fetchedDate: "2026-11-20" }, "2026-11-20"));
+ok("fallback not due once used or tried today", !treasuryFallbackDue({ ...staleFiscal, fallback: { usedOn: "2026-11-20" } }, "2026-11-20") && !treasuryFallbackDue({ ...staleFiscal, fallbackTriedOn: "2026-11-20" }, "2026-11-20") && treasuryFallbackDue({ ...staleFiscal, fallbackTriedOn: "2026-11-19" }, "2026-11-20"));
+ok("fallback not due when results are fresh", !treasuryFallbackDue({ auctions: [{ cusip: "A", date: "2026-11-19", btc: 2.5 }] }, "2026-11-20"));
+ok("fallback try date survives a read", parseTreasuryAuctions(JSON.stringify({ ...emptyTreasuryAuctions(), fallbackTriedOn: "2026-11-20" })).fallbackTriedOn === "2026-11-20");
+// Reopenings group with their original term (2026-11-22: 23 one-auction groups).
+ok("canonical terms", canonicalTerm("9-Year 10-Month") === "10-Year" && canonicalTerm("29-Year 11-Month") === "30-Year" && canonicalTerm("19-Year 11-Month") === "20-Year" && canonicalTerm("1-Year 10-Month") === "2-Year" && canonicalTerm("10-Year") === "10-Year" && canonicalTerm("4-Week") === "4-Week");
+const reopenSm = summarizeTreasuryAuctions(upsertTreasuryAuctions(null, [
+  { cusip: "N30", date: "2026-08-13", type: "Bond", term: "30-Year", btc: 2.4, yield: 4.9 },
+  { cusip: "N30", date: "2026-09-11", type: "Bond", term: "29-Year 11-Month", btc: 2.5, yield: 4.8, reopening: true },
+  { cusip: "N30", date: "2026-10-08", type: "Bond", term: "29-Year 10-Month", btc: 2.41, yield: 4.71, reopening: true },
+]), { today: "2026-11-22" });
+ok("reopenings pool into one term with a trailing average", reopenSm.byTerm.length === 1 && reopenSm.byTerm[0].term === "30-Year" && reopenSm.byTerm[0].trailN === 2 && reopenSm.byTerm[0].latest.term === "29-Year 10-Month" && reopenSm.byTerm[0].latest.reopening === true);
 ok("fallback note survives a read", parseTreasuryAuctions(JSON.stringify({ ...emptyTreasuryAuctions(), fallback: { name: "TreasuryDirect", url: "u", usedOn: "2026-11-20", rows: 3 } })).fallback.rows === 3);
 
 // ---- Option-implied borrow --------------------------------------------------

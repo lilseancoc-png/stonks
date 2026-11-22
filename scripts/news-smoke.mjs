@@ -187,6 +187,40 @@ const build=await readFile(new URL("./build.mjs",import.meta.url),"utf8");
 assert.ok(build.indexOf("const freeNewsPrior")<build.indexOf("const totalChainBytes = await writeChainFiles"));checks++;
 assert.ok(build.indexOf("writeFile(resolve(DATA_DIR, NEWS_EVIDENCE_KEY)")>build.indexOf("const totalChainBytes = await writeChainFiles"));checks++;
 assert.ok(!build.includes("BACKGROUND KNOWLEDGE for WIDELY-KNOWN"));checks++;
+// News scoring and tagging (2026-11-22).
+{
+  const pub="2026-10-23T18:00:00.000Z";
+  const down={symbol:"ACME",movePct:-6,rvol:2,marketMovePct:-5.5};
+  const real={symbol:"ACME",movePct:-12,rvol:2,marketMovePct:-5.5};
+  const a=classifyNewsHeadline({title:"Acme cuts annual outlook as demand slows",publishedAt:pub,reaction:down},now);
+  const b=classifyNewsHeadline({title:"Acme cuts annual outlook as demand slows",publishedAt:pub,reaction:real},now);
+  eq(b.impactScore-a.impactScore,8,"the tape bonus reads the move beyond the market's");
+  eq(a.category,"earnings","a guidance cut is an earnings story");
+  for(const t of ["Global Widget Platform Market Report 2026: Forecast to 2030 | 13.9% CAGR as Acme Scales","Acme's Outlook, and Who Could Dethrone It?"])eq(classifyNewsHeadline({title:t,publishedAt:pub},now).category==="earnings",false,`not earnings: ${t}`);
+  for(const t of ["Acme (ACME) Up 2.2% Since Last Earnings Report: Can It Continue?","Acme (ACME) Q1 2027 Earnings Call Transcript","Earnings Calendar and Analysis for This Week","Acme Stock: 3 Catalysts Beyond Nvidia Earnings","Buy Acme Now: a $115 Billion Giant at 18.5x Forward Earnings"])eq(classifyNewsHeadline({title:t,publishedAt:pub,sources:["Reuters"]},now).impact==="high",false,`recap is not high: ${t}`);
+  eq(classifyNewsHeadline({title:"Acme Q1 earnings beat estimates on cloud growth",publishedAt:pub,sources:["Reuters"]},now).impact,"high","a result still reaches high");
+  const sectors={SPY:"ETF",ACME:"Software",BETA:"Semis"};
+  const aboutSymbol=(t,s)=>s==="ACME"?/acme/i.test(t):s==="BETA"?/beta corp/i.test(t):null;
+  const namedSymbols=t=>["ACME","BETA"].filter(s=>aboutSymbol(t,s));
+  const f=buildNewsFeedPayload({now,sectors,aboutSymbol,namedSymbols,tickerHeadlines:[
+    {symbol:"SPY",title:"Beta Corp defrauded shareholders, lawsuit says",publisher:"Reuters",publishedAt:pub},
+    {symbol:"ACME",title:"Beta Corp falls on China risk; Gamma tumbles on guidance",publisher:"Yahoo Finance",publishedAt:pub},
+    {symbol:"ACME",title:"Industry roundup for the week ahead in software",publisher:"Yahoo Finance",publishedAt:pub},
+    {symbol:"SPY",title:"SPY options traders brace for the Fed decision",publisher:"Reuters",publishedAt:pub},
+  ]});
+  const by=t=>f.items.find(i=>i.title.startsWith(t));
+  eq(by("Beta Corp defrauded").symbols,["BETA"],"a fund tag moves to the company the title names");
+  eq(by("Beta Corp falls").symbols,["BETA"],"a stock tag moves to the company the title names");
+  eq([by("Industry roundup").scope,by("Industry roundup").symbols],["market",["ACME"]],"a title naming no covered company goes to the market desk");
+  eq(by("SPY options").symbols,["SPY"],"a fund named in the title keeps its tag");
+  const d=buildNewsFeedPayload({now,tickerHeadlines:[
+    {symbol:"ACME",title:"Acme Stock: 3 Catalysts Set to Boost the Widget Maker Beyond Rival Earnings",publisher:"Barron's",publishedAt:pub},
+    {symbol:"ACME",title:"3 Catalysts Set to Boost Acme Stock, Beyond Strong Widget Earnings",publisher:"Yahoo Finance",publishedAt:pub},
+    {symbol:"ACME",title:"Acme shares fall as report of an accounting probe adds to pressure",publisher:"Yahoo Finance",publishedAt:pub},
+  ]});
+  eq(d.items.length,2,"a reworded copy of one article folds into one row");
+  eq(d.items.find(i=>/Catalysts/.test(i.title)).sources.sort(),["Barron's","Yahoo Finance"],"the folded row keeps both sources");
+}
 console.log(`news pipeline: ${checks} checks passed`);
 
 // SEC 8-K filing news (lib/sec-filing-news.mjs) rides the same test:news run.

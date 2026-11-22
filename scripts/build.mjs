@@ -59,7 +59,7 @@ import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains, chainPutCallTotals, impliedBorrowRate } from "../lib/market-structure.mjs";
 import { MACRO_HISTORY_KEEP, VIX_RANK_WINDOW, macroLevelsFromBackdrop, macroLevelsLate, mergeMacroLevels } from "../lib/macro-levels.mjs";
-import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIONS_BACKFILL_VERSION, TREASURY_AUCTIONS_BACKFILL_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, treasuryDirectUrl, parseTreasuryDirectRows, treasuryDirectNeeded, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
+import { TREASURY_AUCTIONS_KEY, TREASURY_AUCTIONS_LOOKBACK_DAYS, TREASURY_AUCTIONS_BACKFILL_VERSION, TREASURY_AUCTIONS_BACKFILL_DAYS, treasuryAuctionsUrl, parseTreasuryAuctionRows, parseTreasuryAuctions, treasuryDirectUrl, parseTreasuryDirectRows, treasuryDirectNeeded, treasuryFallbackDue, emptyTreasuryAuctions, upsertTreasuryAuctions, treasuryAuctionsFetchedToday, summarizeTreasuryAuctions } from "../lib/treasury-auctions.mjs";
 import { marketStructureCalendarEvents, ipoListingsFrom } from "../lib/market-dates.mjs";
 import { buildFedLiquidity } from "../lib/fed-liquidity.mjs";
 import { buildMarketMap, MARKET_MAP_FILE, barsOf as marketMapBarsOf } from "../lib/market-map.mjs";
@@ -12302,7 +12302,7 @@ export const COMMODITY_TRACKERS = [
     symbol: "CT=F", unit: "US¢/lb", fmt: "cents",
     sourceName: "ICE cotton futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/CT%3DF/",
     note: "Fabric cost for apparel & textile makers — a spike hints at margin squeeze or inventory pain for clothing retailers and fast fashion; a slump is a tailwind.",
-    watch: ["NKE", "TGT", "GPS"],
+    watch: ["NKE", "TGT", "GAP"],
   },
   {
     key: "coffee", label: "Coffee (arabica)", group: "softs", kind: "futures", cadence: "daily",
@@ -12936,10 +12936,32 @@ export async function fetchTreasuryDirectRows(days, fetchImpl = fetch) {
 export async function writeTreasuryAuctionsFile(prior, builtAtIso, { fetchImpl = fetch } = {}) {
   const today = etDateKey(new Date(builtAtIso || Date.now()));
   let state = prior || emptyTreasuryAuctions();
-  let fetched = 0, skipped = "", fallbackRows = null;
+  let fetched = 0, skipped = "", fallbackRows = null, fallbackError = null;
   const needsBackfill = state.backfillVersion !== TREASURY_AUCTIONS_BACKFILL_VERSION;
-  if (treasuryAuctionsFetchedToday(state, today) && !needsBackfill) skipped = "already read today";
-  else {
+  // One TreasuryDirect read; a failure is remembered for the day
+  // (fallbackTriedOn) so later bakes do not retry it every run.
+  const readFallback = async () => {
+    try {
+      const td = await fetchTreasuryDirectRows(TREASURY_AUCTIONS_LOOKBACK_DAYS, fetchImpl);
+      fetched += td.length;
+      fallbackRows = td.length;
+      const { fallbackTriedOn, ...rest } = upsertTreasuryAuctions(state, td, { fetchedDate: today, now: new Date().toISOString() });
+      state = { ...rest, backfillVersion: state.backfillVersion,
+        fallback: { name: "TreasuryDirect", url: "https://www.treasurydirect.gov/auctions/auction-query/", usedOn: today, rows: td.length } };
+    } catch (err) {
+      fallbackError = err;
+      state = { ...state, fallbackTriedOn: today };
+      console.warn(`[treasury-auctions] TreasuryDirect fallback skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  };
+  if (treasuryAuctionsFetchedToday(state, today) && !needsBackfill) {
+    // Fiscal Data already read today. The fallback still runs once when the
+    // stored results are stale and it has not been read or tried today
+    // (2026-11-22: the 11-20 read ran before the fallback shipped, so the
+    // once-a-day guard kept it from ever running that day).
+    if (treasuryFallbackDue(state, today)) await readFallback();
+    else skipped = "already read today";
+  } else {
     let fiscalError = null, fiscalRows = [];
     try {
       if (needsBackfill) {
@@ -12960,25 +12982,14 @@ export async function writeTreasuryAuctionsFile(prior, builtAtIso, { fetchImpl =
     // Fiscal Data behind (or down): fill the same rows from TreasuryDirect.
     // Judged on Fiscal Data's own read, not the stored rows, so a fallback
     // fill one day does not hide a feed that is still behind the next day.
-    if (fiscalError || treasuryDirectNeeded({ auctions: fiscalRows }, today)) {
-      try {
-        const td = await fetchTreasuryDirectRows(TREASURY_AUCTIONS_LOOKBACK_DAYS, fetchImpl);
-        fetched += td.length;
-        fallbackRows = td.length;
-        state = { ...upsertTreasuryAuctions(state, td, { fetchedDate: today, now: new Date().toISOString() }), backfillVersion: state.backfillVersion,
-          fallback: { name: "TreasuryDirect", url: "https://www.treasurydirect.gov/auctions/auction-query/", usedOn: today, rows: td.length } };
-      } catch (err) {
-        if (fiscalError) throw fiscalError;
-        console.warn(`[treasury-auctions] TreasuryDirect fallback skipped — ${String(err?.message || err).split("\n")[0]}`);
-      }
-    }
+    if (fiscalError || treasuryDirectNeeded({ auctions: fiscalRows }, today)) await readFallback();
     if (fiscalError && fallbackRows == null) throw fiscalError;
   }
   const summary = summarizeTreasuryAuctions(state, { today });
   const payload = { ...state, summary };
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, TREASURY_AUCTIONS_KEY), json, "utf8");
-  return { fetched, skipped, total: state.auctions.length, weak: summary.weak, bytes: json.length, fallbackRows };
+  return { fetched, skipped, total: state.auctions.length, weak: summary.weak, bytes: json.length, fallbackRows, fallbackFailed: !!fallbackError };
 }
 
 export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarkets = null) {
@@ -13102,8 +13113,13 @@ export function parseHeadlineAmount(text) {
   if (unit === "million" || unit === "mm" || unit === "m") return n * 1e6;
   return n;
 }
+// Valuation and opinion pieces that cite a deal ("Morgan Stanley Could Be 18%
+// Undervalued Following Its New Bond Offering") are commentary, dated by the
+// article, not the deal; they never flag a raise (2026-11-22).
+const CAPITAL_RAISE_OPINION_RE = /\b(?:undervalued|overvalued|fair value|intrinsic value|valuation (?:check|gap|call)|could be \d+(?:\.\d+)?%|should you (?:buy|sell)|is it time to|buy or sell|stocks? to (?:buy|watch|sell))\b/i;
 export function classifyCapitalRaiseHeadline(title) {
   const t = String(title || "");
+  if (CAPITAL_RAISE_OPINION_RE.test(t)) return null;
   for (const p of CAPITAL_RAISE_PATTERNS) if (p.re.test(t)) return p.kind;
   return null;
 }
@@ -14989,6 +15005,10 @@ export async function buildPendingBuyoutsPayload(builtAtIso, prior = null) {
   };
   return {
     builtAtIso,
+    // When the confirmed-deal table was last read (2026-11-22): the payload
+    // had no observation date, so source health read it fresh even while the
+    // table was carried. A failed read keeps the last good time.
+    asOf: confirmedStale ? (prior?.asOf || null) : builtAtIso,
     stale: confirmedStale && !confirmed.length,
     sourceStatus: { confirmedStale, rumorsStale },
     summary: { pending: confirmed.length, rumored: rumors.length, close90, medianSpreadPct, stages },
@@ -34500,8 +34520,26 @@ export async function readPriorNewsFeed() {
   return null;
 }
 
+// Company-name tests for the News feed's tagging (2026-11-22, retagTickerRow
+// in lib/news-feed.mjs). A name the shared test cannot use (missing, a fund,
+// too generic) gives no verdict, so the tag stays.
+export function newsSubjectTests(chains) {
+  const subjects = [];
+  for (const [symbol, data] of Object.entries(chains || {})) {
+    const name = String(data?.fundamentals?.name || "").trim();
+    if (SECTORS[symbol] === "ETF" || !name || name.toLowerCase() === symbol.toLowerCase() || /\b(?:etf|etn|fund|trust|ishares|spdr|proshares|index)\b/i.test(name) || capitalRaiseIssuerNameParts(name).length === 0) continue;
+    subjects.push({ symbol, name });
+  }
+  const bySymbol = new Map(subjects.map((s) => [s.symbol, s]));
+  return {
+    aboutSymbol: (title, symbol) => { const sub = bySymbol.get(symbol); return sub ? headlineIsAboutSubject(title, sub) : null; },
+    namedSymbols: (title) => subjects.filter((sub) => headlineIsAboutSubject(title, sub)).map((sub) => sub.symbol),
+  };
+}
+
 export async function writeNewsFeedFile({ prior, builtAtIso, chains, marketHeadlines, macroReleases, sourceEvidence = null }) {
   const payload = buildNewsFeedPayload({
+    ...newsSubjectTests(chains),
     tickerHeadlines: _newsFeedHeadlineRows,
     marketHeadlines,
     macroReleases,
@@ -41234,7 +41272,7 @@ async function main() {
   // day; a miss keeps the prior file. Non-fatal.
   try {
     const ta = await writeTreasuryAuctionsFile(priorTreasuryAuctions, builtAtIso);
-    console.log(`wrote data/${TREASURY_AUCTIONS_KEY} — ${ta.total} auctions (${ta.skipped || `${ta.fetched} rows read`}), ${ta.fallbackRows != null ? `, TreasuryDirect filled ${ta.fallbackRows} rows` : ""}, ${ta.weak.length ? `soft demand: ${ta.weak.join(", ")}` : "demand normal"}, ${ta.bytes} bytes`);
+    console.log(`wrote data/${TREASURY_AUCTIONS_KEY} — ${ta.total} auctions (${ta.skipped || `${ta.fetched} rows read`})${ta.fallbackRows != null ? `, TreasuryDirect filled ${ta.fallbackRows} rows` : ""}${ta.fallbackFailed ? ", TreasuryDirect fallback failed" : ""}, ${ta.weak.length ? `soft demand: ${ta.weak.join(", ")}` : "demand normal"}, ${ta.bytes} bytes`);
   } catch (err) {
     console.log(`  ⚠ Treasury auctions step failed (non-fatal): ${err.message}`);
     if (priorTreasuryAuctions) {

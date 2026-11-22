@@ -225,6 +225,8 @@ export function renderPolishCss() {
 .cmd-table .cmd-t-group, .cmd-table .cmd-t-unit { display: block; font-size: var(--t-1, 11px); color: var(--muted); font-weight: 400; }
 .cmd-table .cmd-watch { display: inline-block; margin: 2px 4px 2px 0; padding: 1px 7px; border: 1px solid var(--border); border-radius: var(--r-pill, 999px); font-size: var(--t-2, 12px); font-weight: 600; color: var(--text); text-decoration: none; }
 .cmd-table .cmd-watch:hover { border-color: var(--accent); color: var(--accent-text, var(--accent)); }
+/* Related stocks the site does not cover: plain text, no link (2026-11-22). */
+.cmd-watch.cmd-watch-off, .cmd-watch.cmd-watch-off:hover, .cmd-table .cmd-watch.cmd-watch-off, .cmd-table .cmd-watch.cmd-watch-off:hover, .cmd-driver-watch.cmd-watch-off, .cmd-driver-watch.cmd-watch-off:hover { color: var(--muted); border-color: var(--border); border-style: dashed; cursor: default; }
 .cmd-table td.cmd-t-spark { width: 110px; }
 
 /* ---- Pending buyouts: deal-spread table ---------------------------------- */

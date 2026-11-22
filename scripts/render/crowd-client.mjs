@@ -126,6 +126,7 @@ export function renderCrowdJs() {
   function crowdLevFlowsHtml(d){
     var lf = d.levFlows;
     var h = crowdHead('Leveraged ETF creations and redemptions', lf, lf && lf.note);
+    if (lf && lf.disabled) return h;
     if (!lf || !lf.rows) return h + crowdEmpty('No fund read yet.');
     var t = lf.totals || {};
     var kpis = [['Bull funds, 5 days', crowdUsd(t.bullUsd5d)], ['Bear funds, 5 days', crowdUsd(t.bearUsd5d)], ['Bull funds, 1 day', crowdUsd(t.bullUsd1d)], ['Bear funds, 1 day', crowdUsd(t.bearUsd1d)], ['Funds with a flow', (lf.withFlow != null ? lf.withFlow : (lf.withShares || 0)) + ' of ' + (lf.funds || 0)]];

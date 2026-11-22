@@ -92,7 +92,7 @@ export async function crowdFixture({ symbols = TICKERS, nowIso = CROWD_FIXTURE_N
   };
   const quoteFn = async (syms) => syms.map((s, i) => ({ symbol: s, sharesOutstanding: Math.round(1e6 + r() * 5e7), navPrice: Math.round((10 + r() * 90) * 100) / 100, netAssets: Math.round(1e7 + r() * 2e9), regularMarketPrice: 20 + i }));
   const sessionDates = dayList("2026-11-06", 70);
-  const crowd = await buildCrowdPayload({ prior: null, symbols, chains: { ...chains, SPY: { ...chains.SPY, _bars: sessionDates.map((d, i) => ({ t: d, c: 600 + i })) } }, todayEt, nowIso, quoteFn, levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, fetchers: { text, json, borrow: async () => ibkr } });
+  const crowd = await buildCrowdPayload({ prior: null, symbols, chains: { ...chains, SPY: { ...chains.SPY, _bars: sessionDates.map((d, i) => ({ t: d, c: 600 + i })) } }, todayEt, nowIso, quoteFn, levSingles: LEVERAGED_ETF_SINGLES, levGroups: LEVERAGED_ETF_GROUPS, fetchers: { text, json, borrow: async () => ibkr, levFlowsOn: true } });
   // Extend the one-build histories so charts and trend columns have depth.
   const pcDays = dayList("2026-11-06", 250);
   crowd.putCall.history = pcDays.map((d, i) => [d, Math.round((0.9 + Math.sin(i / 9) * 0.12 + (r() - 0.5) * 0.08) * 100) / 100, Math.round((0.55 + Math.sin(i / 7) * 0.08 + (r() - 0.5) * 0.06) * 100) / 100, Math.round((1.3 + (r() - 0.5) * 0.3) * 100) / 100, 1.1, 1.25, 0.9]);

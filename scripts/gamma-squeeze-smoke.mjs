@@ -95,6 +95,11 @@ const spot = 100;
   assert.equal(oiWall(rows, 'put', 255).strike, 250, 'put wall: biggest OI at or below the price');
   assert.equal(oiWall(rows, 'call', 400), null, 'no call strike above the price -> no wall');
   assert.equal(oiWall(rows, 'put', 0), null, 'no price -> no wall');
+  // 2026-11-22: a wall sits within 10% of the price.
+  const spy = [{ side: 'put', strike: 600, oi: 90000 }, { side: 'put', strike: 680, oi: 30000 }, { side: 'call', strike: 800, oi: 90000 }, { side: 'call', strike: 700, oi: 20000 }];
+  assert.equal(oiWall(spy, 'put', 690).strike, 680, 'a far-away strike is not the put wall');
+  assert.equal(oiWall(spy, 'call', 690).strike, 700, 'a far-away strike is not the call wall');
+  assert.equal(oiWall([{ side: 'put', strike: 600, oi: 9 }], 'put', 690), null, 'nothing inside the band -> no wall');
 }
 
 console.log('gamma-squeeze smoke: ok');
