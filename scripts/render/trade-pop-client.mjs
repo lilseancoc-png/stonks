@@ -29,6 +29,7 @@ export function renderTradePopJs() {
         var ex = [];
         if (m.tp != null) ex.push('take-profit ' + popSigned(m.tp));
         if (m.stop != null) ex.push('stop ' + popSigned(m.stop));
+        if (m.trail && m.trail.length === 2) ex.push('trailing exit (after ' + popSigned(m.trail[0]) + ', giving back ' + Math.abs(Number(m.trail[1])) + ' points)');
         if (m.sStop != null) ex.push('stock stop ' + popMoney(m.sStop));
         if (m.sTarget != null) ex.push('stock target ' + popMoney(m.sTarget));
         ex.push('at most ' + m.sessions + ' session' + (m.sessions === 1 ? '' : 's') + (m.hw ? ' (' + escapeHtml(m.hw) + ')' : ''));
@@ -39,6 +40,7 @@ export function renderTradePopJs() {
         var ends = [];
         if (o.tp) ends.push(popPct(o.tp) + ' reached the take-profit');
         if (o.stop) ends.push(popPct(o.stop) + ' the stop');
+        if (o.trail) ends.push(popPct(o.trail) + ' the trailing exit');
         if (o.sStop) ends.push(popPct(o.sStop) + ' the stock stop');
         if (o.sTarget) ends.push(popPct(o.sTarget) + ' the stock target');
         if (o.end) ends.push(popPct(o.end) + ' ran to the last session');
@@ -49,7 +51,7 @@ export function renderTradePopJs() {
     var src = s.src || [];
     if (src.length){
       out.push('<p class="pop-line"><b>Track record: ' + popPct(s.r) + '.</b></p><ul class="pop-src">' + src.map(function(x){
-        return '<li>' + escapeHtml(x.label || x.id) + ': ' + popPct(x.p) + ' won over ' + Number(x.n).toLocaleString('en-US') + ' trade' + (x.n === 1 ? '' : 's') + (x.cap != null ? ' (counted as ' + x.cap + ', because the history test priced options from a model)' : '') + '</li>';
+        return '<li>' + escapeHtml(x.label || x.id) + ': ' + popPct(x.p) + ' won over ' + Number(x.n).toLocaleString('en-US') + ' trade' + (x.n === 1 ? '' : 's') + (x.cap != null ? ' (counted as ' + x.cap + ': a replay of past prices, so live closes soon outweigh it)' : '') + '</li>';
       }).join('') + '</ul>');
     } else out.push('<p class="pop-line"><b>Track record:</b> none yet for this kind of trade.</p>');
     if (s.note) out.push('<p class="pop-line pop-sub">' + escapeHtml(s.note) + '</p>');

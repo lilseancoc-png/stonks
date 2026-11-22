@@ -10472,6 +10472,7 @@ function engEvidenceNote(t){
         var ex = [];
         if (m.tp != null) ex.push('take-profit ' + popSigned(m.tp));
         if (m.stop != null) ex.push('stop ' + popSigned(m.stop));
+        if (m.trail && m.trail.length === 2) ex.push('trailing exit (after ' + popSigned(m.trail[0]) + ', giving back ' + Math.abs(Number(m.trail[1])) + ' points)');
         if (m.sStop != null) ex.push('stock stop ' + popMoney(m.sStop));
         if (m.sTarget != null) ex.push('stock target ' + popMoney(m.sTarget));
         ex.push('at most ' + m.sessions + ' session' + (m.sessions === 1 ? '' : 's') + (m.hw ? ' (' + escapeHtml(m.hw) + ')' : ''));
@@ -10482,6 +10483,7 @@ function engEvidenceNote(t){
         var ends = [];
         if (o.tp) ends.push(popPct(o.tp) + ' reached the take-profit');
         if (o.stop) ends.push(popPct(o.stop) + ' the stop');
+        if (o.trail) ends.push(popPct(o.trail) + ' the trailing exit');
         if (o.sStop) ends.push(popPct(o.sStop) + ' the stock stop');
         if (o.sTarget) ends.push(popPct(o.sTarget) + ' the stock target');
         if (o.end) ends.push(popPct(o.end) + ' ran to the last session');
@@ -10492,7 +10494,7 @@ function engEvidenceNote(t){
     var src = s.src || [];
     if (src.length){
       out.push('<p class="pop-line"><b>Track record: ' + popPct(s.r) + '.</b></p><ul class="pop-src">' + src.map(function(x){
-        return '<li>' + escapeHtml(x.label || x.id) + ': ' + popPct(x.p) + ' won over ' + Number(x.n).toLocaleString('en-US') + ' trade' + (x.n === 1 ? '' : 's') + (x.cap != null ? ' (counted as ' + x.cap + ', because the history test priced options from a model)' : '') + '</li>';
+        return '<li>' + escapeHtml(x.label || x.id) + ': ' + popPct(x.p) + ' won over ' + Number(x.n).toLocaleString('en-US') + ' trade' + (x.n === 1 ? '' : 's') + (x.cap != null ? ' (counted as ' + x.cap + ': a replay of past prices, so live closes soon outweigh it)' : '') + '</li>';
       }).join('') + '</ul>');
     } else out.push('<p class="pop-line"><b>Track record:</b> none yet for this kind of trade.</p>');
     if (s.note) out.push('<p class="pop-line pop-sub">' + escapeHtml(s.note) + '</p>');
@@ -63939,7 +63941,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return m >= 0 ? Math.round(m * 100) / 100 : null;
     }
     var cols = [
-      { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml('Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
+      { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml(o.pop ? 'Why this chance, and notes' : 'Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
       { label: 'Side', cell: function(o){ var sd = o.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(o){ return o.side || null; } },
       { label: 'Structure', cell: function(o){ return escapeHtml(openPickStructure(o)); }, sort: openPickStructure },
       { label: 'Strike', num: true, cell: function(o){ var c = o.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(o){ var c = o.contract || {}; return isFinite(Number(c.strike)) ? Number(c.strike) : null; } },
@@ -63951,7 +63953,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Entry', num: true, title: 'Entry premium per share (the credit received for a credit spread)', cell: function(o){ return money(accBasisPerShare(o.contract)); }, sort: function(o){ var v = Number(accBasisPerShare(o.contract)); return isFinite(v) ? v : null; } },
       { label: 'Mark', num: true, title: 'Latest model price per share, from the entry price and the marked P&L (for a credit spread, the cost to buy it back)', cell: function(o){ return money(openPickMark(o)); }, sort: openPickMark },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
-      { label: 'Chance', num: true, title: POP_TIP, cell: function(o){ return popCellHtml(o, HAS_OWNER_ACCESS); }, sort: popSortOf },
+      { label: 'Chance', num: true, title: POP_TIP, cell: function(o){ return popCellHtml(o, false); }, sort: popSortOf },
       { label: 'Webull', title: typeof OP_WB_TIP === 'string' ? OP_WB_TIP : 'What the Webull paper account did with this trade', cell: function(o){ return typeof opWebullHtml === 'function' ? opWebullHtml(tlTradeId(o)) : ''; }, sort: function(o){ return typeof opWebullSort === 'function' ? opWebullSort(tlTradeId(o)) : null; } },
       { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },

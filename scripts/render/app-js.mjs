@@ -42112,7 +42112,7 @@ ${renderExportBindings()}
       return m >= 0 ? Math.round(m * 100) / 100 : null;
     }
     var cols = [
-      { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml('Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
+      { label: 'Ticker', cell: function(o){ return (HAS_OWNER_ACCESS ? VIEWS.expandHtml(o.pop ? 'Why this chance, and notes' : 'Notes for this trade') : '') + '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>' + (HAS_OWNER_ACCESS ? accNoteFlagHtml('trade', accNoteTradeId(o)) : ''); }, sort: function(o){ return o.symbol || null; } },
       { label: 'Side', cell: function(o){ var sd = o.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(o){ return o.side || null; } },
       { label: 'Structure', cell: function(o){ return escapeHtml(openPickStructure(o)); }, sort: openPickStructure },
       { label: 'Strike', num: true, cell: function(o){ var c = o.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(o){ var c = o.contract || {}; return isFinite(Number(c.strike)) ? Number(c.strike) : null; } },
@@ -42124,7 +42124,7 @@ ${renderExportBindings()}
       { label: 'Entry', num: true, title: 'Entry premium per share (the credit received for a credit spread)', cell: function(o){ return money(accBasisPerShare(o.contract)); }, sort: function(o){ var v = Number(accBasisPerShare(o.contract)); return isFinite(v) ? v : null; } },
       { label: 'Mark', num: true, title: 'Latest model price per share, from the entry price and the marked P&L (for a credit spread, the cost to buy it back)', cell: function(o){ return money(openPickMark(o)); }, sort: openPickMark },
       { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
-      { label: 'Chance', num: true, title: POP_TIP, cell: function(o){ return popCellHtml(o, HAS_OWNER_ACCESS); }, sort: popSortOf },
+      { label: 'Chance', num: true, title: POP_TIP, cell: function(o){ return popCellHtml(o, false); }, sort: popSortOf },
       { label: 'Webull', title: typeof OP_WB_TIP === 'string' ? OP_WB_TIP : 'What the Webull paper account did with this trade', cell: function(o){ return typeof opWebullHtml === 'function' ? opWebullHtml(tlTradeId(o)) : ''; }, sort: function(o){ return typeof opWebullSort === 'function' ? opWebullSort(tlTradeId(o)) : null; } },
       { label: 'Like this', title: 'Past closed Top Picks trades with the same side, grade band and market type at entry: wins / matched · average P&L', cell: function(o){ return oddsCellHtml(oddsLookup(oddsTableNow(), o.symbol, o.side)); }, sort: function(o){ var od = oddsLookup(oddsTableNow(), o.symbol, o.side); return od && od.n ? od.winPct : null; } },
       { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },

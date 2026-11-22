@@ -18,6 +18,7 @@ import { enginesFixture } from './engines-fixture.mjs';
 import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS } from '../lib/engines/config.mjs';
 import { ENGINES_VIEW_KEY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY } from '../lib/engines/index.mjs';
 import { mirrorTradeId } from '../lib/webull-mirror.mjs';
+import { picksTradePop } from '../lib/trade-pop.mjs';
 
 const output = process.env.ENGINES_BROWSER_OUT || resolve(tmpdir(), 'stonks-engines-browser');
 await mkdir(output, { recursive: true });
@@ -26,6 +27,9 @@ const view = fx.view;
 assert.ok(view.engines.length === ENGINE_IDS.length && view.total.open > 0 && view.total.n > 20, 'the fixture has open and closed engine trades');
 assert.ok(fx.flagship && view.shared.length >= 1, 'the fixture has a contract shared with Top Picks');
 
+// The Top Picks trade carries a stated chance, as a new enrollment would.
+fx.flagship.pop = picksTradePop(fx.flagship, { exitPolicy: { takeProfitPct: 25, stopPct: 50 }, rfr: 0.045, setupOdds: { winPct: 48, n: 31, level: 'side-band' } });
+assert.ok(fx.flagship.pop && fx.flagship.pop.p > 0, 'the fixture Top Picks trade has a stated chance');
 const acc = { builtAtIso: view.runIso, open: [fx.flagship], closed: [] };
 let owner = true, haveFile = true;
 const mirrorAsks = [];
@@ -481,6 +485,7 @@ try {
       const head = await tpTable.locator('thead').innerText();
       const row = await tpTable.locator('tbody tr').first().innerText();
       check(/Webull/.test(head) && /Filled/.test(row), 'the Top Picks table has a Webull column');
+      check(/Chance/.test(head) && row.includes(Math.round(fx.flagship.pop.p * 100) + '%'), 'the Top Picks table shows the trade\'s chance');
       const pnl = Number(fx.flagship.optionPnlPct), basis = Number(fx.flagship.contract?.netDebit ?? fx.flagship.contract?.mid);
       if (Number.isFinite(pnl) && basis > 0 && fx.flagship.contract?.structure !== 'credit_vertical'){
         const mark = '$' + (Math.round(basis * (1 + pnl / 100) * 100) / 100).toFixed(2);
@@ -495,6 +500,14 @@ try {
     await settle(p.page, 300);
     const overflow = await p.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow <= 1, 'Open picks has no sideways page scroll at 390 px (' + overflow + ')');
+    // Cards at phone width: the Top Picks card has a Chance of profit line whose Why opens in place.
+    const chip = p.page.locator('#open-picks-root .pop-chip').first();
+    check(await chip.count() === 1, 'the Top Picks card has a Chance of profit line');
+    if (await chip.count()){
+      await chip.locator('summary').click(); await settle(p.page, 200);
+      const chipText = await chip.innerText();
+      check(/Our estimate: \d+%/.test(chipText) && /Similar past Top Picks/.test(chipText), 'the card\'s Why opens with the estimate and the Top Picks record');
+    }
     await clean(p, 'Open picks, phone dark');
     await p.page.screenshot({ path: resolve(output, 'open-picks-390-dark.png'), fullPage: true });
     await p.context.close();

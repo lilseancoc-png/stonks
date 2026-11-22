@@ -24,8 +24,8 @@ trade.
    drifting at the risk-free rate, so no edge is assumed), one step a
    session. Each session the contract is repriced with Black-Scholes
    (`lib/greeks.mjs`) and the trade's real exits are applied in the order the
-   record applies them: take-profit and stop on the mid P&L, then the stock
-   stop and stock target. The horizon is the shortest of the session limit,
+   record applies them: take-profit and stop on the mid P&L, the trailing exit
+   where a setup has one, then the stock stop and stock target. The horizon is the shortest of the session limit,
    an event exit (`exitBy`), the pre-expiry exit day (`expiryExitDate`) and
    expiry. A path wins when its booked result is above zero:
    - Engine options: ask in, bid out, as the engine record books them
@@ -38,8 +38,8 @@ trade.
 2. **Track record** (`pop.r`, `recordChance`).
    - Engines: the history test's win rate for that engine, setup and
      instrument (`research/engines/results/latest.json`, the rules-as-written
-     run), counted as at most 20 trades because its options were priced from
-     a model, pooled with the live and shadow closes of the same kind of trade
+     run), counted as at most 20 trades (it is a replay, and its options were
+     priced from a model), pooled with the live and shadow closes of the same kind of trade
      that closed before this one opened.
    - Top Picks: the self-improving loop's chance of +25% before -50% once it
      has stopped learning; until then (it reads a 50% prior until about

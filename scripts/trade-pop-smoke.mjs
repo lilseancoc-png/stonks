@@ -49,6 +49,9 @@ ok(stockStop.sStop > 0.1, "a stock stop near the price fires on many paths");
 const credit = modelChance({ id: "c1", kind: "option", side: "call", spot: 100, sigma: 0.35, rfr: 0.045, sessions: 30, T: 42 / 365, credit: true,
   legs: [{ type: "put", strike: 95, qty: -1, iv: 0.35 }, { type: "put", strike: 90, qty: 1, iv: 0.35 }], tp: 50, stop: -50 });
 ok(credit && credit.p > 0.4, `bull put credit spread wins more often than not (${credit && credit.p})`);
+const trail = modelChance({ ...atm, id: "t5", tp: null, trailArm: 20, trailGive: 10 });
+ok(trail && trail.trail > 0.1 && near(trail.trail + trail.stop + trail.sStop + trail.sTarget + trail.end, 1, 0.005), `a trailing exit fires and the endings still add to one (${trail && trail.trail})`);
+ok(a1.trail == null, "no trailing exit set: none reported");
 ok(modelChance({ ...atm, sigma: null }) === null, "no volatility, no model");
 ok(modelChance({ ...atm, sessions: 0 }) === null, "no horizon, no model");
 ok(modelChance({ ...atm, legs: [] }) === null, "no legs, no model");
@@ -96,6 +99,8 @@ ok(historyWinRate(research, "TEC", "x") === null, "history: unknown engine");
 const me = { engine: "REV", setup: "oversold-bounce", side: "call", entryDate: "2026-11-20T16:00:00Z", contract: { structure: "single" } };
 const lw = liveWinRate(me, [[{ ...me, tradeId: "a", outcome: "win", optionPnlPct: 20, exitDate: "2026-11-10" }, { ...me, tradeId: "b", outcome: "loss", optionPnlPct: -20, exitDate: "2026-11-12" }, { ...me, tradeId: "c", outcome: "win", optionPnlPct: 20, exitDate: "2026-11-25" }, { ...me, tradeId: "d", outcome: "void", optionPnlPct: 0 }], [{ ...me, tradeId: "a", outcome: "win", optionPnlPct: 20, exitDate: "2026-11-10" }]]);
 ok(lw && lw.n === 2 && lw.p === 0.5, `live: only earlier closes, no voids, no duplicates (${lw && lw.n})`);
+const flatRow = liveWinRate(me, [[{ ...me, tradeId: "f", outcome: "flat", optionPnlPct: 0.04, exitDate: "2026-11-10" }, { ...me, tradeId: "g", outcome: "win", optionPnlPct: 0.06, exitDate: "2026-11-10" }, { ...me, tradeId: "h", counted: false, outcome: "loss", optionPnlPct: -9, exitDate: "2026-11-10" }]]);
+ok(flatRow && flatRow.n === 2 && flatRow.p === 0.5, `live: the record's own outcome decides (flat is not a win, not-counted is skipped): ${JSON.stringify(flatRow)}`);
 ok(liveWinRate({ ...me, side: "put" }, [[{ ...me, outcome: "win", optionPnlPct: 5, exitDate: "2026-11-01" }]]) === null, "live: a different side is a different kind of trade");
 
 // --- engine and Top Picks trades ---------------------------------------------------------

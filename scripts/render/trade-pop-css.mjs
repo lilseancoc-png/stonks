@@ -23,6 +23,7 @@ export function renderTradePopCss() {
 .pop-why .pop-src li { margin: 1px 0; }
 .pop-check .mm-kpis { margin: 4px 0 8px; }
 .pop-table td { font-variant-numeric: tabular-nums; }
+.pop-table th:not(.num), .pop-table td:not(.num) { text-align: left; }
 .pop-table td small { color: var(--muted); font-size: 12px; }
 .pop-table tr.pop-grp td { border-top: 1px solid var(--border); }
 @media (max-width: 640px) {
