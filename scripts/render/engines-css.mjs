@@ -34,6 +34,11 @@ export function renderEnginesCss() {
 .eng-pane .crd-dim { font: 450 11px/1.4 var(--font-sans); color: var(--muted); }
 .eng-pane .ln-svg { max-width: 760px; }
 .eng-id { font-family: var(--font-mono); font-size: 10.5px; white-space: nowrap; }
+/* Webull results by engine (2026-11-22): engine rows, then their setups indented. */
+.eng-wb-head { margin: 14px 0 6px; font-size: 14px; }
+.eng-pane .eng-wb-engine td { border-top: 1px solid var(--border, rgba(127,127,127,.3)); }
+.eng-pane .eng-wb-setup td:first-child { padding-left: 10px; }
+.eng-wb-indent { display: inline-block; width: 12px; }
 .eng-side { display: inline-block; padding: 0 6px; border-radius: var(--r-pill, 999px); font: 650 10.5px/1.6 var(--font-sans); letter-spacing: .03em; text-transform: uppercase; }
 .eng-call { color: var(--pos); background: var(--pos-soft, color-mix(in srgb, var(--pos) 14%, transparent)); }
 .eng-put { color: var(--neg); background: var(--neg-soft, color-mix(in srgb, var(--neg) 14%, transparent)); }
