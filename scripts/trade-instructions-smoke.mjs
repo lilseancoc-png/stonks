@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import {
   buildTradeInstructions, feedStatus, nextRunAt, sessionCloseMs, floorTick, ceilTick,
-  BLOCK_CODES, RULES, ALLOWANCE_PCT,
+  BLOCK_CODES, RULES, ALLOWANCE_PCT, expiryExit,
 } from "../lib/trade-instructions.mjs";
 import { buildPicksFeedText } from "../lib/pick-trade-text.mjs";
 
@@ -94,16 +94,18 @@ const acc = {
 const out = buildTradeInstructions(acc, { nowMs: NOW });
 const by = (kind, sym) => out.instructions.find((x) => x.kind === kind && x.symbol === sym);
 
-ok("closes first, newest first, then opens newest first; 7-day close window", () => {
+ok("closes first (record newest first, then expiry exits), then opens newest first; 7-day close window", () => {
   assert.deepEqual(out.instructions.map((x) => `${x.kind}:${x.symbol}`), [
     "CLOSE:SMCI", "CLOSE:META", "CLOSE:XOM", "CLOSE:NKE",
+    "CLOSE:AMD", "CLOSE:MSFT",
     "OPEN:AMZN", "OPEN:NVDA", "OPEN:TSLA", "OPEN:AMD", "OPEN:PLTR", "OPEN:MSFT",
   ]);
   assert.equal(out.feed.status, "fresh");
   assert.equal(out.as_of, "2026-11-20T16:04:00Z");
-  assert.equal(out.counts.listed, 10);
+  assert.equal(out.counts.listed, 12);
   assert.equal(out.counts.open, 6);
-  assert.equal(out.counts.close, 4);
+  assert.equal(out.counts.close, 6);
+  assert.equal(out.counts.expiry_exit, 2);
   assert.deepEqual(out.rules, RULES);
   assert.equal(out.quantity_rule, "one_contract");
 });
@@ -153,7 +155,7 @@ ok("spreads are listed but blocked as multi-leg, legs in opening order", () => {
 
 ok("old, near-expiry and unpriced OPENs are blocked with codes", () => {
   const msft = by("OPEN", "MSFT");
-  assert.deepEqual(msft.blocked_by, ["act_by_passed"]);
+  assert.deepEqual(msft.blocked_by, ["expires_soon", "act_by_passed"], "inside its expiry exit, so no late entry either");
   assert.equal(msft.expiry_warning, "sell_before_close_on_expiry", "held 3 days from expiry");
   assert.equal(msft.days_to_expiry, 3);
   assert.equal(msft.model_mark, 8.8);
@@ -219,18 +221,96 @@ ok("the Owner controls hold OPENs: stop, avoid-and-close, avoid", () => {
 });
 
 ok("filters: kind, since, placeable only", () => {
-  assert.deepEqual(buildTradeInstructions(acc, { nowMs: NOW, kind: "close" }).instructions.map((x) => x.kind), ["CLOSE", "CLOSE", "CLOSE", "CLOSE"]);
-  assert.ok(buildTradeInstructions(acc, { nowMs: NOW, kind: "open" }).instructions.every((x) => x.kind === "OPEN"));
+  assert.deepEqual(buildTradeInstructions(acc, { nowMs: NOW, kind: "close" }).instructions.map((x) => x.kind), ["CLOSE", "CLOSE", "CLOSE", "CLOSE", "CLOSE", "CLOSE"]);
+  const opens = buildTradeInstructions(acc, { nowMs: NOW, kind: "open" }).instructions;
+  assert.ok(opens.length === 6 && opens.every((x) => x.kind === "OPEN"), "no expiry exits in kind=open");
   const since = buildTradeInstructions(acc, { nowMs: NOW, since: "2026-11-20T16:04:00Z" });
-  assert.deepEqual(since.instructions.map((x) => x.symbol), ["AMZN", "NVDA", "TSLA"]);
+  assert.deepEqual(since.instructions.map((x) => `${x.kind}:${x.symbol}`), ["CLOSE:AMD", "CLOSE:MSFT", "OPEN:AMZN", "OPEN:NVDA", "OPEN:TSLA"], "since never hides a due expiry exit");
   const only = buildTradeInstructions(acc, { nowMs: NOW, placeableOnly: true });
-  assert.deepEqual(only.instructions.map((x) => `${x.kind}:${x.symbol}`), ["CLOSE:SMCI", "CLOSE:META", "OPEN:NVDA"]);
-  assert.equal(only.counts.matched, 10);
-  assert.equal(only.counts.listed, 3);
-  assert.equal(only.counts.placeable, 3);
+  assert.deepEqual(only.instructions.map((x) => `${x.kind}:${x.symbol}`), ["CLOSE:SMCI", "CLOSE:META", "CLOSE:AMD", "CLOSE:MSFT", "OPEN:NVDA"]);
+  assert.equal(only.counts.matched, 12);
+  assert.equal(only.counts.listed, 5);
+  assert.equal(only.counts.placeable, 5);
   assert.throws(() => buildTradeInstructions(acc, { nowMs: NOW, since: "not a time" }), /since/);
   assert.throws(() => buildTradeInstructions(acc, {}), /nowMs/);
   assert.equal(buildTradeInstructions({}, { nowMs: NOW }).instructions.length, 0, "an empty record is an empty list");
+});
+
+// ---- expiry exits --------------------------------------------------------------
+ok("an open trade gets a CLOSE two trading sessions before expiry, like the Webull mirror", () => {
+  const x = out.instructions.find((i) => i.kind === "CLOSE" && i.symbol === "MSFT");
+  assert.equal(x.reason, "expiry_exit");
+  assert.equal(x.trade_id, by("OPEN", "MSFT").trade_id, "same trade as its OPEN");
+  assert.equal(x.action, "sell_to_close");
+  assert.equal(x.agent_placeable, true, JSON.stringify(x.blocked_by));
+  assert.equal(x.exit_from, "2026-11-19", "Mon 11-23 expiry: from Thu 11-19");
+  assert.equal(x.act_by, "2026-11-23T21:00:00.000Z", "the expiry session's close");
+  assert.equal(x.closed_at, null);
+  assert.deepEqual(x.price, { engine: 8.8, start: 8.8, worst: 8.4, worst_is: "min", allowance_pct: 5, per_contract_usd: 880 });
+  assert.equal(x.if_unfilled, "lower_to_bid_before_close");
+  assert.deepEqual(x.legs.map((l) => `${l.side}:${l.occ_symbol}`), ["sell:MSFT261123C00500000"], "a CLOSE's legs read in closing direction");
+  // Friday 12/18 expiry: nothing on Tuesday, due from Wednesday, gone once expired.
+  const t = { symbol: "NVDA", side: "call", entryDate: "2026-11-20T16:05:00Z", contract: { structure: "long", strike: 190, mid: 4, expiry: exp(2026, 12, 18) } };
+  assert.equal(expiryExit(t, Z("2026-12-15T20:00:00Z")).due, false);
+  const wed = expiryExit(t, Z("2026-12-16T15:00:00Z"));
+  assert.equal(wed.due, true);
+  assert.equal(wed.from, "2026-12-16");
+  assert.equal(expiryExit(t, Z("2026-12-18T20:59:00Z")).due, true, "still due on the last session");
+  const gone = expiryExit(t, Z("2026-12-18T21:00:00Z"));
+  assert.equal(gone.due, false);
+  assert.equal(gone.expired, true);
+  const after = buildTradeInstructions({ builtAtIso: "2026-12-18T20:34:00Z", open: [t], closed: [] }, { nowMs: Z("2026-12-18T22:00:00Z") });
+  assert.deepEqual(after.instructions.map((i) => `${i.kind}:${i.reason ?? ""}`), ["OPEN:"], "an expired contract gets no exit order");
+  // Thanksgiving week: Fri 11/27 (13:00 close) expiry exits from Tue 11/24.
+  const tg = { ...t, contract: { ...t.contract, expiry: exp(2026, 11, 27) } };
+  assert.equal(expiryExit(tg, Z("2026-11-24T15:00:00Z")).from, "2026-11-24");
+  assert.equal(expiryExit(tg, Z("2026-11-23T20:00:00Z")).due, false);
+  assert.equal(expiryExit(tg, Z("2026-11-24T15:00:00Z")).until, "2026-11-27T18:00:00.000Z");
+  // Past the known calendar: from 3 days out.
+  const far = { ...t, entryDate: "2029-02-01T16:05:00Z", contract: { ...t.contract, expiry: exp(2029, 3, 9) } };
+  assert.equal(expiryExit(far, Z("2029-03-05T17:00:00Z")).due, false);
+  const farDue = expiryExit(far, Z("2029-03-06T17:00:00Z"));
+  assert.equal(farDue.due, true);
+  assert.equal(farDue.from, null);
+});
+
+ok("a spread's expiry exit is listed but blocked as multi-leg; a credit buys back", () => {
+  const credit = { symbol: "TSLA", side: "call", entryDate: "2026-11-20T16:05:00Z", optionPnlPct: 20, contract: { structure: "credit_vertical", optionType: "put", longStrike: 390, shortStrike: 400, netCredit: 3, expiry: exp(2026, 12, 18) } };
+  const r = buildTradeInstructions({ builtAtIso: "2026-12-16T16:04:00Z", open: [credit], closed: [] }, { nowMs: Z("2026-12-16T17:00:00Z") });
+  const x = r.instructions.find((i) => i.reason === "expiry_exit");
+  assert.equal(x.action, "buy_to_close");
+  assert.deepEqual(x.blocked_by, ["multi_leg"]);
+  assert.equal(x.price.worst_is, "max");
+  assert.equal(x.if_unfilled, "raise_to_ask_before_close");
+  assert.deepEqual(x.legs.map((l) => `${l.side}:${l.strike}`), ["buy:400", "sell:390"], "buy back the short strike, sell the protection");
+});
+
+// ---- the same contract bought again ------------------------------------------
+ok("a CLOSE whose contract a newer trade holds again is blocked as reopened", () => {
+  const c = { structure: "long", strike: 190, mid: 4, expiry: exp(2026, 12, 18) };
+  const a = { symbol: "NVDA", side: "call", status: "hit-tp-prem", entryDate: "2026-11-10T16:05:00Z", exitDate: "2026-11-17T16:05:00Z", optionPnlPct: 25, contract: c };
+  const b = { symbol: "NVDA", side: "call", entryDate: "2026-11-19T16:05:00Z", optionPnlPct: 0, contract: { ...c } };
+  const r = buildTradeInstructions({ builtAtIso: "2026-11-20T16:04:00Z", open: [b], closed: [a] }, { nowMs: NOW });
+  const close = r.instructions.find((i) => i.kind === "CLOSE");
+  assert.equal(close.trade_id, "NVDA-C-11/10/26-11:05");
+  assert.deepEqual(close.blocked_by, ["reopened"]);
+  assert.equal(close.agent_placeable, false, "would sell the newer trade's contract");
+  // Bought again and closed again: the older close is blocked, the newer one is not.
+  const b2 = { ...b, status: "hit-stop-prem", exitDate: "2026-11-20T16:05:00Z" };
+  const r2 = buildTradeInstructions({ builtAtIso: "2026-11-20T16:04:00Z", open: [], closed: [a, b2] }, { nowMs: NOW });
+  assert.deepEqual(r2.instructions.map((i) => `${i.trade_id}:${i.blocked_by.join(",")}`), ["NVDA-C-11/19/26-11:05:", "NVDA-C-11/10/26-11:05:reopened"]);
+  // Closed and bought again in the same run (same stamp) still counts; a trade
+  // never blocks its own close.
+  const same = { ...b, entryDate: a.exitDate };
+  const r4 = buildTradeInstructions({ builtAtIso: "2026-11-20T16:04:00Z", open: [same], closed: [a] }, { nowMs: NOW });
+  assert.deepEqual(r4.instructions.find((i) => i.kind === "CLOSE").blocked_by, ["reopened"]);
+  const quick = { ...a, entryDate: "2026-11-17T16:05:00Z" };
+  const r5 = buildTradeInstructions({ builtAtIso: "2026-11-20T16:04:00Z", open: [], closed: [quick] }, { nowMs: NOW });
+  assert.deepEqual(r5.instructions[0].blocked_by, [], "opened and closed in one run is not a reopen");
+  // Another strike is another contract: not blocked.
+  const other = { ...b, contract: { ...c, strike: 195 } };
+  const r3 = buildTradeInstructions({ builtAtIso: "2026-11-20T16:04:00Z", open: [other], closed: [a] }, { nowMs: NOW });
+  assert.equal(r3.instructions.find((i) => i.kind === "CLOSE").agent_placeable, true);
 });
 
 ok("no free text: every string is a code, a date, a symbol or an id", () => {

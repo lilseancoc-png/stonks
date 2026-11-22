@@ -601,6 +601,17 @@ async function tool(name, args, opts) {
   assert.ok(tiStop.structuredContent.results.instructions[1].blocked_by.includes("new_trades_stopped"));
   assert.ok(tiStop.structuredContent.warnings.some((w) => /^NEW_TRADES_STOPPED/.test(w)));
   delete files["owner-controls.json"];
+  // A held contract two sessions from expiry gets a sell instruction and a warning.
+  const accSaved = files["picks-accuracy.json"];
+  const accNear = JSON.parse(JSON.stringify(accSaved));
+  accNear.open[0].contract.expiry = Date.UTC(2026, 10, 4) / 1000;
+  files["picks-accuracy.json"] = accNear;
+  const tiExp = await tool("get_trade_instructions", { kind: "close" });
+  const exitRow = tiExp.structuredContent.results.instructions.find((x) => x.reason === "expiry_exit");
+  assert.equal(exitRow?.trade_id, "NVDA-C-10/28/26-11:05", JSON.stringify(tiExp.structuredContent.results.instructions).slice(0, 400));
+  assert.equal(exitRow.action, "sell_to_close");
+  assert.ok(tiExp.structuredContent.warnings.some((w) => /^EXPIRY_EXIT/.test(w)));
+  files["picks-accuracy.json"] = accSaved;
   assert.equal(writeAttempts.length, 0, "instructions save nothing");
 
   // ---- page datasets ----
