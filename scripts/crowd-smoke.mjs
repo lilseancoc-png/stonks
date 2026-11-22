@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { parseShortVolumeFile, fetchShortVolume, summarizeShortVolume } from "../lib/crowd/short-volume.mjs";
 import { parsePutCallPage, fetchPutCall } from "../lib/crowd/put-call.mjs";
 import { parseBorrowFile, fetchBorrow } from "../lib/crowd/borrow.mjs";
-import { buildCotContract, fetchCot, COT_CONTRACTS } from "../lib/crowd/cot.mjs";
+import { buildCotContract, fetchCot, cotReleaseReread, COT_CONTRACTS } from "../lib/crowd/cot.mjs";
 import { parseRedditRows, fetchReddit } from "../lib/crowd/reddit.mjs";
 import { parseWikiRows, fetchWikipedia, WIKI_TITLES, parseTitleResolution } from "../lib/crowd/wikipedia.mjs";
 import { levFundList, quoteRead, fetchLevFlows, assetFlowUsd, flowsFrom } from "../lib/crowd/lev-flows.mjs";
@@ -190,6 +190,24 @@ okAsync("COT fetch filters codes, carries on failure", async () => {
   const c = await fetchCot({ prior: { ...out, fetchedDate: "2026-11-06" }, todayEt: TODAY, nowIso: NOW, fetchImpl: async () => [] });
   assert.equal(c.ok, false);
   assert.ok(c.contracts.ES);
+});
+
+// Review 2026-11-22: a Friday read that lacks the new report is read again
+// after the 15:30 ET release (up to the 16:10 ET bake) (2026-11-20 is a Friday; 15:35 ET = 20:35Z in EST).
+okAsync("COT re-reads on Friday after the release", async () => {
+  const fri = "2026-11-20";
+  const morning = { ok: true, stale: false, fetchedAt: "2026-11-20T15:03:00.000Z", fetchedDate: fri, asOf: "2026-11-10", contracts: {} };
+  assert.equal(cotReleaseReread(morning, fri, "2026-11-20T20:30:00.000Z"), false, "before 15:35 ET");
+  assert.equal(cotReleaseReread(morning, fri, "2026-11-20T21:10:00.000Z"), true, "16:10 ET bake re-reads");
+  assert.equal(cotReleaseReread({ ...morning, fetchedAt: "2026-11-20T20:40:00.000Z" }, fri, "2026-11-20T21:20:00.000Z"), true, "a 15:40 ET read that still lacks the report gets the 16:10 bake's try");
+  assert.equal(cotReleaseReread({ ...morning, fetchedAt: "2026-11-20T21:10:00.000Z" }, fri, "2026-11-20T21:40:00.000Z"), false, "no more tries after 16:05 ET");
+  assert.equal(cotReleaseReread({ ...morning, asOf: "2026-11-17" }, fri, "2026-11-20T21:10:00.000Z"), false, "already holds this week's report");
+  assert.equal(cotReleaseReread({ ...morning, fetchedAt: "2026-11-19T15:03:00.000Z", fetchedDate: "2026-11-19" }, "2026-11-19", "2026-11-19T21:10:00.000Z"), false, "not a Friday");
+  let calls = 0;
+  const kept = await fetchCot({ prior: morning, todayEt: fri, nowIso: "2026-11-20T18:00:00.000Z", fetchImpl: async () => { calls++; return cotRows; } });
+  assert.equal(calls, 0); assert.equal(kept.asOf, "2026-11-10");
+  const fresh = await fetchCot({ prior: morning, todayEt: fri, nowIso: "2026-11-20T21:10:00.000Z", fetchImpl: async () => { calls++; return cotRows; } });
+  assert.equal(calls, 1); assert.equal(fresh.ok, true); assert.equal(fresh.fetchedAt, "2026-11-20T21:10:00.000Z");
 });
 
 // ---- R1 Reddit

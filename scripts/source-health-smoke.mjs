@@ -28,6 +28,17 @@ const scan = scanPayload({
 assert.equal(scan.at, Date.parse("2026-11-09T12:00:00Z"));
 assert.equal(scan.flagged, 2); assert.equal(scan.carried, 1); assert.equal(scan.failed, 1); assert.equal(scan.statuses, 2);
 
+// An observation date beats a fetch stamp on the same object (review
+// 2026-11-22): a weekly COT block read today but holding an old report is
+// as old as the report. A stamp alone still counts.
+const cotBlock = { ok: true, stale: false, carriedForward: false, fetchedAt: "2026-11-09T20:03:00Z", fetchedDate: "2026-11-09", asOf: "2026-10-20", contracts: { ES: { asOf: "2026-10-20" } } };
+assert.equal(scanPayload(cotBlock, now).at, Date.parse("2026-10-20T12:00:00Z"), "asOf wins over fetchedAt");
+assert.equal(scanPayload({ generatedAtIso: "2026-11-09T20:00:00Z", story: "x" }, now).at, Date.parse("2026-11-09T20:00:00Z"), "a lone stamp still counts");
+assert.equal(scanPayload({ a: { asOf: "2026-11-01" }, b: { fetchedAt: "2026-11-09T20:00:00Z" } }, now).at, Date.parse("2026-11-09T20:00:00Z"), "a stamp on an object without an observation date still counts");
+assert.equal(scanPayload({ asOf: "2026-10", fetchedAt: "2026-11-09T20:00:00Z" }, now).at, Date.parse("2026-11-09T20:00:00Z"), "an unparseable observation date does not hide the stamp");
+assert.equal(assessSource(def("crowd-cot"), { cot: cotBlock }, now).state, "aged", "an old COT report reads aged");
+assert.equal(assessSource(def("crowd-cot"), { cot: { ...cotBlock, asOf: "2026-11-03" } }, now).state, "ok", "last Friday's release (Tuesday report) is fresh");
+
 // assessSource states.
 assert.equal(assessSource(def("fear-greed"), null, now).state, "missing");
 assert.equal(assessSource(def("fear-greed"), null, now, "invalid").state, "unreadable");

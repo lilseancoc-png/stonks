@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { runWebullMirror, LIVE_SIZING, roundTick, makeQuoteFn, ledgerToFillRows, ledgerToTestTrades, fillRowsToCsv, orderAttemptsToCsv, parseOrderDetail, updateQuantities } from "../lib/webull-mirror.mjs";
 import { executionPrice } from "../lib/webull-execution-policy.mjs";
 import { occSymbol, parseContractList, matchLeg, legProblem, contractVerdict, optionTick, makeContractCheck, NOT_TRADABLE_PREFIX } from "../lib/webull-contracts.mjs";
-import { snapshotRow, snapshotQuote, chooseStockQuote, makeWebullStockFetcher, WEBULL_STOCK_SOURCE, STOCK_QUOTE_BAND_PCT } from "../lib/webull-quotes.mjs";
+import { snapshotRow, snapshotQuote, chooseStockQuote, makeWebullStockFetcher, yahooBookOff, WEBULL_STOCK_SOURCE, STOCK_QUOTE_BAND_PCT } from "../lib/webull-quotes.mjs";
 import { parseOrderHistory, historyShape, attemptsNeedingFees, applyHistoryFees, backfillFees, feeBreakdown } from "../lib/webull-fees.mjs";
 import { createWebullClient } from "../lib/webull-client.mjs";
 import { ownerSettingDef, runtimeEnvOverrides } from "../lib/owner-settings.mjs";
@@ -218,8 +218,19 @@ await ok("stock quote: fresh Webull wins; stale, failed or out-of-band falls bac
   const kept = chooseStockQuote(w, staleY, { nowMs: NOW, bandPct: BAND });
   assert.equal(kept.source, WEBULL_STOCK_SOURCE);
   assert.match(kept.keptWhy, /away from its last price/);
-  // Both away from the last price (or no last price): Yahoo, as before.
-  assert.match(chooseStockQuote(off, staleY, { nowMs: NOW, bandPct: BAND }).fallbackWhy, /differ over/);
+  // Review 2026-11-22: the Yahoo backup passes its own referee too. Webull
+  // stale or missing and Yahoo's book away from Yahoo's last price = priced
+  // at Yahoo's last price (an exit still gets a price this window).
+  const lastOnly = chooseStockQuote(null, staleY, { nowMs: NOW, bandPct: BAND });
+  assert.equal(lastOnly.bid, 100); assert.equal(lastOnly.ask, 100); assert.equal(lastOnly.lastOnly, true);
+  assert.match(lastOnly.fallbackWhy, /^Webull quote unavailable; .*priced at the last price/);
+  assert.equal(chooseStockQuote(snapshotQuote({ ...fresh, last_trade_time: NOW - 10 * 60000 }), staleY, { nowMs: NOW, bandPct: BAND }).ask, 100);
+  // A fresh Webull quote that also sits off Yahoo's last price is kept when
+  // Yahoo's own book is off that price (Yahoo is the untrusted side).
+  const keptOff = chooseStockQuote(off, staleY, { nowMs: NOW, bandPct: BAND });
+  assert.equal(keptOff.source, WEBULL_STOCK_SOURCE); assert.equal(keptOff.bid, 103);
+  assert.equal(yahooBookOff(staleY, BAND), true); assert.equal(yahooBookOff(y, BAND), false); assert.equal(yahooBookOff({ bid: 110, ask: 110.2 }, BAND), false, "no last price, no verdict");
+  // No last price: Yahoo, as before.
   assert.match(chooseStockQuote(w, { bid: 110, ask: 110.2 }, { nowMs: NOW, bandPct: BAND }).fallbackWhy, /differ over/);
   assert.equal(snapshotQuote({ ...fresh, bid: "101", ask: "100" }), null, "crossed quote is no quote");
   assert.equal(snapshotQuote({ ...fresh, bid: "0" }), null);
@@ -241,6 +252,20 @@ await ok("stock fetcher: one call per symbol, ETF retried under US_ETF, source l
   const down = makeQuoteFn(async () => null, makeWebullStockFetcher(fakeWebull({ snapshots: { "AAA|US_STOCK": new Error("down") } }), yahoo, { nowMs: () => NOW }));
   const y = await down({ structure: "shares", symbol: "AAA", legs: [] });
   assert.equal(y.source, "Yahoo stock quote (Webull quote unavailable)"); assert.equal(y.bid, 99.97);
+  // Webull down and Yahoo's book stale: priced at Yahoo's last price, once.
+  const ev2 = {};
+  const staleBook = makeQuoteFn(async () => null, makeWebullStockFetcher(fakeWebull({ snapshots: { "AAA|US_STOCK": new Error("down") } }), async () => ({ bid: 717, ask: 717.4, spot: 608 }), { nowMs: () => NOW, onEvent: (k) => { ev2[k] = (ev2[k] || 0) + 1; } }));
+  const sb = await staleBook({ structure: "shares", symbol: "AAA", legs: [] });
+  assert.equal(sb.bid, 608); assert.equal(sb.ask, 608);
+  assert.equal(sb.source, "Yahoo stock quote (Webull quote unavailable; Yahoo bid/ask away from its last price; priced at the last price)");
+  assert.equal(ev2["share order priced off Yahoo - Webull quote unavailable; Yahoo bid/ask away from its last price; priced at the last price"], 1);
+  // WEBULL_STOCK_QUOTES off: plain Yahoo is the fetcher, same referee.
+  const plain = await makeQuoteFn(async () => null, async () => ({ bid: 717, ask: 717.4, spot: 608 }))({ structure: "shares", symbol: "QQQ", legs: [] });
+  assert.equal(plain.bid, 608); assert.equal(plain.ask, 608); assert.match(plain.source, /^Yahoo stock quote \(bid\/ask away from its last price; priced at the last price\)$/);
+  const plainOk = makeQuoteFn(async () => null, async () => ({ bid: 607.9, ask: 608.1, spot: 608 }));
+  assert.equal((await plainOk({ structure: "shares", symbol: "QQQ", legs: [] })).bid, 607.9);
+  const noSpot = makeQuoteFn(async () => null, async () => ({ bid: 607.9, ask: 608.1 }));
+  assert.equal((await noSpot({ structure: "shares", symbol: "QQQ", legs: [] })).ask, 608.1, "no last price: priced as before");
 });
 
 // --- 4. Real fees -----------------------------------------------------------------------

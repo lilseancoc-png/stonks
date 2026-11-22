@@ -234,6 +234,9 @@ jobs:
     needs: route
     if: ${{ needs.route.outputs.mode == 'brief' }}
     runs-on: ubuntu-latest
+    # A hung read must not hold the shared data queue for GitHub's 6-hour
+    # default (review 2026-11-22). A normal run takes a few minutes.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
@@ -308,6 +311,8 @@ jobs:
     needs: route
     if: ${{ needs.route.outputs.mode == 'transcripts' }}
     runs-on: ubuntu-latest
+    # Same reason as premarket-brief; a normal run takes a few minutes.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
@@ -521,6 +526,12 @@ jobs:
           npm run audit:unified-perspectives
 
       - name: Build site
+        # A hung build must not hold the shared data queue for GitHub's
+        # 6-hour default (review 2026-11-22; the longest recent build ran 17
+        # minutes). The limit is on this step, not the job, so a timed-out
+        # build still runs the always() steps after it (AI health alert, the
+        # Top Picks watchdog's retry) and never flushes partial data.
+        timeout-minutes: 40
         env:
           EARNINGS_FORECAST_ENABLED: ${{ vars.EARNINGS_FORECAST_ENABLED }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
