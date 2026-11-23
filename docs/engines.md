@@ -1,15 +1,17 @@
 # Strategy engines
 
-Nine rules-only paper engines run beside Top Picks: six signal engines and
-three core engines (Trend follower and Momentum basket since 2026-11-17, the
-Multi-asset rotation since 2026-11-20). Each has its own idea, its own data and
-its own track record. The signal engines score their own setups 0 to 100 and
-trade options (and $5,000 share lots on the slow call setups) in the one
-Webull paper account that Top Picks uses. The core engines (Trend follower,
-Momentum basket) hold long-only shares picked at a monthly check, on the
-record only. The Allocator (2026-11-17) reads every signal setup's record in
-today's market type; see [Allocator](#allocator-2026-11-17). Paper tracking
-starts 2026-11-16.
+Ten rules-only paper engines run beside Top Picks: seven signal engines (the
+first six, plus Downside puts since 2026-11-20) and three core engines (Trend
+follower and Momentum basket since 2026-11-17, the Multi-asset rotation since
+2026-11-20). Each has its own idea, its own data and its own track record. The
+signal engines score their own setups 0 to 100 and trade options, and risk-sized
+shares on the slow call setups, in the one Webull paper account that Top Picks
+uses. The core engines hold long-only shares picked at a monthly check, bought
+as stock in the same Webull paper account since 2026-11-19 (the Webull stock
+order range applies there, so a lot under its minimum is bought larger at
+Webull than on the record). The Allocator (2026-11-17) reads every signal
+setup's record in today's market type; see [Allocator](#allocator-2026-11-17).
+Paper tracking starts 2026-11-16.
 
 None of them makes an AI call or a network request, and none can read or
 change a Top Pick, a grade, a gate or the Top Picks Track Record. Top Picks

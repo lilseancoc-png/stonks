@@ -424,6 +424,9 @@ ok("contract pick: each engine's own window and delta; liquidity and cost screen
   const wide = { spot: 100, chains: Object.fromEntries(Object.entries(chainFor(100, nowMs)).map(([e, v]) => [e, { c: v.c.map((r) => ({ ...r, b: r.l * 0.6, a: r.l * 1.4 })), p: v.p }])) };
   assert.match(pickContract(wide, "call", ENGINES.flow.contract, { nowMs }).skip, /thin or too wide/);
   assert.match(pickContract({ spot: 4000, chains: chainFor(4000, nowMs) }, "call", ENGINES.fundamentals.contract, { nowMs }).skip, /\$5,000 cap/);
+  // Only deep in-the-money strikes are liquid: the reason is the delta range, not the cost (2026-11-23 audit).
+  const farOnly = { spot: 100, chains: Object.fromEntries(Object.entries(chainFor(100, nowMs)).map(([e, v]) => [e, { c: v.c.map((r) => (r.s > 75 ? { ...r, oi: 0, v: 0 } : r)), p: v.p }])) };
+  assert.match(pickContract(farOnly, "call", ENGINES.flow.contract, { nowMs }).skip, /no liquid strike between 0\.3 and 0\.8 delta/);
   const c = pickContract(data, "put", ENGINES.reversion.contract, { nowMs });
   const q = quoteContract(data, c, { nowMs });
   assert.equal(q.source, "chain"); assert.equal(q.mid, c.mid);
