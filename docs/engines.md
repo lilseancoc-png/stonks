@@ -1542,6 +1542,18 @@ switch included), repo variable or Vercel value lifts it.
   settings view) and beside Avoid on the Owner controls card (`neverTrade` in
   the controls view).
 
+**Shares only** (`SHARES_ONLY`, same file, owner review 2026-11-24): `DRAM`,
+`KWEB`, `EWY`, each with its reason (`MRNA` and `SPCX` keep options). The
+engines may trade them as stock, never through options: in `stepBook` a call signal's instrument becomes shares
+(an option twin too), and it is skipped by rule when share trades are off; a
+put signal is skipped by rule (the engines never short stock) and takes no
+run-limit room. Top Picks buys options only, so it holds them off right after
+the never-trade check (`rosterMeta.sharesOnlyHeld`, gate trace `shares-only`)
+and `aiGraderCandidates` skips them. The Webull mirror logs an option trade on
+one as skipped and `place` refuses an option entry; share orders go on.
+Trade instructions add `shares_only` to an option OPEN. Open option trades on
+these names were left to run to their own exits.
+
 Every read of these names as a gauge is unchanged: VIX and its curve, the VIX
 pause, the bounce skip, the VIX-rollover trial (it buys QQQ), Macro's VIX
 curve setups, the UVXY market tile, the heat maps and the history test.

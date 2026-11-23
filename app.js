@@ -10085,7 +10085,13 @@ function engEvidenceNote(t){
   // even with Owner controls off. Read-only here.
   function ocNeverHtml(nt){
     if (!nt || !nt.list || !nt.list.length) return '';
-    return '<p class="oc-note" data-oc-never><b>Never traded (locked in code):</b> ' + nt.list.map(function(r){ return ocEsc(r.sym); }).join(', ') + '. Read as market gauges only; no switch here lifts them. <a href="?tab=owner-settings">Why each one &rarr;</a></p>';
+    // Grouped: a long group (the leveraged and inverse funds) shows as a count.
+    var groups = [];
+    nt.list.forEach(function(r){ var g = null; for (var i = 0; i < groups.length; i++) if (groups[i].name === r.group) g = groups[i]; if (!g) { g = { name: r.group, syms: [] }; groups.push(g); } g.syms.push(r.sym); });
+    var parts = groups.map(function(g){ return g.syms.length > 12 ? g.syms.length + ' ' + ocEsc(g.name.toLowerCase()) + ' funds' : ocEsc(g.syms.join(', ')); });
+    var so = (nt.sharesOnly || []).map(function(r){ return ocEsc(r.sym); });
+    return '<p class="oc-note" data-oc-never><b>Never traded (locked in code):</b> ' + parts.join('; ') + '. Read as market gauges only; no switch here lifts them.' +
+      (so.length ? ' <b>Shares only, no options:</b> ' + so.join(', ') + '.' : '') + ' <a href="?tab=owner-settings">Why each one &rarr;</a></p>';
   }
   function ocListHtml(rows, kind){
     if (!rows.length) return '<p class="oc-empty">' + (kind === 'avoid' ? 'No stock is on the avoid list.' : kind === 'watch' ? 'No stock is being watched closely.' : 'No catalyst flagged.') + '</p>';
@@ -41854,7 +41860,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<section class="os-group" data-os-never-trade><h3>Never traded <span class="os-tag">Locked in code</span></h3>' +
       '<p class="os-help">' + esc(nt.note) + '</p>' +
       groups.map(function(g){ return '<div class="os-row"><div class="os-main"><div class="os-label">' + esc(g.name) + ': ' + esc(g.syms.join(', ')) + '</div><p class="os-help">' + esc(g.why) + '</p></div></div>'; }).join('') +
-      '<p class="os-meta">Changing this list takes a code change. The Avoid list on the Strategy engines page is the switchable one.</p></section>';
+      (nt.sharesOnly && nt.sharesOnly.length ? '<h4 class="os-label" data-os-shares-only>Shares only (no options)</h4><p class="os-help">The engines may buy these as stock but never through options, and skip a put on them (they never short stock). Top Picks, which buys options only, leaves them out.</p>' +
+        nt.sharesOnly.map(function(r){ return '<div class="os-row"><div class="os-main"><div class="os-label">' + esc(r.sym) + '</div><p class="os-help">' + esc(r.why) + '</p></div></div>'; }).join('') : '') +
+      '<p class="os-meta">Changing either list takes a code change. The Avoid list on the Strategy engines page is the switchable one.</p></section>';
   }
   function render(){
     var root = document.getElementById('owner-settings-root'); if (!root || !ctx.owner()) return;

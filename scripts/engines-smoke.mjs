@@ -36,7 +36,7 @@ import { newTrade } from "../lib/webull-mirror.mjs";
 import { OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
 import { bsPrice } from "../lib/greeks.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
-import { isNeverTrade, neverTradeView, NEVER_TRADE } from "../lib/never-trade.mjs";
+import { isNeverTrade, isSharesOnly, neverTradeView, NEVER_TRADE, SHARES_ONLY } from "../lib/never-trade.mjs";
 import { BRAKE, brakeRead, brakeMult, brakeObserve, brakeSeed, brakeView, brakePrior, emptyBrake } from "../lib/engines/brake.mjs";
 import { buildScorecard, SCORECARD, weekOf, weeksBetween, sharpeOf, worstDrop } from "../lib/engines/scorecard.mjs";
 import { VARIANTS, VARIANT_LIMITS, validateVariants, variantSpec, runVariants, pairedRead, variantsView, variantEnds } from "../lib/engines/variants.mjs";
@@ -1814,7 +1814,8 @@ await okAsync("hook: a fresh start, a run, the three files, a second run, and a 
     if (t.contract.structure === "shares") {
       // A share trade: long stock only, never mirrored, ID marked S.
       assert.equal(t.side, "call"); assert.match(t.tradeId, /-S-/); assert.ok(t.contract.shares >= 1 && t.contract.mid > 0 && !t.contract.expiry);
-      assert.ok(ENGINES[t.engine].setups[t.setup].calls === "shares");
+      // A shares setup, or a call on a shares-only name (lib/never-trade.mjs).
+      assert.ok(ENGINES[t.engine].setups[t.setup].calls === "shares" || isSharesOnly(t.symbol), t.symbol + " " + t.setup);
     } else { assert.equal(t.contract.structure, "long"); assert.ok(t.contract.strike > 0 && t.contract.expiry > 0 && t.contract.mid > 0); }
     assert.ok(t.env && "rates" in t.env, "macro backdrop tags are on every trade");
     assert.equal(t.regime.cell, "up-calm");
@@ -2458,6 +2459,42 @@ ok("never-trade: an open trade on a listed name closes at the next run, and Rota
   assert.ok(!es.core.hold.includes("USO"), "the month's target is read again without USO");
   assert.ok(!out.opened.some((x) => x.symbol === "USO"));
   assert.ok(!es.cooldown?.USO, "an owner-rule close sets no cooldown");
+});
+ok("never-trade: shares-only names (DRAM, KWEB, EWY) are listed apart; MRNA and SPCX keep options", () => {
+  assert.deepEqual(SHARES_ONLY.map((r) => r.sym), ["DRAM", "KWEB", "EWY"]);
+  for (const s of ["MRNA", "SPCX", "TQQQ"]) assert.ok(!isSharesOnly(s) && !isNeverTrade(s), s);
+  for (const r of SHARES_ONLY) { assert.ok(isSharesOnly(r.sym) && !isNeverTrade(r.sym) && r.why, r.sym); assert.ok(isSharesOnly(`${r.sym}261218C00050000`)); }
+  assert.ok(!isSharesOnly("NVDA") && !isSharesOnly(null));
+  assert.equal(neverTradeView().sharesOnly.length, SHARES_ONLY.length);
+  assert.equal(new Set(NEVER_TRADE.map((r) => r.sym)).size, NEVER_TRADE.length, "no symbol listed twice");
+});
+ok("shares only: a call signal on a shares-only name buys shares, never an option", () => {
+  const views = { KWEB: V("KWEB", pullF({ date: END })), AAA: V("AAA", pullF({ date: END })) };
+  // Every Technicals setup made an option setup, so only the shares-only rule can pick shares.
+  const OLD = oldRun(), tec = OLD.technicals;
+  const specs = { ...OLD, technicals: { ...tec, setups: Object.fromEntries(Object.entries(tec.setups).map(([k, v]) => [k, { ...v, instrument: "options" }])) } };
+  const state = emptyState(), record = emptyRecord();
+  const out = stepBook(state, record, bookInput(views, { engines: ["technicals"], specs, shares: true }));
+  const k = out.opened.find((t) => t.symbol === "KWEB");
+  assert.ok(k, "KWEB still trades");
+  assert.equal(k.contract.structure, "shares"); assert.match(k.tradeId, /-S-/);
+  const a = out.opened.find((t) => t.symbol === "AAA");
+  assert.ok(a && a.contract.structure === "long", "an ordinary name keeps its option");
+  assert.ok(!state.engines.technicals.shadow.open.some((t) => t.symbol === "KWEB" && t.contract?.structure !== "shares"), "no option shadow on it");
+  // Share trades off (ENGINES_SHARES=0): the name is skipped, never swapped back to an option.
+  const s2 = emptyState(), out2 = stepBook(s2, emptyRecord(), bookInput(views, { engines: ["technicals"], specs, shares: false }));
+  assert.ok(!out2.opened.some((t) => t.symbol === "KWEB"));
+  assert.ok(!s2.engines.technicals.shadow.open.some((t) => t.symbol === "KWEB"));
+  assert.match(out2.candidates.technicals.find((c) => c.symbol === "KWEB").why, /shares only \(no options\) and share trades are off/);
+});
+ok("shares only: a put signal on a shares-only name is skipped (no put option, no short), and takes no room", () => {
+  const views = fundViews(); views.EWY = { ...views.F30, sym: "EWY" }; delete views.F30;
+  const out = stepBook(emptyState(), emptyRecord(), bookInput(views, { engines: ["fundamentals"], nowIso: "2026-11-16T16:00:00.000Z", shares: true }));
+  assert.ok(!out.opened.some((t) => t.symbol === "EWY"));
+  // The skip takes no room: the run's two new trades go to the next names in line.
+  assert.equal(out.opened.length, 2);
+  assert.equal(out.candidates.fundamentals.find((c) => c.symbol === "F29").why, "run limit");
+  assert.match(out.candidates.fundamentals.find((c) => c.symbol === "EWY").why, /EWY is shares only \(no options\): no puts/);
 });
 ok("one bad name: a stock whose input throws is left out, the run and every other name go on", () => {
   const nowIso = "2026-11-18T16:00:00.000Z", today = "2026-11-18";

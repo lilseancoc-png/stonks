@@ -147,6 +147,7 @@ try {
     const ntText = nt ? await nt.textContent() : '';
     check(/UVXY/.test(ntText) && /USO/.test(ntText) && /Locked in code/.test(ntText), tag + ' never-trade list shown');
     check(!!nt && (await nt.$$('input, select, button')).length === 0, tag + ' never-trade list has no control');
+    check(/Shares only \(no options\)/.test(ntText) && /KWEB/.test(ntText) && /DRAM/.test(ntText) && !/MRNA|TQQQ/.test(ntText), tag + ' shares-only names shown');
     if (nt) await nt.screenshot({ path: resolve(output, 'never-trade-' + w + '-' + scheme + '.png') });
     if (w === 1440 && scheme === 'light') await page.screenshot({ path: resolve(output, 'account-limits-1440-light.png'), fullPage: false });
     if (w === 390 && scheme === 'dark') await page.screenshot({ path: resolve(output, 'account-limits-390-dark.png'), fullPage: false });

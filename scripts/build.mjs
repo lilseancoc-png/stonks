@@ -181,7 +181,7 @@ import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
 import { TOP_PICKS_MODE_KEY, readTopPicksModeDoc, marketModeForRun, marketModeBlocks, topPicksModeFactory } from "../lib/top-picks-mode.mjs";
-import { isNeverTrade } from "../lib/never-trade.mjs";
+import { isNeverTrade, isSharesOnly } from "../lib/never-trade.mjs";
 import { OWNER_CONTROLS_KEY, readOwnerControlsDoc, activeControls, accountLimits, controlsEnabled, controlsSummary, tradeStamp as ownerControlsStamp, avoidCloses as ownerAvoidCloses } from "../lib/owner-controls.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, EARNINGS_WEEK_DAYS } from "../lib/earnings-week.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
@@ -23571,6 +23571,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.marketSide = marketSide ? { version: PICKS_MARKET_SIDE_VERSION, state: marketState, side: marketSide, withBar: marketLaneBar("with", strongBar), againstBar: marketLaneBar("against", strongBar) } : null;
   meta.marketLaneOpened = [];
   meta.neverTradeHeld = [];
+  meta.sharesOnlyHeld = [];
   for (const r of scored) {
     const laneMin = marketLaneCandidateBar(marketLaneFor(r, r.side || (r.total >= 0 ? "call" : "put"), marketState), minConv);
     const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= laneMin;
@@ -23581,6 +23582,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // that no Owner setting or control lifts. The grade still shows.
     if (isNeverTrade(r.sym)) {
       if (actionable || tactical) { meta.neverTradeHeld.push(r.sym); traceGate(r, actionable ? r.side : "put", "never-trade"); }
+      continue;
+    }
+    // SHARES ONLY (same file): names the engines trade as stock but never
+    // through options. Top Picks buys options only, so it leaves them out.
+    if (isSharesOnly(r.sym)) {
+      if (actionable || tactical) { meta.sharesOnlyHeld.push(r.sym); traceGate(r, actionable ? r.side : "put", "shares-only"); }
       continue;
     }
     // Disclosed terms near a collateral maintenance threshold add a downside
@@ -29942,9 +29949,9 @@ export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   const cands = [];
   for (const r of scored) {
     if (!r || !r.data) continue;
-    // The never-trade list (lib/never-trade.mjs): a listed name can never ship,
-    // so it never takes a grader slot (no AI spent on it).
-    if (isNeverTrade(r.sym)) continue;
+    // The never-trade list and the shares-only names (lib/never-trade.mjs) can
+    // never ship as a pick, so they never take a grader slot (no AI spent).
+    if (isNeverTrade(r.sym) || isSharesOnly(r.sym)) continue;
     if (!regimePrimaryGateClears(r, macroBackdrop)) continue;
     let side = null, tactical = false;
     const laneMin = marketLaneCandidateBar(marketLaneFor(r, r.side || (r.total >= 0 ? "call" : "put"), marketState), minConv);

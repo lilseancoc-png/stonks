@@ -520,6 +520,20 @@ await ok("mirror: the never-trade list blocks a buy with no gate, no control and
   ({ summary } = await mirror({ ...acc, open: [flag("UVXY")] }, null, old.ledger));
   assert.equal(summary.placed, 0);
 });
+await ok("mirror: an option order on a shares-only name is refused, never sent later", async () => {
+  const acc = { builtAtIso: "2026-11-16T16:02:00.000Z", open: [flag("AAA"), flag("KWEB")], closed: [] };
+  let { ledger, summary } = await mirror(acc, null);
+  assert.equal(summary.placed, 1, "only the ordinary name is sent");
+  const t = Object.values(ledger.trades).find((x) => x.symbol === "KWEB");
+  assert.equal(t.state, "skipped"); assert.match(t.note, /KWEB is shares only \(no options\)/);
+  ({ summary } = await mirror(acc, null, ledger));
+  assert.equal(summary.placed, 0);
+  // A pending ledger row from before the rule is never sent either.
+  const old = await mirror({ ...acc, open: [flag("KWEB")] }, null);
+  const o = Object.values(old.ledger.trades)[0]; delete o.note; o.state = "pending";
+  ({ summary } = await mirror({ ...acc, open: [flag("KWEB")] }, null, old.ledger));
+  assert.equal(summary.placed, 0);
+});
 await ok("mirror: no gate buys as before; Stop and Avoid log the trade as not bought, never buy it later, and health calls it expected", async () => {
   const acc = { builtAtIso: "2026-11-16T16:02:00.000Z", open: [flag("AAA"), flag("BBB")], closed: [] };
   const plain = await mirror(acc, null);

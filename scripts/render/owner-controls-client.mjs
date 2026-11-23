@@ -99,7 +99,13 @@ export function renderOwnerControlsJs() {
   // even with Owner controls off. Read-only here.
   function ocNeverHtml(nt){
     if (!nt || !nt.list || !nt.list.length) return '';
-    return '<p class="oc-note" data-oc-never><b>Never traded (locked in code):</b> ' + nt.list.map(function(r){ return ocEsc(r.sym); }).join(', ') + '. Read as market gauges only; no switch here lifts them. <a href="?tab=owner-settings">Why each one &rarr;</a></p>';
+    // Grouped: a long group (the leveraged and inverse funds) shows as a count.
+    var groups = [];
+    nt.list.forEach(function(r){ var g = null; for (var i = 0; i < groups.length; i++) if (groups[i].name === r.group) g = groups[i]; if (!g) { g = { name: r.group, syms: [] }; groups.push(g); } g.syms.push(r.sym); });
+    var parts = groups.map(function(g){ return g.syms.length > 12 ? g.syms.length + ' ' + ocEsc(g.name.toLowerCase()) + ' funds' : ocEsc(g.syms.join(', ')); });
+    var so = (nt.sharesOnly || []).map(function(r){ return ocEsc(r.sym); });
+    return '<p class="oc-note" data-oc-never><b>Never traded (locked in code):</b> ' + parts.join('; ') + '. Read as market gauges only; no switch here lifts them.' +
+      (so.length ? ' <b>Shares only, no options:</b> ' + so.join(', ') + '.' : '') + ' <a href="?tab=owner-settings">Why each one &rarr;</a></p>';
   }
   function ocListHtml(rows, kind){
     if (!rows.length) return '<p class="oc-empty">' + (kind === 'avoid' ? 'No stock is on the avoid list.' : kind === 'watch' ? 'No stock is being watched closely.' : 'No catalyst flagged.') + '</p>';

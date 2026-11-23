@@ -137,6 +137,16 @@ export function runEntryPolicyChecks() {
   assert.deepEqual(bannedPicks.rosterMeta.neverTradeHeld,['UVXY']);
   assert.equal(aiGraderCandidates({scored:[banned],regimeBand:'neutral'},null,{}).length,0,'a never-trade name takes no AI grader slot');
   assert.equal(aiGraderCandidates({scored:[wider],regimeBand:'neutral'},null,{}).length,1);
+  // Shares only (same file): Top Picks buys options only, so it leaves DRAM out
+  // and spends no grader slot on it.
+  const sharesOnly=structuredClone(wider); sharesOnly.sym='DRAM';
+  const soPicks=buildTopPicks({DRAM:sharesOnly.data},[],null,null,null,null,.045,{preScored:{scored:[sharesOnly],peerIndex:{},regimeBand:"neutral"},aiThesisMap:{'DRAM:call':aiThesis}});
+  assert(!soPicks.some(p=>p.symbol==='DRAM'),'a shares-only name never ships as an option pick');
+  assert.deepEqual(soPicks.rosterMeta.sharesOnlyHeld,['DRAM']);
+  assert.deepEqual(soPicks.rosterMeta.neverTradeHeld,[]);
+  assert.equal(aiGraderCandidates({scored:[sharesOnly],regimeBand:'neutral'},null,{}).length,0,'a shares-only name takes no AI grader slot');
+  const kept=structuredClone(wider); kept.sym='MRNA';
+  assert.equal(aiGraderCandidates({scored:[kept],regimeBand:'neutral'},null,{}).length,1,'MRNA keeps options (owner, 2026-11-24)');
 
   for(const days of [14,15]) {
     const earned=structuredClone(wider);

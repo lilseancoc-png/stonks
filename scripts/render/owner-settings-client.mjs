@@ -133,7 +133,9 @@ export function ownerSettingsClient(window, document, ctx) {
     return '<section class="os-group" data-os-never-trade><h3>Never traded <span class="os-tag">Locked in code</span></h3>' +
       '<p class="os-help">' + esc(nt.note) + '</p>' +
       groups.map(function(g){ return '<div class="os-row"><div class="os-main"><div class="os-label">' + esc(g.name) + ': ' + esc(g.syms.join(', ')) + '</div><p class="os-help">' + esc(g.why) + '</p></div></div>'; }).join('') +
-      '<p class="os-meta">Changing this list takes a code change. The Avoid list on the Strategy engines page is the switchable one.</p></section>';
+      (nt.sharesOnly && nt.sharesOnly.length ? '<h4 class="os-label" data-os-shares-only>Shares only (no options)</h4><p class="os-help">The engines may buy these as stock but never through options, and skip a put on them (they never short stock). Top Picks, which buys options only, leaves them out.</p>' +
+        nt.sharesOnly.map(function(r){ return '<div class="os-row"><div class="os-main"><div class="os-label">' + esc(r.sym) + '</div><p class="os-help">' + esc(r.why) + '</p></div></div>'; }).join('') : '') +
+      '<p class="os-meta">Changing either list takes a code change. The Avoid list on the Strategy engines page is the switchable one.</p></section>';
   }
   function render(){
     var root = document.getElementById('owner-settings-root'); if (!root || !ctx.owner()) return;
