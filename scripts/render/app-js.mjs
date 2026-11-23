@@ -66,6 +66,7 @@ import { renderEnginesJs } from './engines-client.mjs';
 import { renderOwnerControlsJs } from './owner-controls-client.mjs';
 import { renderOwnerInsightJs } from './owner-insight-client.mjs';
 import { renderTradePopJs } from './trade-pop-client.mjs';
+import { renderBookRiskJs } from './book-risk-client.mjs';
 import { tradePostMortemFactory } from '../../lib/trade-postmortem.mjs';
 import { renderI18nJs, I18N_LANGS } from './i18n-client.mjs';
 import { readFileSync } from 'node:fs';
@@ -42232,126 +42233,19 @@ ${renderExportBindings()}
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg Top Picks mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open Top Picks trades (unrealized).' } : null,
     ]);
     if (!open.length){
-      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + popCheckOpenHtml() + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+      root.innerHTML = bookRiskHtml([], engOpen) + '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + engHtml + popCheckOpenHtml() + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
       openPicksRunHealth(root, d);
       return;
     }
     loadAccFills();
     var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
-    root.innerHTML = bookRiskHtml(open) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + popCheckOpenHtml() + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+    root.innerHTML = bookRiskHtml(open, engOpen) + openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + engHtml + popCheckOpenHtml() + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
     // Strategy engines: a note when a Top Picks trade and an engine trade are on the exact same contract.
     var engNote = typeof engFlagshipSharedHtml === 'function' ? engFlagshipSharedHtml(open) : '';
     if (engNote){ var engAfter = root.querySelector('.book-risk'); if (engAfter) engAfter.insertAdjacentHTML('afterend', engNote); else root.insertAdjacentHTML('afterbegin', engNote); }
     openPicksRunHealth(root, d);
   }
-  // --- Book risk (Owner, 2026-11-07) -----------------------------------------
-  // The open book as one position: dollar delta and daily decay (one contract
-  // per trade, as the record counts it), exposure by sector group and side,
-  // and an expiry ladder with the reports and Fed / CPI / jobs dates that fall
-  // before each expiry. Greeks are recomputed from the last mark with the same
-  // Black-Scholes as the pick cards.
-  var bookCal = { data: null, loading: false };
-  function bookLoadCalendar(){
-    if (bookCal.data || bookCal.loading) return;
-    bookCal.loading = true;
-    fetch(dataUrl('calendar.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; })
-      .then(function(j){ bookCal.loading = false; bookCal.data = j && Array.isArray(j.events) ? j : { events: [] }; var pane = $('page-pane-open-picks'); if (pane && !pane.hidden) renderOpenPicks(); });
-  }
-  function bookGreeks(o){
-    var c = o && o.contract; if (!c) return null;
-    var side = o.side === 'put' ? 'put' : 'call';
-    var S = Number(o.lastSpot) || Number(SPOTS && SPOTS[o.symbol]) || Number(o.entrySpot);
-    var exp = Number(c.exp || c.expiry);
-    if (!(S > 0) || !(exp > 0)) return null;
-    var T = posYrs(exp);
-    var d = 0, t = 0, ok = false;
-    if ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && Array.isArray(c.legs) && c.legs.length > 1){
-      c.legs.forEach(function(leg){
-        var q = Number(leg.qty) || 0, k = Number(leg.strike), iv = Number(leg.iv);
-        var g = k > 0 && iv > 0 ? greeks(leg.type || c.optionType || side, S, k, T, iv, RFR) : null;
-        var ld = g ? g.delta : Number(leg.delta), lt = g ? g.thetaDay : Number(leg.thetaDay);
-        if (isFinite(ld)){ d += ld * q; ok = true; }
-        if (isFinite(lt)) t += lt * q;
-      });
-    } else {
-      var K = Number(c.strike), iv = Number(c.iv);
-      var g = K > 0 && iv > 0 ? greeks(side, S, K, T, iv, RFR) : null;
-      d = g ? g.delta : Number(c.delta); t = g ? g.thetaDay : Number(c.thetaDay);
-      ok = isFinite(d);
-      if (!isFinite(t)) t = 0;
-    }
-    return ok ? { S: S, exp: exp, deltaUsd: d * 100 * S, thetaUsd: t * 100 } : null;
-  }
-  function bookRiskHtml(open){
-    if (!HAS_OWNER_ACCESS || !open || !open.length) return '';
-    bookLoadCalendar();
-    var rows = [], netDelta = 0, grossDelta = 0, theta = 0, groups = {}, missing = 0;
-    open.forEach(function(o){
-      var g = bookGreeks(o);
-      if (!g){ missing++; return; }
-      rows.push({ o: o, g: g });
-      netDelta += g.deltaUsd; grossDelta += Math.abs(g.deltaUsd); theta += g.thetaUsd;
-      var grp = sectorGroupOf(o.symbol) || 'Other';
-      var b = groups[grp] = groups[grp] || { delta: 0, n: 0, calls: 0, puts: 0, longUsd: 0, shortUsd: 0 };
-      b.delta += g.deltaUsd; b.n++; if (o.side === 'put') b.puts++; else b.calls++;
-      if (g.deltaUsd >= 0) b.longUsd += g.deltaUsd; else b.shortUsd += -g.deltaUsd;
-    });
-    if (!rows.length) return '';
-    function usd(v){ var a = Math.abs(v); return (v < 0 ? '−' : '') + '$' + (a >= 1e6 ? (a / 1e6).toFixed(2) + 'M' : a >= 1e4 ? Math.round(a / 1e3) + 'K' : Math.round(a).toLocaleString()); }
-    var maxAbs = 0;
-    Object.keys(groups).forEach(function(k){ if (Math.abs(groups[k].delta) > maxAbs) maxAbs = Math.abs(groups[k].delta); });
-    var groupRows = Object.keys(groups).sort(function(a, b){ return Math.abs(groups[b].delta) - Math.abs(groups[a].delta); }).map(function(k){
-      var b = groups[k];
-      return '<tr><td>' + escapeHtml(k) + '</td><td class="num">' + b.n + ' <small>(' + b.calls + 'C · ' + b.puts + 'P)</small></td><td class="num">' + vtCbarHtml(b.delta / (maxAbs || 1) * 10, 10, usd(b.delta)) + '</td><td class="num">' + (grossDelta ? Math.round(Math.abs(b.delta) / grossDelta * 100) + '%' : '—') + '</td></tr>';
-    }).join('');
-    // Expiry ladder with events before each expiry.
-    var byExp = {};
-    rows.forEach(function(r){ var k = new Date(r.g.exp * 1000).toISOString().slice(0, 10); (byExp[k] = byExp[k] || []).push(r); });
-    var today = new Date().toISOString().slice(0, 10);
-    var events = bookCal.data ? bookCal.data.events || [] : null;
-    function macroBefore(exp){
-      if (!events) return null;
-      var seen = {};
-      return events.filter(function(e){
-        if (!e || !e.date || e.date < today || e.date > exp) return false;
-        if (e.type === 'fomc') return true;
-        return e.type === 'macro' && /^(cpi-yoy|core-cpi-yoy|nfp|ppi-yoy|pce-yoy|core-pce-yoy)$/.test(String(e.subtype || ''));
-      }).filter(function(e){ var key = e.type + e.date; if (seen[key]) return false; seen[key] = 1; return true; })
-        .map(function(e){ return (e.type === 'fomc' ? 'Fed' : /cpi/.test(e.subtype) ? 'CPI' : /pce/.test(e.subtype) ? 'PCE' : /ppi/.test(e.subtype) ? 'PPI' : 'Jobs') + ' ' + e.date.slice(5); });
-    }
-    function earningsBefore(sym, exp){
-      if (!events) return null;
-      var hit = events.filter(function(e){ return e && e.type === 'earnings' && e.symbol === sym && e.date >= today && e.date <= exp; })[0];
-      return hit ? hit.date.slice(5) : '';
-    }
-    var ladder = Object.keys(byExp).sort().map(function(exp){
-      var list = byExp[exp];
-      var th = list.reduce(function(s, r){ return s + r.g.thetaUsd; }, 0);
-      var days = Math.max(0, Math.round((Date.parse(exp + 'T20:00:00Z') - Date.now()) / 86400000));
-      var macro = macroBefore(exp);
-      return '<tr><td><b>' + escapeHtml(exp.slice(5)) + '</b> <small>' + days + 'd</small></td><td>' + list.map(function(r){
-        var e = earningsBefore(r.o.symbol, exp);
-        return '<span class="book-pos ' + (r.o.side === 'put' ? 'is-put' : 'is-call') + '">' + escapeHtml(r.o.symbol) + (e ? ' <small title="Reports before this expiry">E ' + escapeHtml(e) + '</small>' : '') + '</span>';
-      }).join(' ') + '</td><td class="num">' + usd(th) + '/day</td><td>' + (macro == null ? '<small class="muted">Loading…</small>' : macro.length ? macro.map(function(m){ return '<span class="book-ev">' + escapeHtml(m) + '</span>'; }).join(' · ') : '<small class="muted">None</small>') + '</td></tr>';
-    }).join('');
-    var top = rows.slice().sort(function(a, b){ return Math.abs(b.g.deltaUsd) - Math.abs(a.g.deltaUsd); })[0];
-    return '<details class="accuracy-advanced book-risk"' + (VIEWS.get('open-picks.book', true) ? ' open' : '') + ' data-book-risk><summary class="accuracy-advanced-summary">Book risk: Top Picks <span class="mm-owner-tag">Owner</span></summary><div class="accuracy-advanced-body">' +
-      '<div class="mm-kpis">' +
-        '<div class="mm-kpi"><span>Net stock exposure (delta $)</span><b class="' + (netDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + usd(netDelta) + '</b></div>' +
-        '<div class="mm-kpi"><span>Gross exposure</span><b>' + usd(grossDelta) + '</b></div>' +
-        '<div class="mm-kpi"><span>Daily time decay</span><b class="' + (theta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + usd(theta) + '/day</b></div>' +
-        '<div class="mm-kpi"><span>Largest single name</span><b>' + escapeHtml(top.o.symbol) + ' ' + (grossDelta ? Math.round(Math.abs(top.g.deltaUsd) / grossDelta * 100) + '%' : '') + '</b></div>' +
-      '</div>' +
-      '<div class="acc-tscroll"><table class="acc-qtable book-table" data-nosort><thead><tr><th>Sector group</th><th class="num">Trades</th><th class="num">Net delta $</th><th class="num">Share of gross</th></tr></thead><tbody>' + groupRows + '</tbody></table></div>' +
-      bookExposureBarsHtml(groups, usd) +
-      '<h4 class="pd-h4">Expiry ladder</h4><div class="acc-tscroll"><table class="acc-qtable book-table" data-nosort><thead><tr><th>Expiry</th><th>Trades (E = reports first)</th><th class="num">Decay</th><th>Fed, CPI, jobs before expiry</th></tr></thead><tbody>' + ladder + '</tbody></table></div>' +
-      '<p class="hint acc-research-note">One contract per trade, as the record counts it. Delta $ is the stock-equivalent position: if every stock rose 1%, the book would gain about 1% of that amount. Greeks are recomputed from each trade’s last mark' + (missing ? '; ' + missing + ' trade' + (missing === 1 ? '' : 's') + ' without a mark or IV are left out' : '') + '.</p>' +
-    '</div></details>';
-  }
-  document.addEventListener('toggle', function(e){
-    var d = e.target;
-    if (d && d.hasAttribute && d.hasAttribute('data-book-risk')) VIEWS.set('open-picks.book', !!d.open);
-  }, true);
+${renderBookRiskJs()}
   // --- Week recap (Friday recap, 2026-11-06) ---------------------------------
   // lib/week-recap.mjs: the week's opens and closes, win rate by entry type,
   // the most confident losing close and the rule that turned away the most.

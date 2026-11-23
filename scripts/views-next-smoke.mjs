@@ -167,7 +167,8 @@ for (const m of client.matchAll(/vnJson\(([^)]*)\)/g)) {
 }
 ok(/if \(ownerOnly && !HAS_OWNER_ACCESS\) return Promise\.resolve\(null\)/.test(client), "Owner-only fetches stop without an Owner session");
 const app = await readFile(new URL("render/app-js.mjs", import.meta.url), "utf8");
-ok(/function bookRiskHtml\(open\)\{\s*if \(!HAS_OWNER_ACCESS/.test(app), "book risk renders only for the Owner");
+const bookClient = await readFile(new URL("render/book-risk-client.mjs", import.meta.url), "utf8");
+ok(/function bookRiskHtml\(open, engOpen\)\{\s*if \(!HAS_OWNER_ACCESS\) return/.test(bookClient), "book risk renders only for the Owner");
 ok(/function accNoteBoxHtml\(kind, id\)\{\s*if \(!HAS_OWNER_ACCESS/.test(app), "trade notes render only for the Owner");
 const stock = await readFile(new URL("render/stock-page-js.mjs", import.meta.url), "utf8");
 ok(/function tabOwner\(\)\{\s*if \(!HAS_OWNER_ACCESS\) return '';/.test(stock), "stock page Owner tab stays Owner-only");

@@ -115,10 +115,17 @@ const fills = { rows: [], marks: {}, notes: { trades: {}, tickers: { NVDA: { tex
 const heatmap = { builtAtIso: NOW, tickers: SYMS.map((s) => ({ s, n: s + ' Corp', sec: SECTORS[s], ch: map.rows.find((r) => r.s === s)?.r1d, mc: chains[s].fundamentals.marketCap })) };
 const ulog = { entries: [{ scannedAt: '2026-10-20T15:00:00Z', symbol: 'NVDA', side: 'call', strike: 200, expSec: expSecs[1], deltaVol: 9000, vol: 12000, premium: 3.2e6 }] };
 
+// Book risk v2: engine trades (an option and a shares holding) beside Top Picks.
+const enginesFile = { builtAtIso: NOW, engines: [
+  { id: 'technicals', name: 'Technicals', open: [{ tradeId: 'TEC-1', engine: 'technicals', symbol: 'AMD', side: 'call', setup: 'breakout', score: 70, entryDate: '2026-11-05T16:04:00Z', entrySpot: chains.AMD.spot, lastSpot: chains.AMD.spot, lastMid: 5, optionPnlPct: 2, sessions: 1,
+    contract: { structure: 'long', optionType: 'call', strike: Math.round(chains.AMD.spot * 1.05), expiry: expSecs[3], mid: 5, iv: 0.45, qty: 3 } }] },
+  { id: 'momentum', name: 'Momentum basket', open: [{ tradeId: 'MOM-1', engine: 'momentum', symbol: 'MSFT', side: 'call', setup: 'top-10', score: 0, entryDate: '2026-11-03T16:04:00Z', entrySpot: chains.MSFT.spot, lastSpot: chains.MSFT.spot, lastMid: chains.MSFT.spot, optionPnlPct: 0, sessions: 3,
+    contract: { structure: 'shares', optionType: 'call', shares: 20, mid: chains.MSFT.spot } }] },
+] };
 const data = {
   'market-map.json': map, 'site-changes.json': changes, 'market-days.json': marketDays, 'market-days-briefs.json': dayBriefs,
   'macro-history.json': { entries: [], liquidity }, 'calendar.json': calendar, 'grades-daily.json': { days: gradeDays }, 'grade-research.json': research,
-  'picks-accuracy.json': accuracy, 'picks-open.json': { builtAtIso: NOW, open: openBook }, 'grades.json': gradesIndex, 'grades-history.json': gradesHistory,
+  'engines.json': enginesFile, 'market-analysis.json': { builtAtIso: NOW, scenarioEngine: { sensitivities: [{ symbol: 'AMD', annualizedVolPct: 55, vector: { marketBeta: { value: 1.7 }, rate10y: { value: -0.4 } } }, { symbol: 'NVDA', annualizedVolPct: 50, vector: { marketBeta: { value: 1.6 } } }] } }, 'picks-accuracy.json': accuracy, 'picks-open.json': { builtAtIso: NOW, open: openBook }, 'grades.json': gradesIndex, 'grades-history.json': gradesHistory,
   'picks-run-2026-11-06.json': run, 'heatmap.json': heatmap, 'oi-tracker.json': oiOf(5), '13f.json': f13, 'unusual-log.json': ulog,
   'manifest.json': { symbols: [], narratives: [] }, 'manifest-free.json': { symbols: [], narratives: [] }, 'picks-changes.json': { events: [] }, 'picks-roster.json': { current: [], dropped: [] },
   ...Object.fromEntries(SYMS.map((s) => { const { _bars, ...pub } = chains[s]; return [s + '.json', pub]; })),
@@ -186,6 +193,18 @@ async function open(width, theme, tab, extra = '') {
   await page.route('**/*', (route) => (new URL(route.request().url()).origin === base ? route.continue() : route.fulfill({ body: '' })));
   await page.goto(base + '/?tab=' + tab + extra, { waitUntil: 'domcontentloaded' });
   return { page, context, errors };
+}
+// How many times the Book risk panel is drawn again over 1.5 seconds, once
+// the page's other files have had a second to arrive (each one redraws it).
+async function bookRedraws(page) {
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => {
+    window.__bookDraws = 0;
+    const root = document.getElementById('page-pane-open-picks') || document.body;
+    new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1 && (n.matches('.book-risk') || n.querySelector('.book-risk'))) window.__bookDraws++; }).observe(root, { childList: true, subtree: true });
+  });
+  await page.waitForTimeout(1500);
+  return page.evaluate(() => window.__bookDraws);
 }
 async function finish({ page, context, errors }, name, el) {
   await page.waitForTimeout(250);
@@ -315,8 +334,48 @@ try {
       await s.page.waitForFunction(() => /Net stock exposure/i.test(document.body.innerText), null, { timeout: 20000 });
       await s.page.waitForFunction(() => /Fed 12-09|CPI 11-12/.test(document.querySelector('.book-risk')?.innerText || ''), null, { timeout: 10000 });
       ok(/E 11-19/.test(await text(s.page, '.book-risk')), 'expiry ladder flags the report before expiry');
+      // v2 (2026-11-23): engine trades, the bad-day estimates and the replays.
+      await s.page.waitForFunction(() => /Past sell-offs replayed/i.test(document.querySelector('.book-risk')?.innerText || ''), null, { timeout: 15000 });
+      const book = await text(s.page, '.book-risk');
+      ok(/5 trades/.test(book) && /Technicals/.test(book) && /Momentum basket/.test(book), 'book risk counts Top Picks and engine trades');
+      ok(/A bad day/i.test(book) && /Last year’s days replayed/i.test(book) && /like March 2020/i.test(book), 'bad-day estimates show');
+      ok(/In S&P 500 dollars/i.test(book) && /Who carries the risk/i.test(book), 'beta-weighted exposure and risk shares show');
+      ok(/Covid crash, 2020/.test(book) && /April 2025 tariff shock/.test(book), 'crash replays show');
+      ok(/Growth scare/.test(book) && /without a sensitivity, moved by beta/.test(book), 'What-if presets run on the book');
+      ok(!/NaN|undefined|Infinity/.test(book), 'no broken numbers in the book');
+      ok(await bookRedraws(s.page) <= 1, 'book risk panel settles (no redraw loop)');
       await finish(s, 'open-picks-book-' + tag, '.book-risk');
     }
+  }
+  // An open panel fires a toggle event as it is drawn; with no daily moves to
+  // cache it once redrew itself forever (2026-11-23). Serve no market days.
+  if (want('open-picks')) {
+    const saved = data['market-days.json'];
+    delete data['market-days.json'];
+    const s = await open(1440, 'light', 'open-picks');
+    await s.page.waitForFunction(() => /could not be read|has no moves in it/i.test(document.querySelector('.book-risk')?.innerText || ''), null, { timeout: 15000 });
+    ok(await bookRedraws(s.page) <= 1, 'book risk panel settles with no market days');
+    ok(/Net stock exposure/i.test(await text(s.page, '.book-risk')), 'exposure still shows with no market days');
+    await finish(s, 'open-picks-book-nodays', '.book-risk');
+    data['market-days.json'] = saved;
+  }
+  // Closed, reloaded, then opened: the What-if read waits for the open.
+  if (want('open-picks')) {
+    const s = await open(1440, 'light', 'open-picks');
+    await s.page.waitForFunction(() => /Growth scare/.test(document.querySelector('.book-risk')?.innerText || ''), null, { timeout: 15000 });
+    await s.page.locator('details.book-risk > summary').click();
+    await s.page.waitForFunction(() => !document.querySelector('details.book-risk')?.open, null, { timeout: 5000 });
+    const asks = [];
+    s.page.on('request', (r) => { if (/market-analysis\.json/.test(r.url())) asks.push(r.url()); });
+    await s.page.reload({ waitUntil: 'domcontentloaded' });
+    await s.page.waitForFunction(() => document.querySelector('details.book-risk[data-book-lazy]') && !document.querySelector('details.book-risk').open, null, { timeout: 20000 });
+    await s.page.waitForTimeout(500);
+    ok(asks.length === 0, 'a closed panel does not read the What-if file');
+    await s.page.locator('details.book-risk > summary').click();
+    await s.page.waitForFunction(() => /Growth scare/.test(document.querySelector('details.book-risk[open]')?.innerText || ''), null, { timeout: 15000 });
+    ok(asks.length === 1, 'opening it reads the What-if file once');
+    ok(await bookRedraws(s.page) <= 1, 'book risk panel settles after opening');
+    await finish(s, 'open-picks-book-reopened', '.book-risk');
   }
   // Trade journal: add a note with tags on an open trade, then edit the ticker note.
   if (want('journal')) {

@@ -29647,6 +29647,16 @@ button[data-refresh-checking] { opacity: .55; cursor: progress; }
 .book-pos.is-call { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
 .book-pos.is-put { color: var(--neg); background: color-mix(in srgb, var(--neg) 10%, transparent); }
 .book-pos small { color: var(--warn, var(--accent)); font-weight: 600; }
+.book-risk .mm-kpi small { display: block; margin-top: 2px; font: 500 var(--t-12)/1.4 var(--font-mono); color: var(--muted); }
+.book-sum-n { margin-left: 4px; font: 500 var(--t-12)/1.4 var(--font-mono); color: var(--muted); }
+.book-sub { margin-top: 2px; font: 500 var(--t-12)/1.45 var(--font-sans); color: var(--muted); white-space: normal; }
+.book-tip { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--border); font: 650 var(--t-10)/1 var(--font-sans); color: var(--muted-strong); cursor: help; vertical-align: 1px; }
+.book-line { margin: 6px 0 10px; font-size: var(--t-13); line-height: 1.55; color: var(--text); }
+.book-line b { white-space: nowrap; }
+.book-hit { display: inline-block; margin: 0 10px 2px 0; white-space: nowrap; font-family: var(--font-mono); font-size: var(--t-13); }
+.book-hit small { font-family: var(--font-sans); color: var(--muted); }
+.book-split th { padding-top: 10px; text-align: left; font: 650 var(--t-12)/1.4 var(--font-sans); text-transform: uppercase; letter-spacing: .04em; color: var(--muted-strong); }
+.book-var td:first-child { min-width: 220px; }
 
 /* Owner trade journal. */
 .acc-notes { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
@@ -29669,6 +29679,7 @@ button[data-refresh-checking] { opacity: .55; cursor: progress; }
 @media (max-width: 640px) {
   .book-table .vt-cbar { display: none; }
   .book-table th, .book-table td { padding-left: 6px; padding-right: 6px; }
+  .book-var td:first-child { min-width: 150px; }
   .wc-item { grid-template-columns: 54px 1fr; }
   .mm-wall { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
   .pd-map { height: 340px !important; }
