@@ -1287,6 +1287,28 @@ w = expected / 4, clamped to 0.1x-2x.
 - **Its record.** Every finished signal trade, real and shadow
   (`allocObserve`), on top of a starting record from the history test's
   every-setup run (`research.allocPrior`, counts and sums only).
+- **Real option prices (2026-11-23).** The starting record is read from
+  `research/engines/allocator/latest.json` when that file exists
+  (`loadEnginesResearch`, `realAllocPrior`), else from the main history run's
+  `allocPrior` in `research/engines/results/latest.json`, which prices options
+  on modeled volatility (1.15x realized) and read dip-buying calls far better
+  than they did on real prices. The file is written by hand with
+  `node scripts/engines-alloc-prior.mjs --long DIR --cboe DIR --fg FILE`: the
+  same every-setup run (`researchBase`, `allocPriorOfRaw`) with the engines'
+  current rules and each option priced on real 30-day implied volatility
+  through `runBacktest`'s `ivAdj` hook (the Cboe index for SPY, QQQ, IWM, AAPL,
+  AMZN, GOOGL, GS, IBM, TLT, GLD, SLV, USO, else k x VIX^0.7, the loser brake's
+  pricing). Share trades are unchanged. First run, 2007-01-03 to 2026-11-06,
+  3,496 trades. Against modeled prices on the same rules, the extreme-fear
+  bounce calls went from +23.9% a trade to -5.2%, the washout calls from
+  +10.2% to +0.6%, TLT rates-fall calls from +8.0% to +3.0% and the VIX-curve
+  puts from +1.7% to -5.2%. On advise this changes no trade (the read
+  is stamped, not sized, `ENGINES_FIX_ALLOC_ADVISE`); it changes what the
+  Allocator would do if switched `on` and its own dollar line. Rerun it after a
+  rule change to a history-tested engine.
+- **Older rows.** A row the rules no longer reach (an option call on a setup
+  that buys shares only, a retired put side) keeps its record but is left off
+  the page (`allocRowLive`, `oldRows`).
 - **Modes** (`ENGINES_ALLOCATOR`). `advise` (the default): every trade opens
   and carries the read as `alloc` (`{ w, status, ev, n, cn, cell, mode }`);
   the page counts the closed trades it would have held back and what they
