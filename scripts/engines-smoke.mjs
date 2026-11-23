@@ -3223,6 +3223,16 @@ ok("trade audit fixes (2026-11-24): contract fit, liquidity and the share risk f
   assert.ok(!best.skip && Math.abs(best.delta) > 0.65, "falls back to the best fit");
   // An on-target strike in the nearest expiry is still taken there.
   assert.equal(pickContract({ spot: 100, chains: base }, "call", prefs, { nowMs }).expiry, near);
+  // A strike within 0.15 of the target is taken even when a wide spread gives
+  // it a worse fit score than a tighter strike further off (97.5 call at 0.64
+  // delta, 17% wide, against the 97 call at 0.66 delta, 1% wide).
+  const T23 = dteOf(near, nowMs) / 365;
+  const rowAt = (K, half) => { const px = bsPrice("call", 100, K, T23, 0.35, 0.045); return { s: K, b: +(px * (1 - half)).toFixed(2), a: +(px * (1 + half)).toFixed(2), l: +px.toFixed(2), iv: 0.35, oi: 800, v: 60 }; };
+  const wideClose = { spot: 100, chains: { [near]: { c: [rowAt(97, 0.005), rowAt(97.5, 0.085)], p: [] } } };
+  const pickedClose = pickContract(wideClose, "call", prefs, { nowMs });
+  assert.equal(pickedClose.strike, 97.5, `close strike kept: ${pickedClose.strike} at ${pickedClose.delta}`);
+  assert.ok(Math.abs(pickedClose.delta - 0.5) <= 0.15 && pickedClose.spreadPct > 15);
+  assert.equal(pickContract(wideClose, "call", { ...prefs, fit: false }, { nowMs }).strike, 97, "switched off: the best fit score, as before");
   // Fix 2: open interest 4 with a busy day no longer passes; 50 needs 10 traded; 100 passes alone.
   const withLiq = (oi, v) => ({ spot: 100, chains: Object.fromEntries(Object.entries(base).map(([e, x]) => [e, { c: x.c.map((r) => ({ ...r, oi, v })), p: x.p }])) });
   assert.match(pickContract(withLiq(4, 50), "call", prefs, { nowMs }).skip, /thin or too wide/);

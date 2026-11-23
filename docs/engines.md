@@ -912,9 +912,10 @@ contract fixes on its own rules). New trades only.
    first four expiries nearest the ideal and took the first one with any
    passing strike, however poor the fit: on 2026-11-23 Downside wanted a 0.50
    delta UNH put and bought the 355 put at 0.70 delta with a 13.6% spread and
-   1 contract traded. Now an expiry's best strike is taken only within
-   `BOOK.fitDelta` (0.15) of the target delta; otherwise the best fit over
-   the expiries looked at wins (the same fit score: delta miss plus spread /
+   1 contract traded. Now an expiry is used only when it has a strike within
+   `BOOK.fitDelta` (0.15) of the target delta, and the best such strike is
+   taken there even if a tighter strike further off scores better;
+   otherwise the best fit over the expiries looked at wins (the same fit score: delta miss plus spread /
    400). An on-target strike in the nearest expiry is still taken there.
 2. **Liquidity** (`ENGINES_FIX_LIQUIDITY`). A strike passed with open
    interest of 50 *or* 10 contracts traded, so one busy day let open
