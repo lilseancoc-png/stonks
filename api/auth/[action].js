@@ -439,7 +439,9 @@ async function me(req, res) {
 // --- private picks feed ------------------------------------------------------
 // /api/auth/picks-feed?key=<PICKS_FEED_KEY> returns the open Top Picks trades
 // and the last week's closes as plain-text lines (lib/pick-trade-text.mjs), so
-// an outside agent can read them without a Discord session. The link itself is
+// an outside agent can read them without a Discord session; `&format=json`
+// returns them as order-ready fields (lib/trade-instructions.mjs, optional
+// `kind=open|close`, `since=<ISO>`, `placeable=1`). The link itself is
 // the credential and it exposes only these lines, not the rest of the Owner
 // data. Reset it by changing PICKS_FEED_KEY in Vercel; unset = feed off.
 const PICKS_FEED_MIN_KEY = 24;
@@ -484,6 +486,18 @@ async function picksFeed(req, res) {
         controls = { ...oc.controlsSummary(active), stopAt: active.stopAt };
       }
     } catch (err) { console.error("picks feed controls read failed", { message: String(err?.message || err) }); }
+    // ?format=json: the same trades as order-ready fields for an agent
+    // (lib/trade-instructions.mjs, the MCP's get_trade_instructions answer).
+    if (req.query?.format === "json") {
+      const { buildTradeInstructions } = await import("../../lib/trade-instructions.mjs");
+      const q = req.query || {};
+      const kind = ["open", "close"].includes(q.kind) ? q.kind : "all";
+      const since = typeof q.since === "string" && Number.isFinite(Date.parse(q.since)) ? q.since : null;
+      const body = buildTradeInstructions(acc, { nowMs: Date.now(), controls, kind, since, placeableOnly: q.placeable === "1" });
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.statusCode = 200;
+      return res.end(JSON.stringify(body));
+    }
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.statusCode = 200;
     return res.end(buildPicksFeedText(acc, { controls }));
