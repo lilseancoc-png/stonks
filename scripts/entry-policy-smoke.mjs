@@ -56,6 +56,13 @@ export function runEntryPolicyChecks() {
   assert.equal(exit.cut.price,plan.invalidation);
   assert.equal(exit.takeProfit.price,plan.target);
   assert.equal(exit.stockPlan,plan);
+  // A single call on the hold exit (#919) shows the hold exits, not +25% / -50% (2026-11-23).
+  if (exit.exitStyle==='hold') {
+    assert.equal(exit.optionTp,null); assert.equal(exit.optionStop.pct,60);
+    assert(exit.triggers[0].includes('hold 10 trading sessions') && !exit.triggers.join(' ').includes('take-profit at'));
+  }
+  const putExit = buildExitPlan('put',100,data,long,{stockPlan:plan});
+  assert.notEqual(putExit.exitStyle,'hold'); assert(putExit.optionTp && putExit.optionTp.pct===25,'a put keeps +25% / -50%');
   // The leveraged desk shares the exit builder; its downstream plan must
   // carry these real levels rather than inventing percentage stops.
   const leveraged = buildLeveragedEtfPicks({NVDA:data},{NVDA:{total:12,timing:{call:timing}}},new Date().toISOString());
