@@ -47,10 +47,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-24
+
+### Changed
+- Strategy engines (trade audit fixes, owner chose "Build fixes 1-3" from the 2026-11-23 engine audit): the option picker takes a strike within 0.15 of the engine's target delta, else the best fit over the first four expiries (it took the first expiry with any usable strike, so a 0.50-delta UNH put was bought at 0.70 delta with a 13.6% spread); a strike counts as liquid with open interest of 50 and 10 traded today, or open interest of 100 (one busy day let open interest of 3 through); and a risk-sized share trade counts at least 1 ATR or 2% of the price of risk a share, so a tight stop can no longer buy about $200,000 of stock. Each is an Owner Settings switch (`ENGINES_FIX_CONTRACT_FIT`, `ENGINES_FIX_LIQUIDITY`, `ENGINES_FIX_SHARE_RISK`), on by default, and one dated rules step on the signal engines. New trades only; changes no Top Pick. No AI call.
+
 ## 2026-11-23
 
 ### Added
 - Rebuild the Owner **Book risk** panel on Open picks as "Book risk: the paper account": it now covers every open Top Picks and strategy engine trade (options and shares) at the size the Webull paper account holds (the record size when there is no paper row; missed and not-bought trades left out, an engine copy of a held contract counted once), and adds beta-weighted stock exposure in S&P 500 dollars, a one-day bad-day loss (95% and the average of the worst 5%) from last year's market days replayed on today's book and from a smoothed (Ledoit-Wolf) estimate, the same loss if stocks moved together as in March 2020, who carries the risk by engine and by name, four past sell-offs replayed on today's book (Covid 2020, the 2022 bear market, the August 2024 carry unwind, the April 2025 tariff shock; each stock's own adjusted move, beta times the S&P 500 for a name with none, the VIX rise added to every option) and the Market analysis What-if presets. The sector table, exposure bars and expiry ladder stay. The past sell-off table is `lib/book-risk-crashes.mjs`, built by hand with `node scripts/book-risk-crashes.mjs --bars <file>`; the math is `lib/book-risk.mjs` (pricer passed in, no new Black-Scholes copy). Owner-only, display only, no AI call, no new download (reads `market-days.json` and `market-analysis.json`, which the site already writes). Test: `node scripts/book-risk-smoke.mjs`.
+
+### Fixed
+- Strategy engines (engine audit): when no strike can be bought because every liquid strike sits outside the engine's delta range, the skip reason now says so instead of "one contract costs more than the $5,000 cap", and a name an engine already holds that the price filter skips is listed as "already holds this name" instead of only "price moved against it". Display only: the same contracts and trades are picked. Stale notes on the VIX rollover lot, the put cap default and the engines guide's opening paragraph are brought up to date. No AI call.
 
 ## 2026-11-22
 
