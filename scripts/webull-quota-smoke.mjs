@@ -46,7 +46,7 @@ await ok("quota client: a call with no room is refused before it is sent", async
 // v3: positions come back the way Webull's sandbox sends them, one group per
 // filled order whose legs carry no side or quantity, and order reads carry
 // the order's legs (scripts/webull-grouped-smoke.mjs).
-function fakeSandbox(sim, { v3 = false } = {}) {
+function fakeSandbox(sim, { v3 = false, onPlace = null } = {}) {
   const orders = new Map(), calls = {}, over = [];
   const limited = (ep, fn) => async (...args) => {
     const list = (calls[ep] ||= []).filter((ms) => ms > sim.t - 60000);
@@ -77,7 +77,7 @@ function fakeSandbox(sim, { v3 = false } = {}) {
       return [...net.values()].filter((p) => p.quantity);
     }),
     previewOrder: limited("previewOrder", async () => ({ estimated_transaction_fee: "0.65" })),
-    placeOrder: limited("placeOrder", async (acct, list) => { const o = list[0]; orders.set(o.client_order_id, { status: "SUBMITTED", body: o }); return {}; }),
+    placeOrder: limited("placeOrder", async (acct, list) => { const o = list[0], rec = { status: "SUBMITTED", body: o }; orders.set(o.client_order_id, rec); onPlace?.(rec); return {}; }),
     orderDetail: limited("orderDetail", async (acct, id) => {
       const o = orders.get(id); if (!o) throw new Error("not found");
       return { orders: [{ client_order_id: id, status: o.status, filled_quantity: o.filled_quantity || "0", filled_price: o.filled_price ?? null, filled_time_at: o.filled_time_at ?? null,
@@ -275,6 +275,23 @@ await ok("mirror: a run stopped before an unacknowledged order's replay leaves o
   const r3 = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(3), ledger: r2.ledger, nowMs: sim.t, clock: () => 0, quoteFn });
   assert.ok(wb.orders.has(at.clientOrderId), "replayed");
   assert.equal(r3.summary.alerts, 0);
+});
+
+// A marketable entry can fill the moment it is sent; a later cancel's
+// position check then sees its new v3 group before any read of it.
+await ok("mirror: an entry that fills at once does not pause the account at the next position check", async () => {
+  let instant = false;
+  const sim = { t: T0 }, wb = fakeSandbox(sim, { v3: true, onPlace: (o) => { if (instant) { o.status = "FILLED"; o.filled_quantity = String(o.body.quantity); o.filled_price = "2.00"; o.filled_time_at = "2026-10-21T15:13:00.000Z"; } } });
+  const L = (await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(10), nowMs: T0, clock: () => 0, quoteFn })).ledger;
+  instant = true; sim.t = T0 + 180000;
+  const moved = async (t) => ({ bid: t.engineEntryPrice * 1.03, ask: t.engineEntryPrice * 1.05 });
+  const r = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: { ...acc(20), builtAtIso: "2026-10-21T15:12:00Z" }, ledger: L, nowMs: sim.t, clock: () => 0, quoteFn: moved });
+  assert.deepEqual(wb.over, []);
+  assert.equal(r.summary.alerts, 0, (r.ledger.reconciliation?.alerts || []).join("; "));
+  assert.equal(r.summary.followUpNeeded, true);
+  // Nothing was cancelled without a replacement order behind it.
+  const bare = Object.values(r.ledger.trades).filter((t) => t.state === "entering" && wb.orders.get(t.entryAttempts.at(-1)?.clientOrderId)?.status === "CANCELLED");
+  assert.equal(bare.length, 0, `entries cancelled with no new order: ${bare.length}`);
 });
 
 console.log(`Webull call limits: ${pass} checks passed (${QUOTA_PER_WINDOW} calls a minute per endpoint, ${EXIT_RESERVE} kept for exits).`);

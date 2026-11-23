@@ -6,7 +6,7 @@
     "lib/datastore.mjs": "524634a5c6a9e041109b98a9637c70da1911106a20e08eb664c60aea05396fdd",
     "lib/data-ownership.mjs": "d1b9643a72d54293910a99324cba5a12feae181d06a4cfba61dec9d1578b841d",
     "scripts/sync-data.mjs": "f1689806667ffa73a594b5b6a7565ded57d6db0db2551f7ac5438d0144d1b5bd",
-    "lib/webull-mirror.mjs": "33e4f790143f5da790ae066c7bbcf948e430a3390fda57346e81d811fbf76384",
+    "lib/webull-mirror.mjs": "aa9fb17bdf30e60c6a3cfdb4623d8e0ee9f26eace6013988ae7ede3361e95939",
     "lib/grade-research.mjs": "87a94d86cb3ac6de7cae723a7b084f40601ce90789a141ef3edfabdda7e1a004"
   },
   "calculators": {
