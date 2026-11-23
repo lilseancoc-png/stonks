@@ -36,6 +36,7 @@ import { newTrade } from "../lib/webull-mirror.mjs";
 import { OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
 import { bsPrice } from "../lib/greeks.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
+import { isNeverTrade, neverTradeView, NEVER_TRADE } from "../lib/never-trade.mjs";
 import { BRAKE, brakeRead, brakeMult, brakeObserve, brakeSeed, brakeView, brakePrior, emptyBrake } from "../lib/engines/brake.mjs";
 import { buildScorecard, SCORECARD, weekOf, weeksBetween, sharpeOf, worstDrop } from "../lib/engines/scorecard.mjs";
 import { VARIANTS, VARIANT_LIMITS, validateVariants, variantSpec, runVariants, pairedRead, variantsView, variantEnds } from "../lib/engines/variants.mjs";
@@ -2410,17 +2411,53 @@ ok("book: the rotation buys three $10,000 lots of shares, then swaps at the next
     assert.match(t.tradeId, /^ROT:[A-Z]+-S-/); assert.ok(t.reasons.some((x) => /average 3, 6 and 12-month rise/.test(x)));
   }
   assert.equal(engineByTag("ROT").id, "rotation");
-  // Next month SLV falls out of the three for USO.
+  // Next month SLV falls out of the three. USO ranks first but is on the
+  // never-trade list (lib/never-trade.mjs, 2026-11-23): it is ranked and named
+  // as a gauge, never bought, and the next fund down takes the place.
   const v2 = rotViews({ SLV: [...ramp(20, 31, 13), 18], USO: ramp(40, 90) }, "2026-11");
   out = stepBook(state, record, bookInput(v2, { engines: ["rotation"], ctx: { ...coreCtx(), byId: v2 }, nowIso: "2026-12-01T16:00:00.000Z" }));
   assert.deepEqual(out.closed.map((x) => [x.symbol, x.status]), [["SLV", "rotate"]]);
-  assert.ok(out.opened.some((x) => x.symbol === "USO"));
+  assert.ok(!out.opened.some((x) => x.symbol === "USO"), "USO is never bought");
+  assert.equal(state.engines.rotation.core.ranked[0].symbol, "USO", "USO is still ranked as a gauge");
+  assert.ok(!state.engines.rotation.core.hold.includes("USO"));
+  assert.match(state.engines.rotation.core.why, /USO ranked in the top 3 but is on the never-trade list/);
   // Switched off: no new holdings.
   const offOut = stepBook(emptyState(), emptyRecord(), bookInput(v1, { engines: ["rotation"], ctx: { ...coreCtx(), byId: v1 }, off: new Set(["rotation"]) }));
   assert.equal(offOut.opened.length, 0);
   // The page row.
   const page = buildEnginesView({ record, state, ctx: CTX, builtAtIso: NOW_AM }).engines.find((e) => e.id === "rotation");
   assert.equal(page.top, 3); assert.equal(page.funds.length, 10); assert.equal(page.liveTest, true); assert.ok(page.holdings.ranked.length >= 9);
+});
+// ---- the never-trade list (lib/never-trade.mjs, 2026-11-23) ---------------
+ok("never-trade: VIX products and USO are listed, options resolve to their underlying, ordinary names are not", () => {
+  for (const s of ["UVXY", "USO", "VIX", "^VIX", "VXX", "VIXY", "SVXY", "uvxy", " USO "]) assert.ok(isNeverTrade(s), s);
+  for (const s of ["SPY", "QQQ", "GLD", "SLV", "TLT", "NVDA", "USOI", "", null, undefined]) assert.ok(!isNeverTrade(s), String(s));
+  assert.ok(isNeverTrade("UVXY  261218C00020000")); assert.ok(isNeverTrade("USO261218P00070000")); assert.ok(!isNeverTrade("SPY261218C00600000"));
+  const v = neverTradeView(); assert.equal(v.list.length, NEVER_TRADE.length); assert.ok(v.list.every((r) => r.sym && r.group && r.why));
+  assert.ok(Object.isFrozen(NEVER_TRADE) && NEVER_TRADE.every(Object.isFrozen), "the list can't be changed at run time");
+});
+ok("never-trade: a listed name never opens or shadows on any engine, and shows as skipped by rule", () => {
+  const views = { UVXY: V("UVXY", pullF({ date: END })), AAA: V("AAA", pullF({ date: END })) };
+  const state = emptyState(), record = emptyRecord(), OLD = oldRun();
+  const out = stepBook(state, record, bookInput(views, { engines: ["technicals"], specs: OLD }));
+  assert.deepEqual(out.opened.map((t) => t.symbol), ["AAA"], "only the ordinary name opens");
+  assert.ok(!state.engines.technicals.shadow.open.some((t) => t.symbol === "UVXY"), "no shadow trade either");
+  const row = out.candidates.technicals.find((c) => c.symbol === "UVXY");
+  assert.ok(row && !row.taken && /never-trade list/.test(row.why), "listed as skipped by rule");
+});
+ok("never-trade: an open trade on a listed name closes at the next run, and Rotation re-reads a target that held it", () => {
+  const state = emptyState(), record = emptyRecord();
+  const v1 = rotViews();
+  stepBook(state, record, bookInput(v1, { engines: ["rotation"], ctx: { ...coreCtx(), byId: v1 }, maxTotal: 1 }));
+  // As on 2026-11-23: Rotation's stored target for the month holds USO and the book has USO shares.
+  const t = record.open.find((x) => x.symbol === "SLV"); t.symbol = "USO";
+  const es = state.engines.rotation; es.core.hold = es.core.hold.map((s) => (s === "SLV" ? "USO" : s));
+  const out = stepBook(state, record, bookInput(v1, { engines: ["rotation"], ctx: { ...coreCtx(), byId: v1 }, nowIso: "2026-11-02T16:00:00.000Z" }));
+  assert.deepEqual(out.closed.map((x) => [x.symbol, x.status]), [["USO", "never-trade"]]);
+  assert.equal(out.closed[0].statusLabel || CLOSE_LABEL["never-trade"], "closed: on the never-trade list");
+  assert.ok(!es.core.hold.includes("USO"), "the month's target is read again without USO");
+  assert.ok(!out.opened.some((x) => x.symbol === "USO"));
+  assert.ok(!es.cooldown?.USO, "an owner-rule close sets no cooldown");
 });
 ok("one bad name: a stock whose input throws is left out, the run and every other name go on", () => {
   const nowIso = "2026-11-18T16:00:00.000Z", today = "2026-11-18";

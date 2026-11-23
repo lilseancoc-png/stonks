@@ -23,6 +23,11 @@ which puts back the state before the newest change not yet undone, one step
 at a time. Expired items move to `past` on the next save; they stop applying
 at their end whether or not anything is saved.
 
+The **never-trade list** (`lib/never-trade.mjs`, 2026-11-23: VIX products and
+USO) sits beside Avoid on the card but is not a control: it is locked in code,
+always on (also with `OWNER_CONTROLS` off) and read-only here and in Owner
+Settings. See `docs/engines.md` "Never-trade list".
+
 ## Account limits
 
 Five Owner Settings numbers (Owner Settings → **Account limits**, beside the

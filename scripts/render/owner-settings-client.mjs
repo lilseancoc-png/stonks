@@ -124,6 +124,17 @@ export function ownerSettingsClient(window, document, ctx) {
       return '<details class="os-group os-fold"' + (withTab || !collapsed[g] ? ' open' : '') + ' data-os-fold="' + esc(g) + '"><summary><h3>' + esc(g) + ' <span class="os-sub">' + items.length + (changed ? ' · ' + changed + ' changed' : '') + '</span></h3></summary>' + items.map(row).join('') + '</details>';
     }).join('');
   }
+  // The never-trade list (lib/never-trade.mjs): read-only, it is code, not a
+  // setting. Shown on the Account limits tab.
+  function neverTradeHtml(nt){
+    if (!nt || !nt.list || !nt.list.length) return '';
+    var groups = [];
+    nt.list.forEach(function(r){ var g = null; for (var i = 0; i < groups.length; i++) if (groups[i].name === r.group) g = groups[i]; if (!g) { g = { name: r.group, why: r.why, syms: [] }; groups.push(g); } g.syms.push(r.sym); });
+    return '<section class="os-group" data-os-never-trade><h3>Never traded <span class="os-tag">Locked in code</span></h3>' +
+      '<p class="os-help">' + esc(nt.note) + '</p>' +
+      groups.map(function(g){ return '<div class="os-row"><div class="os-main"><div class="os-label">' + esc(g.name) + ': ' + esc(g.syms.join(', ')) + '</div><p class="os-help">' + esc(g.why) + '</p></div></div>'; }).join('') +
+      '<p class="os-meta">Changing this list takes a code change. The Avoid list on the Strategy engines page is the switchable one.</p></section>';
+  }
   function render(){
     var root = document.getElementById('owner-settings-root'); if (!root || !ctx.owner()) return;
     // The "are you sure" box lives on <body> so no page layer can sit over it.
@@ -165,6 +176,7 @@ export function ownerSettingsClient(window, document, ctx) {
       html += '<p><button type="button" class="book-more" data-os-display-reset' + (displayChanged() ? '' : ' disabled') + '>Reset display settings</button></p>';
     } else {
       html += sectionsHtml(data.settings.filter(function(x){ return (x.tab || x.group) === tab; }), false);
+      if (tab === 'Account limits') html += neverTradeHtml(data.neverTrade);
     }
     html += '</div></div>';
     root.innerHTML = html;

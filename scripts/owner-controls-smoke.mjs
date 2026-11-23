@@ -503,6 +503,23 @@ function fakeWebull() {
 const T0 = Date.parse("2026-11-16T16:10:00Z");
 const flag = (symbol, o = {}) => ({ symbol, side: "call", entryDate: "2026-11-16T16:00:00.000Z", contract: { structure: "long", strike: 100, expiry: WEXP, mid: 4 }, ...o });
 const mirror = (acc, gate, ledger = null) => runWebullMirror({ client: fakeWebull(), accountId: "PAPER1", acc, ledger, nowMs: T0, clock: () => 0, quoteFn: async (t) => ({ bid: t.engineEntryPrice, ask: t.engineEntryPrice }), openGate: gate });
+await ok("mirror: the never-trade list blocks a buy with no gate, no control and the controls switch off; nothing buys it later", async () => {
+  const acc = { builtAtIso: "2026-11-16T16:02:00.000Z", open: [flag("AAA"), flag("UVXY"), flag("USO")], closed: [] };
+  let { ledger, summary } = await mirror(acc, null);
+  assert.equal(summary.placed, 1, "only the ordinary name is sent");
+  for (const sym of ["UVXY", "USO"]) {
+    const t = Object.values(ledger.trades).find((x) => x.symbol === sym);
+    assert.equal(t.state, "skipped", sym); assert.match(t.note, /never-trade list/);
+  }
+  ({ summary } = await mirror(acc, null, ledger));
+  assert.equal(summary.placed, 0, "never bought on a later run");
+  // A ledger entry taken in before the list existed (state still pending) is never sent either.
+  const old = await mirror({ ...acc, open: [flag("UVXY")] }, null);
+  const t = Object.values(old.ledger.trades)[0];
+  delete t.note; t.state = "pending";
+  ({ summary } = await mirror({ ...acc, open: [flag("UVXY")] }, null, old.ledger));
+  assert.equal(summary.placed, 0);
+});
 await ok("mirror: no gate buys as before; Stop and Avoid log the trade as not bought, never buy it later, and health calls it expected", async () => {
   const acc = { builtAtIso: "2026-11-16T16:02:00.000Z", open: [flag("AAA"), flag("BBB")], closed: [] };
   const plain = await mirror(acc, null);

@@ -10081,6 +10081,12 @@ function engEvidenceNote(t){
       el.innerHTML = ocBannerHtml(where);
     }
   }
+  // The never-trade list (lib/never-trade.mjs): locked in code, always on,
+  // even with Owner controls off. Read-only here.
+  function ocNeverHtml(nt){
+    if (!nt || !nt.list || !nt.list.length) return '';
+    return '<p class="oc-note" data-oc-never><b>Never traded (locked in code):</b> ' + nt.list.map(function(r){ return ocEsc(r.sym); }).join(', ') + '. Read as market gauges only; no switch here lifts them. <a href="?tab=owner-settings">Why each one &rarr;</a></p>';
+  }
   function ocListHtml(rows, kind){
     if (!rows.length) return '<p class="oc-empty">' + (kind === 'avoid' ? 'No stock is on the avoid list.' : kind === 'watch' ? 'No stock is being watched closely.' : 'No catalyst flagged.') + '</p>';
     return '<ul class="oc-list">' + rows.map(function(r){
@@ -10185,7 +10191,7 @@ function engEvidenceNote(t){
       '</div>' +
       '<div class="oc-cell"><h3 class="oc-h3">Check this stock</h3><form class="oc-form" data-oc-form="check"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" value="' + ocEsc(OC.checkSym) + '"></label><button type="submit" class="oc-btn">Check</button></form><div class="oc-check">' + ocCheckHtml() + '</div></div>' +
       '<div class="oc-grid">' +
-        '<div class="oc-cell"><h3 class="oc-h3">Avoid</h3><p class="oc-note">No new entries on the stock in any engine or Top Picks until you lift it.</p><form class="oc-form" data-oc-form="avoid"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><label class="oc-lbl">Until (optional) <input class="oc-in" type="date" name="until" min="' + ocEsc(today) + '"></label><label class="oc-chk"><input type="checkbox" name="close"> Close its open trades at the next run</label><button type="submit" class="oc-btn"' + dis + '>Avoid</button></form>' + ocListHtml(d.avoid || [], 'avoid') + '</div>' +
+        '<div class="oc-cell"><h3 class="oc-h3">Avoid</h3><p class="oc-note">No new entries on the stock in any engine or Top Picks until you lift it.</p><form class="oc-form" data-oc-form="avoid"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><label class="oc-lbl">Until (optional) <input class="oc-in" type="date" name="until" min="' + ocEsc(today) + '"></label><label class="oc-chk"><input type="checkbox" name="close"> Close its open trades at the next run</label><button type="submit" class="oc-btn"' + dis + '>Avoid</button></form>' + ocListHtml(d.avoid || [], 'avoid') + ocNeverHtml(d.neverTrade) + '</div>' +
         '<div class="oc-cell"><h3 class="oc-h3">Watch closely</h3><p class="oc-note">Front of each engine’s queue and first for Top Picks’ AI review slots for ' + d.watchSessions + ' sessions (through ' + ocEsc(ocDay(d.nextWatchUntil)) + ' if set now). No bar is lowered.</p><form class="oc-form" data-oc-form="watch"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><button type="submit" class="oc-btn"' + dis + '>Watch</button></form>' + ocListHtml(d.watch || [], 'watch') + '</div>' +
       '</div>' +
       '<div class="oc-cell"><h3 class="oc-h3">Catalyst log</h3><p class="oc-note">One line, shown on Top Picks, Open picks and here until its date. It changes no trade.</p><form class="oc-form" data-oc-form="catalyst"><label class="oc-lbl">Ticker (optional) <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false"></label><label class="oc-lbl oc-lbl-wide">What <input class="oc-in" name="text" maxlength="140" required></label><label class="oc-lbl">Date <input class="oc-in" type="date" name="date" min="' + ocEsc(today) + '" required></label><button type="submit" class="oc-btn"' + dis + '>Flag</button></form>' + ocListHtml(d.catalysts || [], 'catalyst') + '</div>' +
@@ -11759,7 +11765,7 @@ function validNewsFeedPayload(data) {
     'hit-stop-under': 'stock stop hit', 'thesis-broken': 'thesis broken', 'theta-stop': 'theta stop',
     'event-review': 'event review', 'shock-time': 'post-shock time limit', 'time-limit': 'hold time limit', 'expired': 'contract expired',
     'dropped': 'left the universe', 'left-coverage': 'left coverage (not counted)',
-    'owner-avoid': "closed by the owner's Avoid"
+    'owner-avoid': "closed by the owner's Avoid", 'never-trade': 'closed: on the never-trade list'
   };
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -12628,7 +12634,7 @@ function validNewsFeedPayload(data) {
     'shock-time': 'post-shock time limit', 'time-limit': 'hold time limit', 'theta-stop': 'theta stop', 'timed-out': '14-day time stop (retired)',
     'expired': 'expired', 'pre-earnings': 'pre-earnings exit (retired)', 'dropped': 'left universe',
     'left-coverage': 'name left coverage (not counted)', 'reset': 'weekly reset close (retired)',
-    'owner-avoid': "closed by the owner's Avoid"
+    'owner-avoid': "closed by the owner's Avoid", 'never-trade': 'closed: on the never-trade list'
   };
   // The stock has to move at least this much (direction-adjusted, %) before the
   // read calls it a direction result rather than a flat one.
@@ -41839,6 +41845,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return '<details class="os-group os-fold"' + (withTab || !collapsed[g] ? ' open' : '') + ' data-os-fold="' + esc(g) + '"><summary><h3>' + esc(g) + ' <span class="os-sub">' + items.length + (changed ? ' · ' + changed + ' changed' : '') + '</span></h3></summary>' + items.map(row).join('') + '</details>';
     }).join('');
   }
+  // The never-trade list (lib/never-trade.mjs): read-only, it is code, not a
+  // setting. Shown on the Account limits tab.
+  function neverTradeHtml(nt){
+    if (!nt || !nt.list || !nt.list.length) return '';
+    var groups = [];
+    nt.list.forEach(function(r){ var g = null; for (var i = 0; i < groups.length; i++) if (groups[i].name === r.group) g = groups[i]; if (!g) { g = { name: r.group, why: r.why, syms: [] }; groups.push(g); } g.syms.push(r.sym); });
+    return '<section class="os-group" data-os-never-trade><h3>Never traded <span class="os-tag">Locked in code</span></h3>' +
+      '<p class="os-help">' + esc(nt.note) + '</p>' +
+      groups.map(function(g){ return '<div class="os-row"><div class="os-main"><div class="os-label">' + esc(g.name) + ': ' + esc(g.syms.join(', ')) + '</div><p class="os-help">' + esc(g.why) + '</p></div></div>'; }).join('') +
+      '<p class="os-meta">Changing this list takes a code change. The Avoid list on the Strategy engines page is the switchable one.</p></section>';
+  }
   function render(){
     var root = document.getElementById('owner-settings-root'); if (!root || !ctx.owner()) return;
     // The "are you sure" box lives on <body> so no page layer can sit over it.
@@ -41880,6 +41897,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       html += '<p><button type="button" class="book-more" data-os-display-reset' + (displayChanged() ? '' : ' disabled') + '>Reset display settings</button></p>';
     } else {
       html += sectionsHtml(data.settings.filter(function(x){ return (x.tab || x.group) === tab; }), false);
+      if (tab === 'Account limits') html += neverTradeHtml(data.neverTrade);
     }
     html += '</div></div>';
     root.innerHTML = html;
@@ -60011,7 +60029,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // time stop, the pre-earnings close and the weekly reset) kept only so
   // legacy resolved rows still label + sort; new closes use 'thesis-broken'
   // for the invalidation path.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','time-limit','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','reset'];
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','time-limit','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','never-trade','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -62759,7 +62777,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'time-limit':'hold time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'time-limit':'hold time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'never-trade':'closed: on the never-trade list', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
@@ -64620,7 +64638,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // text, and "Copy all" copies exactly what the feed link shows). Change one,
   // change the other. Ids and times are always ET so the tab matches the feed.
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'time-limit':'held its sessions (hold exit)', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control' };
+  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'time-limit':'held its sessions (hold exit)', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control', 'never-trade':'closed: on the never-trade list' };
   var TL_RULE = '============================================================';
   var TL_LABEL_W = 10;
   var tlFmt = null;

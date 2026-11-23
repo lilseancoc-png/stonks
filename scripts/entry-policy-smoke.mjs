@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import { assessOptionEntryEconomics, OPTION_ENTRY_POLICY_VERSION } from '../lib/option-entry-economics.mjs';
 import { bsPrice, greeks, yearsToExpiry } from '../lib/greeks.mjs';
-import { computeEntryTiming, buildUnderlyingTradePlan, buildExitPlan, buildTopPicks,
+import { computeEntryTiming, buildUnderlyingTradePlan, buildExitPlan, buildTopPicks, aiGraderCandidates,
   pickContractForPick, pickVerticalForPick, resolvePickOutcome, applySplitToEntry, buildLeveragedEtfPicks } from './build.mjs';
 import { buildLeapsScorePayload } from '../lib/leaps-score.mjs';
 const DAY = 86400000;
@@ -128,6 +128,15 @@ export function runEntryPolicyChecks() {
   assert.equal(accepted.entryPolicyVersion,OPTION_ENTRY_POLICY_VERSION);
   assert.equal(accepted.entry.target,accepted.exitPlan.takeProfit.price);
   assert.equal(accepted.entry.invalidation,accepted.exitPlan.cut.price);
+
+  // The never-trade list (lib/never-trade.mjs): the same actionable setup on
+  // UVXY never ships, whatever the AI grader says, and is named in the meta.
+  const banned=structuredClone(wider); banned.sym='UVXY';
+  const bannedPicks=buildTopPicks({UVXY:banned.data},[],null,null,null,null,.045,{preScored:{scored:[banned],peerIndex:{},regimeBand:"neutral"},aiThesisMap:{'UVXY:call':aiThesis}});
+  assert(!bannedPicks.some(p=>p.symbol==='UVXY'),'a never-trade name never ships');
+  assert.deepEqual(bannedPicks.rosterMeta.neverTradeHeld,['UVXY']);
+  assert.equal(aiGraderCandidates({scored:[banned],regimeBand:'neutral'},null,{}).length,0,'a never-trade name takes no AI grader slot');
+  assert.equal(aiGraderCandidates({scored:[wider],regimeBand:'neutral'},null,{}).length,1);
 
   for(const days of [14,15]) {
     const earned=structuredClone(wider);
