@@ -456,6 +456,10 @@ try {
     check(openRows.some((t) => t.fillOutcome === 'filled') && wbTexts.some((x) => /Filled/.test(x)), 'filled engine trades say Filled');
     if (openRows.some((t) => t.fillOutcome === 'shared')) check(wbTexts.some((x) => /Held by another/.test(x)), 'a follower on a shared contract says Held by another');
     if (openRows.some((t) => t.fillOutcome === 'missed')) check(wbTexts.some((x) => /Missed/.test(x)), 'a missed entry says Missed');
+    // Expected gain (lib/trade-pop.mjs expectedGain): its own column after Webull.
+    const egHead = await group.locator('thead th').allInnerTexts();
+    const egTexts = await group.locator('tbody tr:not(.vt-detail) td:nth-child(7)').allInnerTexts();
+    check(egHead.some((h) => /Exp\. gain/.test(h)) && egTexts.some((x) => /[+−]\d/.test(x)), 'the engine trades table shows each trade\'s expected gain');
     // Top Picks row: Webull column joined by trade ID, Mark filled from entry and P&L.
     const tp = s.page.locator('#open-picks-root .accuracy-group').first();
     const tpText = await tp.innerText();
@@ -475,9 +479,11 @@ try {
       await why.click(); await settle(s.page, 200);
       const whyText = await group.locator('.vt-detail:not([hidden]) .pop-why').first().innerText();
       check(/Our estimate: \d+%/.test(whyText) && /Market model/.test(whyText) && /Track record/.test(whyText), 'the Why lays out the estimate, the model and the record');
+      check(/Expected gain: [+−]?\d/.test(whyText) && /breaks even at a move|Break-even move/.test(whyText), 'the Why lays out the expected gain and its break-even move');
     } else check(false, 'a stamped engine row has a Why button');
     check(await s.page.locator('#open-picks-pop').count() === 1, 'Open picks has the Chance of profit check');
     check(/Chance of profit check/i.test(await s.page.locator('#open-picks-pop summary').innerText()), 'the check is labelled');
+    check(/Expected gain check/.test(await s.page.locator('#open-picks-pop').textContent()), 'the check has the expected-gain part');
     // Still working at Webull: the closed engine trade still selling.
     if (exitingWb) check(groupText.includes(exitingWb.tradeId) && /Still working at Webull/i.test(groupText) && /Selling/.test(groupText), 'a trade still selling at Webull after its record closed is listed');
     const sumText = await s.page.locator('#open-picks-sum').innerText();

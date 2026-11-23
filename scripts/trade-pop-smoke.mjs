@@ -6,7 +6,9 @@ import {
   POP, tradePopEnabled, modelChance, heldToExpiryChance, recordChance, blendChance, buildPopStamp,
   popResult, stampPopResults, compactPop, historyWinRate, liveWinRate, engineTradePop, picksTradePop,
   popRows, buildPopCheck, webullPopOutcomes, popLabSources, sessionsUntil, atmIv, realizedVol,
+  EG, expectedGain, engineForecast, loopForecastFor, pathVolOf, ivShiftOf, buildEgCheck, compactEg,
 } from "../lib/trade-pop.mjs";
+import { holdExitPolicy } from "../lib/top-picks-exit-review.mjs";
 import { scoreChance } from "../lib/labs/calibration.mjs";
 import { renderTradePopJs } from "./render/trade-pop-client.mjs";
 import { OWNER_SETTINGS } from "../lib/owner-settings.mjs";
@@ -151,7 +153,78 @@ ok(chk.stamped === 4 && chk.open === 1 && chk.closed === 3, "check counts");
 ok(chk.groups.length === 5 && chk.groups[0].methods.length === 3 && chk.groups[0].methods[0].buckets.length === 6, "check shape");
 ok(chk.webull.n === 1 && chk.recent.length === 3 && chk.recent[0].x === "2026-11-26", "recent closes newest first");
 const lab = popLabSources(rows);
-ok(lab.length === 3 && lab[0].rows.length === 3 && lab[2].rows.length === 2, "Calibration lab sources (record source skips rows with no record)");
+ok(lab.length === 5 && lab[0].rows.length === 3 && lab[2].rows.length === 2, "Calibration lab sources (record source skips rows with no record)");
+ok(lab[3].id === "trade-eg" && lab[3].kind === "score" && lab[3].rows.length === 0 && lab[4].id === "trade-eg-pop", "Calibration lab: the expected gain as a score and its chance (none stamped here)");
+
+// --- expected gain ------------------------------------------------------------------------
+const call10 = { kind: "option", side: "call", spot: 100, sigma: 0.4, rfr: 0.045, sessions: 10, T: 30 / 365, legs: [{ type: "call", strike: 102, qty: 1, iv: 0.4 }], stop: 60 };
+const g0 = expectedGain({ id: "g", model: call10, forecast: { move: 0, sessions: 10 }, path: { sigma: 0.32, from: "rv" } });
+const g2 = expectedGain({ id: "g", model: call10, forecast: { move: 2, sessions: 10 }, path: { sigma: 0.32, from: "rv" }, costUsd: 400 });
+ok(g0 && g0.ev === g0.ev0 && g0.ev < 0, `no move: the expected result is the vehicle's cost (${g0 && g0.ev})`);
+ok(g2.ev > g0.ev && g2.pop > g0.pop && g2.ev0 === g0.ev0, "a forecast move raises the expected result and the chance");
+ok(g2.hurdle > 0 && g2.hurdle < 2.5, `a 30-day call held 10 sessions needs a small move (${g2.hurdle}%)`);
+ok(g2.evUsd === Math.round((g2.ev / 100) * 400) || Math.abs(g2.evUsd - (g2.ev / 100) * 400) <= 1, "dollars on the money put in");
+const atH = modelChance({ ...call10, id: "g", crn: true, pathSigma: 0.32, ivHalfLife: EG.ivHalfLife, moveSessions: 10, move: g2.hurdle }, { paths: EG.paths });
+ok(Math.abs(atH.avgX) < 1.5, `at the break-even move the average result is about zero (${atH.avg})`);
+ok(g2.twin && Math.abs(g2.twin.hurdle - EG.twinCostPct) < 0.1 && g2.better, `the shares twin breaks even at its cost (${g2.twin && g2.twin.hurdle}) and a vehicle is named (${g2.better})`);
+ok(g0.better === "neither", "no forecast: neither vehicle is expected to gain");
+const gRich = expectedGain({ id: "g", model: call10, forecast: { move: 2, sessions: 10 }, path: { sigma: 0.32 }, iv: { shift: -0.08 } });
+ok(gRich.ev < g2.ev && gRich.ivEnd < 0.4 && gRich.hurdle > g2.hurdle, "IV drifting down costs the long option");
+const gPut = expectedGain({ id: "gp", model: { ...call10, side: "put", legs: [{ type: "put", strike: 98, qty: 1, iv: 0.4 }] }, forecast: { move: 2, sessions: 10 }, path: { sigma: 0.32 } });
+ok(gPut && gPut.ev > gPut.ev0 && gPut.twin.ev > 0, "a put gains from a move its way (the stock falling), and so does its short-shares twin");
+const gSh = expectedGain({ id: "gs", model: { kind: "shares", side: "call", spot: 50, sigma: 0.3, rfr: 0.045, sessions: 20, costPct: 0.1 }, forecast: { move: 1.5, sessions: 20 }, path: { sigma: 0.3 } });
+ok(gSh && Math.abs(gSh.ev - 1.4) <= 0.3 && gSh.twin === null && gSh.better === null, `shares: the expected result is about the move less the cost (${gSh && gSh.ev})`);
+ok(expectedGain({ id: "g", model: { ...call10, sessions: 0 }, forecast: { move: 1 } }) === null, "no horizon: no expected gain");
+ok(JSON.stringify(g2).length < 900, `the expected gain stays small (${JSON.stringify(g2).length} bytes)`);
+const cEg = compactEg(g2);
+ok(cEg.ev === g2.ev && cEg.hurdle === g2.hurdle && cEg.twin.ev === g2.twin.ev && !cEg.vol, "the slim copy keeps the headline numbers");
+const t0 = Date.now(); expectedGain({ id: "speed", model: { ...call10, sessions: 40, T: 60 / 365 }, forecast: { move: 1, sessions: 40 }, path: { sigma: 0.3 } });
+ok(Date.now() - t0 < 2000, `a 40-session option stamp stays quick (${Date.now() - t0} ms)`);
+// The forecasts.
+ok(pathVolOf(Array.from({ length: 70 }, (_, i) => ({ c: 100 * (1 + 0.01 * Math.sin(i)) }))).from === "20- and 60-session realized", "path volatility: 20 and 60 sessions");
+ok(pathVolOf(null, 0.3).sigma === 0.3 && /option IV/.test(pathVolOf(null, 0.3).from), "path volatility: the option's IV without history");
+ok(ivShiftOf({ ivRank: { mean: 0.35, iv: 0.45 } }).shift === -0.1 && ivShiftOf({}).shift === 0, "IV drifts toward its own mean, else flat");
+const resF = { learningOff: { engines: { TEC: { bySetup: [], shares: { bySetup: [{ key: "pullback", n: 1061, avg: 1.1 }] } }, REV: { bySetup: [{ key: "oversold-bounce", n: 898, avg: 8.2 }], shares: { bySetup: [] }, trials: { bySetup: [{ key: "rsi2-dip", n: 2367, avg: 0.4 }] } } } } };
+const fTec = engineForecast({ engine: "TEC", setup: "pullback", side: "call", entryDate: "2026-11-23" }, { research: resF });
+ok(fTec.n === EG.historyCap && Math.abs(fTec.move - 1.1 * (EG.historyCap / (EG.historyCap + EG.shrinkK))) < 0.02, `engine forecast: the history share result, capped and shrunk (${fTec.move})`);
+const liveC = [{ engine: "REV", setup: "oversold-bounce", side: "call", entrySpot: 100, exitSpot: 103, exitDate: "2026-11-10", tradeId: "x1" }, { engine: "REV", setup: "oversold-bounce", side: "call", entrySpot: 100, exitSpot: 99, exitDate: "2026-11-11", tradeId: "x2" }, { engine: "REV", setup: "oversold-bounce", side: "call", entrySpot: 100, exitSpot: 150, exitDate: "2026-12-30", tradeId: "late" }];
+const fRev = engineForecast({ engine: "REV", setup: "oversold-bounce", side: "call", entryDate: "2026-11-23" }, { research: resF, closedLists: [liveC, liveC] });
+ok(fRev.n === 2 && fRev.raw === 1 && Math.abs(fRev.move - 1 * 2 / 22) < 0.01 && fRev.ref && fRev.ref.optAvg === 8.2, `engine forecast: earlier live stock moves only, no duplicates, the option average as a reference (${JSON.stringify(fRev)})`);
+const fTrial = engineForecast({ engine: "REV", setup: "rsi2-dip", side: "call", trial: true, entryDate: "2026-11-23" }, { research: resF });
+ok(fTrial.raw === 0.4 && !fTrial.ref, "engine forecast: a paper trial reads the trials block");
+ok(engineForecast({ engine: "MAC", setup: "x", side: "put" }, {}).move === 0, "engine forecast: nothing known is zero");
+ok(engineForecast({ engine: "REV", setup: "oversold-bounce", side: "call" }, { research: { learningOff: { engines: { REV: { bySetup: [], shares: { bySetup: [{ key: "oversold-bounce", n: 1, avg: 14.1 }] } } } } } }).move === 0, "engine forecast: one history trade is not a record");
+const resCore = { learningOff: { engines: { momentum: { core: { cagr: 26, from: "2007-02-01", swaps: 540 }, shares: { avg: 11.4, bySetup: [{ key: "top-10", n: 530, avg: 11.6 }, { key: "safe", n: 10, avg: 1.5 }, { key: "bonds", n: 4, avg: 1.7 }] } } } } };
+const fCore = engineForecast({ engine: "momentum", setup: "top-10", side: "call", contract: { structure: "shares" } }, { research: resCore, sessions: 21 });
+ok(fCore.raw > 1.8 && fCore.raw < 2.1 && fCore.sessions === 21 && /survivors/.test(fCore.from), `core engine: the portfolio's yearly growth over the stamp's month, not the per-trade average (${fCore.raw}%)`);
+const fSafe = engineForecast({ engine: "momentum", setup: "safe", side: "call", contract: { structure: "shares" } }, { research: resCore, sessions: 21 });
+ok(fSafe.raw > 0.2 && fSafe.raw < 0.4 && /share 13%/.test(fSafe.from), `core engine: the defensive holding gets its share of the growth (${fSafe.raw}%)`);
+ok(engineForecast({ engine: "momentum", setup: "bonds", side: "call", contract: { structure: "shares" } }, { research: resCore, sessions: 21 }).move === 0, "core engine: a holding with too few history trades falls through to the live closes");
+const ledgerKeys = ["d", "et", "s", "side", "em10", "im10", "pn"];
+const ledger = { keys: ledgerKeys, rows: [["2026-11-20", "11:00", "NVDA", "call", 0.5, 6, 40], ["2026-11-23", "11:00", "NVDA", "call", 0.8, 6.2, 50], ["2026-11-23", "15:30", "NVDA", "call", 1.1, 6.1, 55], ["2026-11-23", "15:30", "AMD", "put", -0.3, 8, 30]] };
+const lf = loopForecastFor(ledger, { date: "2026-11-23", symbol: "NVDA", side: "call", modelRows: 150 });
+ok(lf && lf.move === 1.1 && lf.sessions === 10 && lf.n === 55 && lf.learning && lf.ref.implied10 === 6.1, "loop forecast: the day's latest row, learning below 200 model rows");
+ok(loopForecastFor(ledger, { date: "2026-11-23", symbol: "AMD", side: "put", modelRows: 300 }).move === -0.3 && !loopForecastFor(ledger, { date: "2026-11-23", symbol: "AMD", side: "put", modelRows: 300 }).learning, "loop forecast: a put row");
+ok(loopForecastFor(ledger, { date: "2026-11-23", symbol: "TSLA", side: "call" }) === null, "loop forecast: no row, none");
+// The call hold (2026-11-22 flagship review): 10 sessions, the premium stop only.
+const holdPick = { ...pick, side: "call", cut: 170, contract: { structure: "long", strike: 182, expiry, iv: 0.5, breakeven: 190, mid: 8 } };
+const ph = picksTradePop(holdPick, { exitPolicy: holdExitPolicy(10, 60), rfr: 0.045, nowMs: Date.parse(pick.entryDate), forecast: { move: 1, sessions: 10, n: 40, from: "loop" } });
+ok(ph && ph.mod.sessions === 10 && ph.mod.tp == null && ph.mod.stop === -60 && ph.mod.sStop == null && /held 10 sessions/.test(ph.mod.hw), `Top Picks call hold: 10 sessions, the -60% stop, no take-profit or stock stop (${JSON.stringify([ph && ph.mod.sessions, ph && ph.mod.hw])})`);
+ok(ph.eg && ph.eg.fc.move === 1 && ph.eg.costUsd === 800 && ph.eg.sessions === 10, "Top Picks: the expected gain on one contract with the loop's move");
+const pNoFc = picksTradePop(holdPick, { exitPolicy: holdExitPolicy(10, 60), rfr: 0.045, nowMs: Date.parse(pick.entryDate) });
+ok(pNoFc.eg && pNoFc.eg.fc.move === 0 && /zero/.test(pNoFc.eg.fc.from), "Top Picks: no loop estimate is a zero forecast, labeled");
+ok(picksTradePop(holdPick, { exitPolicy: holdExitPolicy(10, 60), rfr: 0.045, expectedGain: false }).eg == null, "expected gain can be left out");
+ok(compactPop(ph).eg && compactPop(ph).eg.ev === ph.eg.ev, "the archive copy keeps the expected gain's headline");
+// Grading.
+const egRows = popRows({ flagship: [{ ...pick, pop: { p: 0.5, eg: { ev: 10, ev0: -8, pop: 0.45, hurdle: 1, fc: { move: 1.5 }, better: "shares" }, res: { y: 1, pnl: 30, at: "2026-11-25" } } }],
+  engines: [{ ...engOpt, pop: { p: 0.4, eg: { ev: -20, ev0: -25, pop: 0.2, hurdle: 3, fc: { move: 0.2 }, better: "neither" }, res: { y: 0, pnl: -60, at: "2026-11-26" } } }, { ...engOpt, tradeId: "REV-9", pop: { p: 0.5, eg: { ev: 2, pop: 0.4, better: "option" } } }] });
+const ec = buildEgCheck(egRows, { minN: 2 });
+ok(ec.n === 3 && ec.closed === 2 && ec.open === 1 && ec.groups[0].stated === -5 && ec.groups[0].made === -15 && ec.verdict === "over", `the expected-gain check: stated against made (${JSON.stringify([ec.groups[0], ec.verdict])})`);
+ok(ec.bands.find((b) => b.lo === 10).n === 1 && ec.bands.find((b) => b.lo === -Infinity || b.lo === null).n === 1, "the check's bands");
+ok(ec.vehicle.find((v) => v.better === "option").open === 1, "the check counts the better vehicle");
+ok(buildEgCheck([], {}).verdict === "few", "no rows: too few");
+ok(buildPopCheck(egRows, { minN: 2 }).eg.closed === 2, "the chance check carries the expected-gain check");
+ok(popLabSources(egRows)[3].rows.length === 2, "Calibration lab: closed trades with an expected gain are ranked");
 const scored = scoreChance(lab[0], { minN: 2 });
 ok(scored && scored.n === 3, "the Calibration lab scores them");
 
@@ -164,7 +237,7 @@ const sandbox = {
   document: { addEventListener() {} },
 };
 vm.createContext(sandbox);
-vm.runInContext(renderTradePopJs() + "\nthis.__pop = { popWhyHtml, popChipHtml, popCellHtml, popCheckHtml, popSortOf, POP_TIP };", sandbox);
+vm.runInContext(renderTradePopJs() + "\nthis.__pop = { popWhyHtml, popChipHtml, popCellHtml, popCheckHtml, popSortOf, POP_TIP, egCellHtml, egSortOf, egCheckHtml, EG_TIP };", sandbox);
 const P = sandbox.__pop;
 const why = P.popWhyHtml(eo);
 ok(/Our estimate: \d+%/.test(why) && /simulated paths/.test(why) && /ask/.test(why) && /History test/.test(why) && /counted as 20/.test(why), "the Why lays out the blend, the model and the record");
@@ -175,6 +248,11 @@ ok(/Outcome: closed without a gain/.test(P.popWhyHtml({ ...eo, res: { y: 0, pnl:
 ok(/pop-chip/.test(P.popChipHtml({ pop: eo })) && P.popChipHtml({}) === "", "the card line");
 ok(/data-vt-expand/.test(P.popCellHtml({ pop: eo }, true)) && !/data-vt-expand/.test(P.popCellHtml({}, true)), "the table cell has the expand button only with a stamp");
 ok(P.popSortOf({ pop: eo }) === eo.p && P.popSortOf({}) === null, "sort key");
+const egWhy = P.popWhyHtml(ph);
+ok(/Expected gain: [+−]/.test(egWhy) && /breaks even at a move/.test(egWhy) && /Shares instead/.test(egWhy) && /Measure only/.test(egWhy), "the Why lays out the expected gain");
+ok(/needs/.test(P.egCellHtml({ pop: ph })) && /—/.test(P.egCellHtml({})) && P.egSortOf({ pop: ph }) === ph.eg.ev && P.egSortOf({}) === null, "the expected-gain cell and sort");
+ok(/Expected/.test(P.popChipHtml({ pop: ph })), "the card line shows the expected gain");
+ok(/Expected gain check/.test(P.egCheckHtml(ec)) && /Too hopeful/.test(P.egCheckHtml(ec)) && /23 November/.test(P.egCheckHtml(null)), "the expected-gain check renders");
 const page = P.popCheckHtml(chk);
 ok(/Chance of profit check/.test(page) && /Top Picks/.test(page) && /Latest closes/.test(page) && /Webull fills/.test(page), "the check renders");
 ok(/next 11:00 or 15:30/.test(P.popCheckHtml(null)), "no check yet says when it comes");
@@ -194,6 +272,8 @@ try {
   ok(fx.view.popCheck && fx.view.popCheck.stamped > 0, "fixture: the page file carries the check");
   const viewOpen = (fx.view.engines || []).flatMap((e) => e.open || []);
   ok(viewOpen.some((t) => t.pop), "fixture: the page rows carry the chance");
+  ok(stamped.filter((t) => t.pop.eg).length / stamped.length > 0.8 && stamped.every((t) => !t.pop.eg || (Number.isFinite(t.pop.eg.ev) && t.pop.eg.fc)), "fixture: engine trades carry an expected gain with its forecast");
+  ok(fx.view.popCheck.eg && fx.view.popCheck.eg.n > 0, "fixture: the page file carries the expected-gain check");
   const off = await enginesFixture({ sessions: 20 });
   ok(off.view.popCheck != null, "fixture: short run still builds the check");
 } catch (err) { fail++; console.error("FAIL: engines fixture", err); }
