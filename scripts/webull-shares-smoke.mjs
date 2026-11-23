@@ -151,6 +151,11 @@ await ok("mirrorQty: engine qty, cap, missing qty, switches, shares", () => {
   assert.equal(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 0.4, qty: 18 } }), live({ picksMaxQty: 5 })).qty, 18, "an engine trade follows its record, not the Top Picks cap");
   const pk = mirrorQty(flag("A", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 0.4 } }), live({ picksMaxQty: 7 }));
   assert.equal(pk.qty, 7); assert.equal(pk.maxQty, 7); assert.equal(pk.capped, true); assert.equal(pk.wantQty, 80);
+  // No saved budget (the settings file drops a value equal to its default and
+  // no Vercel value): the $2,000 default, never one contract (2026-11-23).
+  const noBudget = mirrorQty(flag("A", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 4 } }), live({ riskUsd: null }));
+  const atDefault = mirrorQty(flag("A", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 4 } }), live({ riskUsd: 2000 }));
+  assert.equal(noBudget.riskUsd, 2000); assert.equal(noBudget.qty, atDefault.qty); assert.ok(noBudget.qty > 1, "a missing budget sizes at $2,000");
   // The saved Owner Settings cap, with a Vercel value winning.
   assert.deepEqual(picksCapFromSettings({}, {}), { picksMaxQty: 25 });
   assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 12 }, {}), { picksMaxQty: 12 });

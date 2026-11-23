@@ -22721,6 +22721,34 @@ function buildCreditExitPlan(side, spot, data, contract) {
   return { takeProfit, cut, levels, triggers, structure: "credit_vertical", optionStop: optStopPrice != null ? { price: optStopPrice, pct: stopPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: tpPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null };
 }
 
+// The exit plan for a trade on the hold exit (lib/top-picks-exit-review.mjs):
+// the stock levels stay as references (watchlist and the levered desk read
+// them), but the only exits are the premium stop, the session limit and
+// expiry. Same return shape as buildExitPlan.
+function buildHoldExitPlan(side, spot, contract, stockPlan, pol, entryPrem, tpPrice, cutPrice, tpPct, cutPct) {
+  const isCall = side === "call";
+  const stopPctN = Math.round(pnum(pol.stopPct) || 60);
+  const sessions = Math.round(pnum(pol.holdSessions) || 10);
+  const optStopPrice = entryPrem != null ? r2(entryPrem * (1 - stopPctN / 100)) : null;
+  const takeProfit = { price: tpPrice, movePct: tpPct != null ? r2((isCall ? 1 : -1) * tpPct * 100) : null, reason: stockPlan?.targetKind || "target unavailable", optionPrice: null, optionPct: null, entryPrem: entryPrem != null ? r2(entryPrem) : null, reference: true };
+  const cut = { price: cutPrice, movePct: cutPct != null ? r2((isCall ? -1 : 1) * cutPct * 100) : null, reason: stockPlan?.anchorKind || "invalidation unavailable", optionPrice: optStopPrice, optionPct: stopPctN, entryPrem: entryPrem != null ? r2(entryPrem) : null, stockReference: true };
+  const stopOptTxt = optStopPrice != null ? `$${optStopPrice} on the option (−${stopPctN}% of the premium)` : `−${stopPctN}% on the premium`;
+  const levels = [
+    { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: "Hold (no take-profit)", anchor: takeProfit.reason, reasons: {}, watchFor: null,
+      prose: takeProfit.price == null ? "Underlying target is unavailable; do not enter." : `No take-profit: the trade is held ${sessions} trading sessions. $${takeProfit.price} on the stock is a reference level, not an exit.` },
+    { role: "cut", price: cut.price, movePct: cut.movePct, action: "Premium stop", anchor: cut.reason, reasons: {}, watchFor: null,
+      prose: cut.price == null ? "Underlying invalidation is unavailable; do not enter." : `Hard stop at ${stopOptTxt}. $${cut.price} on the stock is a reference level; the record does not stop on the stock.` },
+  ];
+  const triggers = [
+    `Option exit: hold ${sessions} trading sessions with a −${stopPctN}% stop on premium; no take-profit and no stock stop.`,
+    optStopPrice != null ? `Stop loss: cut the option at $${optStopPrice} (−${stopPctN}% of the ~$${r2(entryPrem)} premium).` : null,
+    `Time limit: the trade closes after ${sessions} trading sessions, or earlier at the stop or expiry.`,
+  ].filter(Boolean);
+  if (contract?.earningsInWindow) triggers.push("Earnings before expiry — IV crush risk at the print; the hold exit keeps the trade through it unless the stop is hit.");
+  return { stockPlan, premiumBasis: "published-midpoint-reference", takeProfit, cut, levels, triggers, structure: contract?.structure || "long", exitStyle: "hold", holdSessions: sessions,
+    optionStop: optStopPrice != null ? { price: optStopPrice, pct: stopPctN, entryPrem: r2(entryPrem), basis: "premium" } : null, optionTp: null };
+}
+
 export function buildExitPlan(side, spot, data, contract, opts = {}) {
   const stockPlan = opts.stockPlan ?? buildUnderlyingTradePlan(side, data, spot);
   if (contract && contract.structure === "credit_vertical") {
@@ -22756,6 +22784,13 @@ export function buildExitPlan(side, spot, data, contract, opts = {}) {
   // the entry mid (debit verticals use the net debit, both carried in contract.mid).
   // This is the concrete "set your stop at $X.XX on the option" number.
   const entryPrem = pnum(contract?.mid);
+  // The hold exit (PICKS_CALL_HOLD, #919): a new single call is held a fixed
+  // number of sessions with only a premium stop (no take-profit, no stock
+  // stop), so its card must say that instead of +25% / -50% (2026-11-23
+  // readiness audit). Display only: the record's exits come from
+  // pickExitPolicy, the same call used here.
+  const holdPol = contract ? pickExitPolicy(contract.structure || "long", side) : null;
+  if (isHoldPolicy(holdPol)) return buildHoldExitPlan(side, spot, contract, stockPlan, holdPol, entryPrem, tpPrice, cutPrice, tpPct, cutPct);
   const optStopPrice = entryPrem != null ? r2(entryPrem * (1 - PICKS_OPT_STOP_PCT)) : null;
   const optTpPrice = entryPrem != null ? r2(entryPrem * (1 + PICKS_OPT_TP_PCT)) : null;
   const isDebitStruct = contract && contract.structure === "debit_vertical";
@@ -22978,7 +23013,9 @@ export function applyPickSizing(picks, regimeGross = 1) {
     // Floor, never round up: if the risk budget cannot buy one contract, say 0.
     const suggestedContracts = dollarsPerContract > 0 ? Math.floor((weight * PICKS_DISPLAY_ACCOUNT) / dollarsPerContract) : 0;
     const isCredit = c.structure === "credit_vertical";
-    const stopFrac = isCredit ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT;
+    // A hold-exit call (#919) stops at its own premium stop (-60%).
+    const holdPol = pickExitPolicy(c.structure || "long", p.side);
+    const stopFrac = isHoldPolicy(holdPol) ? holdPol.stopPct / 100 : isCredit ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT;
     p.sizing = {
       weight: r4(weight),
       riskToStopPct: Math.round(stopFrac * 100),
@@ -24764,9 +24801,11 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
 
   const target = contract ? {
     structure: contract.structure || "long",
-    optionTpPct: isCredit ? Math.round(PICKS_CREDIT_TP_PCT * 100) : Math.round(PICKS_OPT_TP_PCT * 100),
-    optionStopPct: isCredit ? Math.round(PICKS_CREDIT_STOP_PCT * 100) : Math.round(PICKS_OPT_STOP_PCT * 100),
-    underlyingStop: cut,
+    // A hold-exit call (#919) has no take-profit and no stock stop.
+    optionTpPct: exitPlan?.exitStyle === "hold" ? null : isCredit ? Math.round(PICKS_CREDIT_TP_PCT * 100) : Math.round(PICKS_OPT_TP_PCT * 100),
+    optionStopPct: exitPlan?.exitStyle === "hold" ? (exitPlan.optionStop?.pct ?? Math.round(PICKS_CALL_HOLD_STOP_PCT)) : isCredit ? Math.round(PICKS_CREDIT_STOP_PCT * 100) : Math.round(PICKS_OPT_STOP_PCT * 100),
+    underlyingStop: exitPlan?.exitStyle === "hold" ? null : cut,
+    ...(exitPlan?.exitStyle === "hold" ? { holdSessions: exitPlan.holdSessions } : {}),
     dte: contract.dte,
     // holdDays (the 14-day time stop) is retired: no fixed hold horizon — the
     // client's "-day time stop" chip is null-guarded and simply drops.
