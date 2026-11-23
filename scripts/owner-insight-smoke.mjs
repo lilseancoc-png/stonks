@@ -98,7 +98,9 @@ ok("app-js embeds POST_MORTEM", /var POST_MORTEM = \(\$\{tradePostMortemFactory\
 ok("closed row carries post-mortem and replay", /accPostMortemHtml\(e\) \+\n\s+accReplayHtml\(e\)/.test(appJs));
 ok("scorecard tallies loss causes", appJs.includes("accLossCausesHtml(closed)"));
 ok("equity sub-tab mounts the rolling chart", appJs.includes("accMountRollingWin(box, decAll)"));
-ok("book risk draws exposure bars", appJs.includes("bookExposureBarsHtml(groups, usd)"));
+// Book risk moved to its own client in v2 (2026-11-23).
+const bookClient = readFileSync(new URL("./render/book-risk-client.mjs", import.meta.url), "utf8");
+ok("book risk draws exposure bars", bookClient.includes("bookExposureBarsHtml(groups, bookUsd)") && appJs.includes("renderBookRiskJs()"));
 ok("pick card shows the what-if line", appJs.includes("pickSizingYours(p)") && appJs.includes("pick-tier-yours"));
 ok("narrow price chart drops the RSI 50 label and lifts the spot label", appJs.includes("if (!(narrowPc && mid)) rsiGrid") && appJs.includes("(narrowPc ? 9 : 4) * k"));
 const client = readFileSync(new URL("./render/owner-insight-client.mjs", import.meta.url), "utf8");

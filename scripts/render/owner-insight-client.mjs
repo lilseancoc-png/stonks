@@ -260,7 +260,7 @@ export function renderOwnerInsightJs() {
   function bookExposureBarsHtml(groups, usd){
     var rows = Object.keys(groups || {}).map(function(k){ return { name: k, a: Math.round(groups[k].longUsd || 0), b: Math.round(groups[k].shortUsd || 0) }; });
     return sectorSplitBarsHtml(rows, { title: 'Long vs short exposure by sector group', aLabel: 'long delta $', bLabel: 'short delta $', fmt: usd,
-      key: 'open-picks.bookSplit', defaultOpen: true, note: 'Calls carry long stock exposure, puts short; a group with both is partly hedged, one bar alone is a one-way bet.' });
+      key: 'open-picks.bookSplit', defaultOpen: true, note: 'Calls and shares carry long stock exposure, puts short; a group with both is partly hedged, one bar alone is a one-way bet.' });
   }
 `;
 }

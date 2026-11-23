@@ -44,6 +44,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-23
+
+### Added
+- Rebuild the Owner **Book risk** panel on Open picks as "Book risk: the paper account": it now covers every open Top Picks and strategy engine trade (options and shares) at the size the Webull paper account holds (the record size when there is no paper row; missed and not-bought trades left out, an engine copy of a held contract counted once), and adds beta-weighted stock exposure in S&P 500 dollars, a one-day bad-day loss (95% and the average of the worst 5%) from last year's market days replayed on today's book and from a smoothed (Ledoit-Wolf) estimate, the same loss if stocks moved together as in March 2020, who carries the risk by engine and by name, four past sell-offs replayed on today's book (Covid 2020, the 2022 bear market, the August 2024 carry unwind, the April 2025 tariff shock; each stock's own adjusted move, beta times the S&P 500 for a name with none, the VIX rise added to every option) and the Market analysis What-if presets. The sector table, exposure bars and expiry ladder stay. The past sell-off table is `lib/book-risk-crashes.mjs`, built by hand with `node scripts/book-risk-crashes.mjs --bars <file>`; the math is `lib/book-risk.mjs` (pricer passed in, no new Black-Scholes copy). Owner-only, display only, no AI call, no new download (reads `market-days.json` and `market-analysis.json`, which the site already writes). Test: `node scripts/book-risk-smoke.mjs`.
+
 ## 2026-11-22
 
 ### Added
