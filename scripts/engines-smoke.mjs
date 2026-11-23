@@ -20,7 +20,7 @@ import { ALLOC, allocObserve, allocDecide, allocKey, allocStamp, allocBook, allo
 import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamentals, evalFlow, evalDownside, DOWNSIDE, withSkips, thesisCheck } from "../lib/engines/signals.mjs";
 import { stepBook, emptyRecord, emptyState, engineTradeId } from "../lib/engines/book.mjs";
 import { pickContract, quoteContract, contractKey, sharesContract, positionUsd, optionQty, contractsOf, exitFill, sizeOption, sizeShares, convictionRead, entryPxOf, flatPositionUsd } from "../lib/engines/contracts.mjs";
-import { SIZE_WEIGHTS } from "../lib/engines/config.mjs";
+import { SIZE_WEIGHTS, premiumMaxQty, sideMaxPremiumUsd } from "../lib/engines/config.mjs";
 import { isRetiredCand, fearRead } from "../lib/engines/signals.mjs";
 import { newEngineState, observe, adapt, adoptRules, LEARN, learnView } from "../lib/engines/learn.mjs";
 import { standRank, rankView, RANK } from "../lib/engines/rank.mjs";
@@ -30,7 +30,7 @@ import { engineStats, summarize, scoreBand, tradeUsd, flatTradeUsd } from "../li
 import { runBacktest, publicResult } from "../lib/engines/backtest.mjs";
 import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEngineViews, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare, SIZE_READ_MIN, auxViews } from "../lib/engines/index.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
-import { DIAL } from "../lib/owner-controls.mjs";
+import { DIAL, accountLimits } from "../lib/owner-controls.mjs";
 import { ownerSettingDef } from "../lib/owner-settings.mjs";
 import { newTrade } from "../lib/webull-mirror.mjs";
 import { OPTIONAL_BAKE_KEYS } from "../lib/data-ownership.mjs";
@@ -115,12 +115,16 @@ const FIXED_IDS = SIGNAL_IDS.filter((id) => !ENGINES[id].ownRules);
 // steps under that layer first.
 // The bounce skip rules (2026-11-22, Reversion only) sit on top of those:
 // `preBounce` steps under that layer, and `preAudit` steps under both.
-const preBounce = (r) => (r && r.before && /\|bounce:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r);
+// The bigger size limits (2026-11-23) sit on top of everything: `preSize`
+// steps under that layer (same key as the layer below), and `preBounce` steps
+// under it first.
+const preSize = (r) => (r && r.before && r.date === "2026-11-23" && r.key === r.before.key && (r.n || 1) > (r.before.n || 1) ? r.before : r);
+const preBounce = (r0) => { const r = preSize(r0); return r && r.before && /\|bounce:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r; };
 const preAudit = (r0) => { const r = preBounce(r0); return r && r.before && /\|audit:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r; };
 const preHedge = (r0) => { let r = preAudit(r0); while (r && r.before && /\|(hedge|trials3):[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
 const uncard = (r0) => { const r = preHedge(r0); return r && r.before && /\|card:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r; };
 const DR = (id, specs = ENGINES) => uncard(specs[id].rules);
-const peel = (r) => { while (r && r.before && /\|(live|trials2|trials3|hedge|card|audit|bounce):[^|]*$|\|down:[^|]*(\|putcap:\d+)?$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
+const peel = (r) => { while (r && r.before && /\|(live|trials2|trials3|hedge|card|audit|bounce):[^|]*$|\|down:[^|]*(\|putcap:\d+)?(\|putprem:\d+)?$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1)) r = r.before; return r; };
 ok("ten engines (seven signal, three core), unique tags, every setup has a label", () => {
   assert.deepEqual(ENGINE_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside", "trend", "momentum", "rotation"]);
   assert.deepEqual(SIGNAL_IDS, ["earnings", "macro", "technicals", "fundamentals", "flow", "reversion", "downside"]);
@@ -824,7 +828,7 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   for (const id of FIXED_IDS) {
     const rc = peel(ENGINES[id].rules), r = rc.before, r3 = rules3Of(r, id);
     assert.equal(rc.n, hasTrial(id) ? 6 : 5, id); assert.equal(rc.date, "2026-11-20"); assert.match(rc.note, /^New rules \(wider size range\): each risk-sized option trade buys 1 to 25 contracts \(was 1 to 10\)/, id);
-    assert.match(rc.note, /Riskier dial/); assert.equal(rc.key, `${r.key}|cap:25`, id); assert.match(rc.switchNote, /Size range: each risk-sized option trade buys 1 to 25 contracts\.$/);
+    assert.match(rc.note, /Riskier dial/); assert.equal(rc.key, `${r.key}|cap:200|prem:200000|shcap:250000`, id); assert.match(rc.switchNote, /Size range: each risk-sized option trade buys 1 to 200 contracts and at most \$200,000 of premium, whichever comes first; a risk-sized share trade buys at most \$250,000 of stock\.$/);
     assert.equal(r.n, hasTrial(id) ? 5 : 4, id); assert.equal(r.date, "2026-11-19"); assert.match(r.note, /^New rules \(honest paper trades\): .*ask going in.*1 to 10 contracts.*0\.5x to 2x/, id);
     assert.doesNotMatch(r.note, /\$2,000 of premium/, "the premium size is not in force while risk sizing is on");
     if (hasTrial(id)) { assert.equal(r.before.n, 4, id); assert.match(r.before.note, /paper trial/, id); assert.match(r.key, /\|trials:/, id); }
@@ -905,7 +909,11 @@ ok("fixes: the washout bounce buys a ~0.3-delta call about 21 days out with a -6
 ok("fixes: the record splits where a rule changes, including a switch flipped in Owner Settings", () => {
   // The chain as it stood before the downtrend pack (its three switches off and no put cap of its own): that layer adds no rules number then.
   // The scorecard pack, the VIX and rates pack and the logic audit fixes (2026-11-21) are switched off too: they add no rules number then.
-  const OFF3 = { funPuts: false, newsGate: false, tapeSize: false, loserBrake: false, tecNoScore: false, vixPause: false, hikePause: false, allocAdvise: false, heldSameSide: false, slotRetry: false }, PRE = engineSpecs(OFF3, undefined, null, 25, 25);
+  const OFF3 = { funPuts: false, newsGate: false, tapeSize: false, loserBrake: false, tecNoScore: false, vixPause: false, hikePause: false, allocAdvise: false, heldSameSide: false, slotRetry: false }, EQ = { maxPremiumUsd: 200000, putMaxPremiumUsd: 200000 };
+  // ... and without the bigger size limits (2026-11-23), the newest layer.
+  const unsize = (sp) => Object.fromEntries(Object.entries(sp).map(([k, v]) => [k, { ...v, rules: preSize(v.rules) }]));
+  const PRE = unsize(engineSpecs(OFF3, undefined, null, 25, 25, EQ));
+  assert.equal(engineSpecs(OFF3, undefined, null, 25, 25, EQ).technicals.rules.n, 6, "the size limits step on top");
   assert.equal(PRE.technicals.rules.n, 5); assert.match(PRE.technicals.rules.key, /\|down:\|card:\|hedge:\|audit:$/);
   // An engine still on its first rules (before #851) gets both notes in one change, oldest first.
   const es = newEngineState(PRE.technicals); es.rules = 1; delete es.rulesKey;
@@ -926,14 +934,20 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   assert.equal(capMade.text, PRE.technicals.rules.note); assert.equal(es5.rules, 5); assert.equal(es5.rulesKey, PRE.technicals.rules.key);
   // Changing the cap in Owner Settings later is a logged change at the same rules number;
   // back at 10 the rules stay on 5 and the note says the range.
-  const at10 = engineSpecs(OFF3, undefined, null, 10, 25), at12 = engineSpecs(OFF3, undefined, null, 12, 25);
-  assert.equal(at10.technicals.rules.n, 4); assert.equal(at10.technicals.rules.key, `${PRE.technicals.rules.before.key}|cap:10|down:|card:|hedge:|audit:`);
+  const at10 = unsize(engineSpecs(OFF3, undefined, null, 10, 25, EQ)), at12 = unsize(engineSpecs(OFF3, undefined, null, 12, 25, EQ));
+  assert.equal(at10.technicals.rules.n, 4); assert.equal(at10.technicals.rules.key, `${PRE.technicals.rules.before.key}|cap:10|prem:200000|shcap:250000|down:|card:|hedge:|audit:`);
   assert.equal(at12.technicals.rules.n, 5); assert.match(at12.technicals.rules.note, /1 to 12 contracts \(was 1 to 10\)/);
   const down = adoptRules(es5, at10.technicals, TODAY);
-  assert.equal(down.kind, "rules"); assert.match(down.text, /Size range: each risk-sized option trade buys 1 to 10 contracts\. News gate.*switched off\..*Loser brake.*switched off\..*Name-held size cut.*switched off\.$/); assert.equal(es5.rules, 5);
-  assert.match(adoptRules(es5, at12.technicals, TODAY).text, /1 to 12 contracts\. News gate/); assert.equal(adoptRules(es5, at12.technicals, TODAY), null, "once");
-  assert.equal(engineSpecs(undefined, undefined, null, 25), ENGINES); assert.equal(engineSpecs(undefined, undefined, null, 99), ENGINES, "out of range = the default");
-  assert.deepEqual(at10.core ?? null, null); assert.equal(at10.trend, ENGINES.trend, "core engines have no cap step");
+  assert.equal(down.kind, "rules"); assert.match(down.text, /Size range: each risk-sized option trade buys 1 to 10 contracts and at most \$200,000 of premium, whichever comes first; a risk-sized share trade buys at most \$250,000 of stock\. News gate.*switched off\..*Loser brake.*switched off\..*Name-held size cut.*switched off\.$/); assert.equal(es5.rules, 5);
+  assert.match(adoptRules(es5, at12.technicals, TODAY).text, /1 to 12 contracts and at most \$200,000 of premium.*stock\. News gate/); assert.equal(adoptRules(es5, at12.technicals, TODAY), null, "once");
+  assert.equal(engineSpecs(undefined, undefined, null, 200), ENGINES); assert.equal(engineSpecs(undefined, undefined, null, 999), ENGINES, "out of range = the default");
+  // The premium and share caps (2026-11-23) are in the key too: changing one is a logged change at the same number.
+  assert.equal(engineSpecs(undefined, undefined, null, 200, 100, { maxPremiumUsd: 200000, sharesMaxUsd: 250000, putMaxPremiumUsd: 100000 }), ENGINES);
+  const p50 = engineSpecs(undefined, undefined, null, 200, 100, { maxPremiumUsd: 50000 }), sh25 = engineSpecs(undefined, undefined, null, 200, 100, { sharesMaxUsd: 25000 });
+  assert.equal(p50.technicals.rules.n, ENGINES.technicals.rules.n); assert.notEqual(p50.technicals.rules.key, ENGINES.technicals.rules.key); assert.match(p50.technicals.rules.switchNote, /at most \$50,000 of premium/);
+  assert.match(sh25.technicals.rules.switchNote, /share trade buys at most \$25,000 of stock/); assert.notEqual(sh25.technicals.rules.key, ENGINES.technicals.rules.key);
+  assert.doesNotMatch(p50.technicals.rules.key, /putprem/, "a put premium cap at or over the calls' one is none of its own"); assert.match(p50.technicals.rules.key, /\|putcap:100\|card:/);
+  assert.deepEqual(at10.core ?? null, null); assert.equal(at10.trend.rules, ENGINES.trend.rules, "core engines have no cap step");
   // A state from before the switches (rules 3, no key) just takes the key.
   const es3 = newEngineState(ENGINES.reversion); delete es3.rulesKey;
   assert.equal(adoptRules(es3, ENGINES.reversion, TODAY), null); assert.equal(es3.rulesKey, ENGINES.reversion.rules.key); assert.equal(es3.v, 1);
@@ -951,7 +965,7 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
   // Every fix off on an engine: back to rules 2's setups, logged, rules number kept.
   const allOff = Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false]));
   out = stepBook(state, emptyRecord(), bookInput({}, { engines: ["reversion"], specs: engineSpecs(allOff), fixesOff: ENGINE_FIX_IDS }));
-  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 11);
+  assert.match(out.changes[0].text, /switched off in Owner Settings/); assert.equal(state.engines.reversion.rules, 12);
   // A trade opened with a fix off carries the ones that reach its engine.
   const rv = stepBook(emptyState(), emptyRecord(), bookInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], specs: engineSpecs({ bounce: false, stockStop: false }), fixesOff: ["bounce", "stockStop"] })).opened[0];
   assert.deepEqual(rv.fixesOff, ["bounce"]);
@@ -966,9 +980,9 @@ ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average,
   // (The honest paper trades sit on top as rules 5: the trial is rules 4.)
   // (The contract cap of 2026-11-20 is rules 6 on top of those.)
   const revR = peel(ENGINES.reversion.rules);
-  assert.equal(ENGINES.reversion.rules.n, 11, "the bounce skip rules are rules 11 on top (the logic audit fixes 10, the scorecard pack 9, the downtrend pack 8, the live data pack 7; the VIX and rates pack leaves Reversion out)");
+  assert.equal(ENGINES.reversion.rules.n, 12, "the bigger size limits are rules 12 on top (the bounce skip rules 11, the logic audit fixes 10, the scorecard pack 9, the downtrend pack 8, the live data pack 7; the VIX and rates pack leaves Reversion out)");
   assert.equal(revR.n, 6); assert.equal(revR.before.n, 5); assert.equal(revR.before.before.n, 4); assert.equal(revR.before.before.date, "2026-11-19");
-  assert.match(revR.before.before.note, /paper trial/); assert.match(revR.key, /\|trials:rsi2Dip\|cap:25$/);
+  assert.match(revR.before.before.note, /paper trial/); assert.match(revR.key, /\|trials:rsi2Dip\|cap:200\|prem:200000\|shcap:250000$/);
   assert.equal(ownerSettingDef("ENGINES_TRIAL_RSI2_DIP")?.default, true);
   // Switches: on by default, off with its own variable or with share trades off.
   assert.equal(engineSwitches({}).trials.rsi2Dip, true);
@@ -1045,7 +1059,7 @@ ok("paper trial: index funds after extreme fear buy shares for 20 sessions, deci
   assert.equal(st.trial, true); assert.equal(st.calls, "shares"); assert.equal(st.levels, false); assert.equal(st.exits.maxSessions, 20);
   assert.match(st.label, /paper trial/); assert.match(st.how, /unproven/i);
   const macR = peel(ENGINES.macro.rules);
-  assert.equal(ENGINES.macro.rules.n, 12); assert.equal(macR.n, 6); assert.equal(macR.before.n, 5); assert.equal(macR.before.before.n, 4); assert.equal(macR.before.before.before.n, 3); assert.match(macR.key, /\|trials:fearIndex\|cap:25$/);
+  assert.equal(ENGINES.macro.rules.n, 13); assert.equal(macR.n, 6); assert.equal(macR.before.n, 5); assert.equal(macR.before.before.n, 4); assert.equal(macR.before.before.before.n, 3); assert.match(macR.key, /\|trials:fearIndex\|cap:200\|prem:200000\|shcap:250000$/);
   assert.equal(ownerSettingDef("ENGINES_TRIAL_FEAR_INDEX")?.default, true);
   assert.equal(engineSwitches({}).trials.fearIndex, true);
   assert.equal(engineSwitches({ ENGINES_TRIAL_FEAR_INDEX: "off" }).trials.fearIndex, false);
@@ -1075,6 +1089,25 @@ ok("paper trial: index funds after extreme fear buy shares for 20 sessions, deci
   // Switched off or share trades off: nothing.
   assert.equal(stepBook(emptyState(), emptyRecord(), bookInput(idx, { engines: ["macro"], shares: true, specs: off, ctx: { ...CTX, macro: null, byId: idx, fear: fear(22, 30) } })).opened.length, 0);
   assert.equal(stepBook(emptyState(), emptyRecord(), bookInput(idx, { engines: ["macro"], shares: false, ctx: { ...CTX, macro: null, byId: idx, fear: fear(22, 30) } })).opened.length, 0);
+  // The open engine stock cap (2026-11-23, $1,000,000 unless set): every open
+  // share trade at cost, a paper trial's too, plus the new one; a trade that
+  // would pass it is not opened (no shadow), an option trade is never held by it.
+  const one = positionUsd(r.opened[0].contract);
+  const ctlLim = (sharesUsd) => ({ stop: false, avoid: new Map(), watch: new Set(), catalysts: [], catalystSyms: new Set(), dial: null, any: false, limits: { ...accountLimits({}), ...(sharesUsd === undefined ? {} : { sharesUsd }) } });
+  const held = (usd) => ({ engine: "momentum", tradeId: "MOM-HELD", symbol: "ZZZ", side: "call", entryDate: "2026-11-02T16:00:00.000Z", contract: { structure: "shares", shares: 1, mid: usd, usd } });
+  const capRun = (openUsd, sharesUsd) => { const rec = emptyRecord(); rec.open.push(held(openUsd));
+    return stepBook(emptyState(), rec, bookInput(idx, { engines: ["macro"], shares: true, controls: ctlLim(sharesUsd), ctx: { ...CTX, macro: null, byId: idx, fear: fear(22, 30) } })); };
+  assert.equal(capRun(100000).opened.length, 3, "far under the $1,000,000 default");
+  const nearCap = capRun(1000000 - one * 1.5);
+  assert.equal(nearCap.opened.length, 1, "room for one more lot");
+  assert.equal(nearCap.candidates.macro.filter((c) => /account limit: open engine stock cap \(\$1,000,000\) would be passed/.test(c.why || "")).length, 2);
+  assert.equal(nearCap.shadowOpened || 0, 0, "no shadow trade for a limit");
+  assert.equal(capRun(1000000 - one * 1.5, null).opened.length, 3, "0 in Owner Settings = off");
+  assert.equal(capRun(10000, 10000 + one).opened.length, 1, "a lower cap from Owner Settings");
+  assert.equal(capRun(1000000 - one * 0.5).opened.length, 0);
+  // An option trade is not held by the stock cap.
+  const optRun = (() => { const rec = emptyRecord(); rec.open.push(held(5000000)); return stepBook(emptyState(), rec, bookInput(idx, { engines: ["macro"], shares: false, controls: ctlLim(), ctx: { ...CTX, macro: null, byId: idx, fear: fear(22, 30) } })); })();
+  assert.ok(!optRun.candidates.macro.some((c) => /open engine stock cap/.test(c.why || "")));
 });
 ok("paper trials are scored apart: engine stats, the page rows and live against the test", () => {
   const sh = (setup, pnl, over = {}) => ({ engine: "reversion", setup, side: "call", status: pnl > 0 ? "target" : "stock-stop", outcome: pnl > 0 ? "win" : "loss", optionPnlPct: pnl, rulesVersion: "REV-4",
@@ -1187,22 +1220,32 @@ ok("honest: the exit fill is the chain's bid, else the mid less half the entry s
   assert.equal(flatPositionUsd({ mid: 2, entryFill: 2.1, qty: 6, flatQty: 3 }), 630); assert.equal(flatPositionUsd({ mid: 2, qty: 4 }), 800);
   assert.equal(flatPositionUsd({ structure: "shares", shares: 40, flatShares: 20, mid: 50 }), 1000);
 });
-ok("honest: risk sizing, 1 to the cap (25 since 2026-11-20); whole premium within 30 days, premium x stop x 1.25 past it", () => {
+ok("honest: risk sizing, 1 to the cap (200 since 2026-11-23, 25 from 2026-11-20); whole premium within 30 days, premium x stop x 1.25 past it", () => {
   const c = (over) => ({ mid: 2, ask: 2.1, dte: 21, ...over });
   // 21 days: the whole premium is at risk. At the ask: $210 a contract, 9 for $2,000.
   let z = sizeOption(c(), { sizing: { ...RISK, conviction: false }, exits: { stop: -60 }, fillBasis: true });
   assert.equal(z.qty, 9); assert.equal(z.flatQty, 9); assert.equal(z.size.risk1, 210); assert.match(z.size.basis, /whole premium/);
   assert.equal(sizeOption(c(), { sizing: { ...RISK, conviction: false }, exits: { stop: -60 } }).qty, 10, "on the mid: $200 a contract");
   assert.equal(sizeOption(c({ dte: 30 }), { sizing: RISK, exits: { stop: -40 } }).size.basis.startsWith("whole"), true, "30 days is still under a month");
-  // 45 days, -40% stop: risk $100 x 0.4 x 1.25 = $50 a contract: 40 asked, capped at 25.
+  // 45 days, -40% stop: risk $100 x 0.4 x 1.25 = $50 a contract: 40 asked, inside the cap of 200.
   z = sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: RISK, exits: { stop: -40 } });
-  assert.equal(z.size.risk1, 50); assert.equal(z.qty, 25); assert.equal(z.flatQty, 25); assert.equal(z.size.cap, 25); assert.equal(z.size.capped, true); assert.equal(z.size.wantQty, 40);
+  assert.equal(z.size.risk1, 50); assert.equal(z.qty, 40); assert.equal(z.size.cap, 200); assert.equal(z.size.capBy, "contracts"); assert.equal(z.size.capped, false); assert.equal(z.size.wantQty, 40);
+  // At an Owner Settings cap of 25: 40 asked, capped at 25.
+  z = sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 25 }, exits: { stop: -40 } });
+  assert.equal(z.qty, 25); assert.equal(z.flatQty, 25); assert.equal(z.size.cap, 25); assert.equal(z.size.capped, true); assert.equal(z.size.wantQty, 40);
   assert.match(z.size.why, /the 25-contract cap set it; the budget asked for 40/);
+  // The premium cap (2026-11-23): whichever of 200 contracts or $200,000 comes first. A $1,000 risk
+  // budget a contract at $0.01 risk would want 100,000; a $5 contract under a $2,000 premium cap buys 4.
+  z = sizeOption(c({ mid: 5, ask: 5, dte: 21 }), { sizing: { ...RISK, budget: 10000, maxPremiumUsd: 2000 }, exits: {} });
+  assert.equal(z.qty, 4); assert.equal(z.size.cap, 4); assert.equal(z.size.capBy, "premium"); assert.equal(z.size.capped, true); assert.match(z.size.why, /\$2,000 premium cap \(4 contracts\) set it/);
+  z = sizeOption(c({ mid: 0.05, ask: 0.05, dte: 21 }), { sizing: { ...RISK, budget: 10000 }, exits: {}, conviction: { mult: 2, parts: [] } });
+  assert.equal(z.qty, 200, "a $5 contract: 4,000 asked, the 200-contract cap first ($1,000 of premium)"); assert.equal(z.size.capBy, "contracts");
+  assert.equal(premiumMaxQty(500, 200000), 400); assert.equal(premiumMaxQty(300000, 200000), 1, "never under one"); assert.equal(premiumMaxQty(0, 200000), Infinity);
   // An Owner Settings cap: 10 (the old one) and 1.
   z = sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 10 }, exits: { stop: -40 } });
   assert.equal(z.qty, 10); assert.equal(z.size.cap, 10); assert.equal(z.size.capped, true);
   assert.equal(sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 1 }, exits: { stop: -40 } }).qty, 1);
-  assert.equal(sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 60 }, exits: { stop: -40 } }).qty, 25, "out of range = the default cap");
+  assert.equal(sizeOption(c({ mid: 1, ask: 1, dte: 45 }), { sizing: { ...RISK, maxQty: 600 }, exits: { stop: -40 } }).qty, 40, "out of range = the default cap (200)");
   // Under the old cap of 10 these three convictions all bought 10; with 25 they differ.
   const cv = (m) => sizeOption(c({ mid: 1.2, ask: 1.2, dte: 21 }), { sizing: RISK, exits: {}, conviction: { mult: m, parts: [] } }).qty;
   assert.deepEqual([cv(0.85), cv(1), cv(1.25)], [14, 16, 20]);
@@ -1232,10 +1275,14 @@ ok("honest: risk sizing, 1 to the cap (25 since 2026-11-20); whole premium withi
 });
 ok("honest: share trades risk the budget between entry and stop, capped in dollars", () => {
   let z = sizeShares(100, 94, { sizing: RISK });
-  assert.equal(z.flatShares, 250); assert.equal(z.shares, 250); assert.equal(z.size.capped, true, "333 shares would be $33,300: capped at $25,000");
+  assert.equal(z.flatShares, 333); assert.equal(z.shares, 333); assert.equal(z.size.capped, false, "333 shares, $33,300: inside the $250,000 cap (2026-11-23)");
+  z = sizeShares(100, 94, { sizing: { ...RISK, sharesMaxUsd: 25000 } });
+  assert.equal(z.flatShares, 250); assert.equal(z.shares, 250); assert.equal(z.size.capped, true, "at a $25,000 cap (before 2026-11-23): capped"); assert.equal(z.size.capUsd, 25000);
+  z = sizeShares(100, 99.5, { sizing: RISK, conviction: { mult: 2, parts: [] } });
+  assert.equal(z.shares, 2500, "a tight stop: 8,000 shares asked, capped at $250,000"); assert.equal(z.size.capped, true); assert.match(z.size.why, /capped at \$250,000 of stock/);
   z = sizeShares(100, 90, { sizing: RISK, conviction: { mult: 0.5, parts: [] } });
   assert.equal(z.flatShares, 200); assert.equal(z.shares, 100);
-  z = sizeShares(30000, 29000, { sizing: RISK }); assert.equal(z.shares, 1, "at least one share");
+  z = sizeShares(300000, 299000, { sizing: RISK }); assert.equal(z.shares, 1, "at least one share");
   assert.equal(sizeShares(100, 101, { sizing: RISK }), null, "a stop over the price: keep the lot");
   assert.equal(sizeShares(100, null, { sizing: RISK }), null);
   assert.equal(sizeShares(100, 94, { sizing: { mode: "premium" } }), null);
@@ -1391,15 +1438,15 @@ ok("honest: rules 4 is adopted once on a running engine, and every new trade say
   // Reversion as it runs on main after #870 (rules 4, the paper trial): one change to rules 5.
   const es = newEngineState(ENGINES.reversion); es.rules = 4; es.rulesKey = "fixes:retirePuts,bounce,size|trials:rsi2Dip";
   const made = adoptRules(es, ENGINES.reversion, TODAY);
-  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\).*New rules \(wider size range\).*New rules \(live data pack\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.match(made.text, /New rules \(downtrend pack\).*New rules \(scorecard pack\)/); assert.doesNotMatch(made.text, /VIX and rates pack/); assert.match(made.text, /New rules \(scorecard pack\).*New rules \(logic audit fixes\).*New rules \(bounce skip rules\)/); assert.equal(es.rules, 11);
+  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(honest paper trades\).*New rules \(wider size range\).*New rules \(live data pack\)/); assert.doesNotMatch(made.text, /paper trial is added/); assert.match(made.text, /New rules \(downtrend pack\).*New rules \(scorecard pack\)/); assert.doesNotMatch(made.text, /VIX and rates pack/); assert.match(made.text, /New rules \(scorecard pack\).*New rules \(logic audit fixes\).*New rules \(bounce skip rules\).*New rules \(bigger size limits\)/); assert.equal(es.rules, 12);
   assert.equal(adoptRules(es, ENGINES.reversion, TODAY), null);
   // An engine still on rules 3 gets both notes in one change, the trial first.
   const es3b = newEngineState(ENGINES.reversion); es3b.rules = 3; es3b.rulesKey = "fixes:retirePuts,bounce,size";
   const both = adoptRules(es3b, ENGINES.reversion, TODAY);
-  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 11);
+  assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 12);
   // Earnings (no trial): rules 3 to 4.
   const ee = newEngineState(ENGINES.earnings); ee.rules = 3; ee.rulesKey = "fixes:size";
-  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 10);
+  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 11);
   // Shares on the conviction size with the flat size kept.
   const sh = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true })).opened[0];
   assert.ok(isSharesTrade(sh)); assert.ok(Number.isInteger(sh.contract.flatShares)); assert.equal(sh.contract.size.mode, "risk"); assert.match(sh.contract.size.why, /a share/);
@@ -1410,18 +1457,35 @@ ok("honest: rules 4 is adopted once on a running engine, and every new trade say
   assert.equal(flatTradeUsd(done[0]), 100);
 });
 
-ok("contract cap: an Owner Settings number from 1 to 25, and a size-bucket read of whether bigger trades do better", () => {
-  // The switch: 25 unless set; a whole number from 1 to 25, else the default.
-  assert.equal(BOOK.riskMaxQty, 25); assert.equal(BOOK.riskMaxQtyBefore, 10);
-  assert.equal(engineSwitches({}).sizing.maxQty, 25); assert.equal(engineSwitches({}).maxQty, 25);
+ok("contract cap: an Owner Settings number from 1 to 200, and a size-bucket read of whether bigger trades do better", () => {
+  // The switch: 200 unless set (2026-11-23; 25 before); a whole number from 1 to 200, else the default.
+  assert.equal(BOOK.riskMaxQty, 200); assert.equal(BOOK.riskMaxQtyBefore, 10);
+  assert.equal(engineSwitches({}).sizing.maxQty, 200); assert.equal(engineSwitches({}).maxQty, 200);
   assert.equal(engineSwitches({ ENGINES_MAX_QTY: "12" }).sizing.maxQty, 12); assert.equal(engineSwitches({ ENGINES_MAX_QTY: " 1 " }).sizing.maxQty, 1);
-  for (const bad of ["0", "26", "2.5", "x", ""]) assert.equal(engineSwitches({ ENGINES_MAX_QTY: bad }).sizing.maxQty, 25, bad);
+  assert.equal(engineSwitches({ ENGINES_MAX_QTY: "25" }).sizing.maxQty, 25);
+  for (const bad of ["0", "201", "2.5", "x", ""]) assert.equal(engineSwitches({ ENGINES_MAX_QTY: bad }).sizing.maxQty, 200, bad);
   assert.equal(engineSwitches({ ENGINES_RISK_SIZE: "0" }).sizing.maxQty, undefined, "not risk sizing: no cap in play");
   const def = ownerSettingDef("ENGINES_MAX_QTY");
-  assert.equal(def.default, 25); assert.equal(def.min, 1); assert.equal(def.max, 25); assert.equal(def.impact, "high");
+  assert.equal(def.default, 200); assert.equal(def.min, 1); assert.equal(def.max, 200); assert.equal(def.impact, "high");
+  // The premium caps and the share cap (2026-11-23): Owner Settings numbers, $1,000 to $1,000,000, else the default.
+  const sw = engineSwitches({});
+  assert.equal(sw.sizing.maxPremiumUsd, 200000); assert.equal(sw.sizing.putMaxPremiumUsd, 100000); assert.equal(sw.sizing.sharesMaxUsd, 250000);
+  assert.deepEqual(sw.caps, { maxPremiumUsd: 200000, sharesMaxUsd: 250000, putMaxPremiumUsd: 100000 });
+  assert.equal(engineSwitches({ ENGINES_MAX_PREMIUM_USD: "50000" }).sizing.maxPremiumUsd, 50000);
+  assert.equal(engineSwitches({ ENGINES_PUT_MAX_PREMIUM_USD: " 20000 " }).sizing.putMaxPremiumUsd, 20000);
+  assert.equal(engineSwitches({ ENGINES_SHARES_MAX_USD: "25000" }).sizing.sharesMaxUsd, 25000);
+  for (const bad of ["0", "999", "2000000", "x", ""]) {
+    assert.equal(engineSwitches({ ENGINES_MAX_PREMIUM_USD: bad }).sizing.maxPremiumUsd, 200000, bad);
+    assert.equal(engineSwitches({ ENGINES_PUT_MAX_PREMIUM_USD: bad }).sizing.putMaxPremiumUsd, 100000, bad);
+    assert.equal(engineSwitches({ ENGINES_SHARES_MAX_USD: bad }).sizing.sharesMaxUsd, 250000, bad);
+  }
+  assert.equal(sideMaxPremiumUsd(sw.sizing, "call"), 200000); assert.equal(sideMaxPremiumUsd(sw.sizing, "put"), 100000);
+  assert.equal(sideMaxPremiumUsd({ maxPremiumUsd: 30000, putMaxPremiumUsd: 100000 }, "put"), 30000, "a put is held under both");
+  for (const k of ["ENGINES_MAX_PREMIUM_USD", "ENGINES_PUT_MAX_PREMIUM_USD", "ENGINES_SHARES_MAX_USD"]) { const d = ownerSettingDef(k); assert.ok(d, k); assert.equal(d.impact, "high", k); assert.equal(d.min, 1000, k); assert.equal(d.max, 1000000, k); }
+  assert.equal(ownerSettingDef("ENGINES_MAX_PREMIUM_USD").default, 200000); assert.equal(ownerSettingDef("ENGINES_PUT_MAX_PREMIUM_USD").default, 100000); assert.equal(ownerSettingDef("ENGINES_SHARES_MAX_USD").default, 250000);
   // A live trade records the cap, the count asked for and whether the cap set it.
   const t = stepBook(emptyState(), emptyRecord(), honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"] })).opened.find((x) => !isSharesTrade(x));
-  assert.ok(t, "a washout opens an option trade"); { assert.equal(t.contract.size.cap, 25); assert.equal(typeof t.contract.size.capped, "boolean"); assert.ok(Number.isInteger(t.contract.size.wantQty)); }
+  assert.ok(t, "a washout opens an option trade"); { assert.equal(t.contract.size.cap, Math.min(200, premiumMaxQty(t.contract.entryFill > 0 ? t.contract.entryFill * 100 : t.contract.mid * 100, 200000))); assert.equal(typeof t.contract.size.capped, "boolean"); assert.ok(Number.isInteger(t.contract.size.wantQty)); }
   // A lower cap from Owner Settings holds the trade under it.
   const dialRun = stepBook(emptyState(), emptyRecord(), honestInput({ CCC: V("CCC", WASHOUT()) }, { engines: ["reversion"], sizing: { ...RISK, maxQty: 3 } })).opened.find((x) => !isSharesTrade(x));
   assert.ok(dialRun); assert.ok(contractsOf(dialRun.contract) <= 3); assert.equal(dialRun.contract.size.cap, 3);
@@ -1446,7 +1510,8 @@ ok("contract cap: an Owner Settings number from 1 to 25, and a size-bucket read 
   assert.equal(flip.state, "hurts");
   // The page row carries the cap read.
   const view = buildEnginesView({ record: { open: [], closed: rows.slice(0, 3) }, state: emptyState(), ctx: CTX, builtAtIso: NOW_AM, sizing: engineSwitches({}).sizing });
-  assert.equal(view.sizing.maxQty, 25); assert.equal(view.sizing.maxQtyBefore, 10); assert.ok(view.sizing.compare.buckets);
+  assert.equal(view.sizing.maxQty, 200); assert.equal(view.sizing.maxQtyBefore, 10); assert.ok(view.sizing.compare.buckets);
+  assert.equal(view.sizing.maxPremiumUsd, 200000); assert.equal(view.sizing.putMaxPremiumUsd, 100000); assert.equal(view.sizing.sharesMaxUsd, 250000);
 });
 
 // ---- same-contract labels --------------------------------------------------
@@ -1984,7 +2049,7 @@ ok("live pack: registry, switches and rules steps", () => {
   // Two Flow paper trials on top of the cap step (rules 6 on Flow), dated today.
   assert.equal(LP("flow").n, 6); assert.equal(LP("flow").date, "2026-11-20");
   assert.match(LP("flow").note, /^New rules: paper trials are added, labeled unproven: .*large orders.*flagged call volume/);
-  assert.match(LP("flow").key, /\|cap:25\|trials2:bigOrder,optionSurge$/);
+  assert.match(LP("flow").key, /\|cap:200\|prem:200000\|shcap:250000\|trials2:bigOrder,optionSurge$/);
   for (const k of ["big-order-buying", "option-surge"]) {
     const st = ENGINES.flow.setups[k];
     assert.equal(st.trial, true, k); assert.equal(st.calls, "shares", k); assert.equal(st.exits.maxSessions, 10, k); assert.match(st.how, /untested/i, k);
@@ -2013,7 +2078,7 @@ ok("live pack: registry, switches and rules steps", () => {
   assert.match(off.reversion.rules.switchNote, /leaves out the setup score.*switched off/);
   const es = newEngineState(ENGINES.flow); es.rules = 5; es.rulesKey = peel(ENGINES.flow.rules).key;
   const made = adoptRules(es, ENGINES.flow, "2026-11-20");
-  assert.equal(made.kind, "rules"); assert.equal(es.rules, 10); assert.match(made.text, /^New rules: paper trials are added.* New rules \(downtrend pack\).* New rules \(scorecard pack\).* New rules \(VIX and rates pack\).* New rules \(logic audit fixes\)/);
+  assert.equal(made.kind, "rules"); assert.equal(es.rules, 11); assert.match(made.text, /^New rules: paper trials are added.* New rules \(downtrend pack\).* New rules \(scorecard pack\).* New rules \(VIX and rates pack\).* New rules \(logic audit fixes\).* New rules \(bigger size limits\)/);
   assert.equal(adoptRules(es, ENGINES.flow, "2026-11-20"), null, "once");
   assert.match(adoptRules(es, off.flow, "2026-11-21").text, /switched off and opens nothing new/);
 });
@@ -2225,20 +2290,20 @@ ok("one bad name: a stock whose input throws is left out, the run and every othe
 
 // ---- downtrend pack (2026-11-20) ---------------------------------------------
 ok("downtrend pack: switches, Owner Settings, rules step and the put cap setting", () => {
-  assert.equal(BOOK.putMaxQty, 10);
+  assert.equal(BOOK.putMaxQty, 100); assert.equal(BOOK.putMaxQtyBefore, 10); assert.equal(BOOK.putMaxPremiumUsd, 100000);
   const sw = engineSwitches({});
   assert.equal(sw.fixes.funPuts, true); assert.equal(sw.fixes.newsGate, true); assert.equal(sw.fixes.tapeSize, true);
-  assert.equal(sw.putMaxQty, 10); assert.equal(sw.sizing.putMaxQty, 10);
+  assert.equal(sw.putMaxQty, 100); assert.equal(sw.sizing.putMaxQty, 100);
   assert.equal(engineSwitches({ ENGINES_PUT_MAX_QTY: "4" }).sizing.putMaxQty, 4); assert.equal(engineSwitches({ ENGINES_PUT_MAX_QTY: " 25 " }).putMaxQty, 25);
-  for (const bad of ["0", "26", "2.5", "x", ""]) assert.equal(engineSwitches({ ENGINES_PUT_MAX_QTY: bad }).putMaxQty, 10, bad);
+  for (const bad of ["0", "201", "2.5", "x", ""]) assert.equal(engineSwitches({ ENGINES_PUT_MAX_QTY: bad }).putMaxQty, 100, bad);
   const def = ownerSettingDef("ENGINES_PUT_MAX_QTY");
-  assert.equal(def.default, 10); assert.equal(def.min, 1); assert.equal(def.max, 25); assert.equal(def.kind, "number");
+  assert.equal(def.default, 100); assert.equal(def.min, 1); assert.equal(def.max, 200); assert.equal(def.kind, "number");
   for (const env of ["ENGINES_FUN_PUTS5", "ENGINES_NEWS_GATE", "ENGINES_TAPE_SIZE"]) assert.equal(ownerSettingDef(env)?.default, true, env);
   // Rules: the newest step on every signal engine, naming the put cap; core engines untouched.
   for (const id of FIXED_IDS) {
     const r = DR(id);
-    assert.equal(r.date, "2026-11-20", id); assert.match(r.note, /^New rules \(downtrend pack\): .*news volume.*market tape.*each risk-sized put buys 1 to 10 contracts \(calls keep the 25-contract cap\)/, id);
-    assert.match(r.key, /\|down:(funPuts,)?newsGate,tapeSize\|putcap:10$/, id);
+    assert.equal(r.date, "2026-11-20", id); assert.match(r.note, /^New rules \(downtrend pack\): .*news volume.*market tape.*each risk-sized put buys 1 to 100 contracts, at most \$100,000 of premium, whichever comes first \(calls keep the 200-contract, \$200,000 caps\)/, id);
+    assert.match(r.key, /\|down:(funPuts,)?newsGate,tapeSize\|putcap:100\|putprem:100000$/, id);
   }
   assert.match(DR("fundamentals").note, /five worst-ranked/); assert.doesNotMatch(DR("reversion").note, /five worst-ranked/);
   for (const id of CORE_IDS) assert.equal(ENGINES[id].rules?.key?.includes("|down:") || false, false, id);
@@ -2247,10 +2312,13 @@ ok("downtrend pack: switches, Owner Settings, rules step and the put cap setting
   assert.equal(off.reversion.newsGate, false); assert.equal(off.reversion.tapeSize, false); assert.equal(off.fundamentals.slots, 5);
   assert.notEqual(off.reversion.rules.key, ENGINES.reversion.rules.key); assert.equal(off.reversion.rules.n, ENGINES.reversion.rules.n, "the put cap alone still makes the step");
   assert.match(off.reversion.rules.switchNote, /News gate.*switched off/);
-  assert.equal(engineSpecs(undefined, undefined, null, 25, 10), ENGINES);
-  const p4 = engineSpecs(undefined, undefined, null, 25, 4);
-  assert.match(DR("macro", p4).note, /1 to 4 contracts/); assert.match(DR("macro", p4).key, /\|putcap:4$/);
-  const same = engineSpecs({ newsGate: false, tapeSize: false }, undefined, null, 8, 10);
+  assert.equal(engineSpecs(undefined, undefined, null, 200, 100), ENGINES);
+  const p4 = engineSpecs(undefined, undefined, null, 200, 4);
+  assert.match(DR("macro", p4).note, /1 to 4 contracts/); assert.match(DR("macro", p4).key, /\|putcap:4\|putprem:100000$/);
+  // The put premium cap alone (2026-11-23) also makes the step; at or over the calls' cap it is none of its own.
+  const pp = engineSpecs(undefined, undefined, null, 200, 200, { putMaxPremiumUsd: 40000 });
+  assert.match(DR("macro", pp).note, /each risk-sized put buys at most \$40,000 of premium \(calls/); assert.match(DR("macro", pp).key, /\|down:[^|]*\|putprem:40000$/);
+  const same = engineSpecs({ newsGate: false, tapeSize: false }, undefined, null, 8, 10, { maxPremiumUsd: 200000, putMaxPremiumUsd: 200000 });
   assert.equal(same.reversion.rules.n, ENGINES.reversion.rules.n - 1, "cap 8 under a put cap of 10: no separate put cap, no step");
   // Risk sizing off: no put cap in the rules.
   assert.doesNotMatch(DR("macro", engineSpecs({ riskSize: false })).note, /put buys/);
@@ -3005,7 +3073,7 @@ ok("bounce skip: in the book, the washout bounce is shadowed, the dip trial is n
 ok("bounce skip: switch, Owner Settings and the rules step on Reversion only", () => {
   assert.equal(engineSwitches({}).fixes.bounceSkip, true); assert.equal(engineSwitches({ ENGINES_BOUNCE_SKIP: "0" }).fixes.bounceSkip, false);
   const d = ownerSettingDef("ENGINES_BOUNCE_SKIP"); assert.ok(d && d.kind === "switch" && d.default === true && d.group === "Strategy engines" && d.scope === "build");
-  const r = ENGINES.reversion.rules;
+  const r = preSize(ENGINES.reversion.rules);
   assert.equal(r.n, 11); assert.equal(r.date, "2026-11-22"); assert.match(r.note, /^New rules \(bounce skip rules\): the washout bounce and the RSI\(2\) dip trial/); assert.match(r.key, /\|bounce:bounceSkip$/);
   for (const id of ENGINE_IDS.filter((x) => x !== "reversion")) assert.doesNotMatch(ENGINES[id].rules.key || "", /bounce:/, id);
   const off = engineSpecs({ bounceSkip: false });
@@ -3013,7 +3081,31 @@ ok("bounce skip: switch, Owner Settings and the rules step on Reversion only", (
   assert.deepEqual(off.technicals.rules, ENGINES.technicals.rules);
   const es = newEngineState(ENGINES.reversion); es.rules = 10; es.rulesKey = preBounce(r).key;
   const made = adoptRules(es, ENGINES.reversion, TODAY);
-  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(bounce skip rules\)/); assert.equal(es.rules, 11);
+  assert.equal(made.kind, "rules"); assert.match(made.text, /^New rules \(bounce skip rules\).* New rules \(bigger size limits\)/); assert.equal(es.rules, 12);
+});
+ok("bigger size limits (2026-11-23): one dated rules step on every risk-sized signal engine, logged once", () => {
+  for (const id of FIXED_IDS) {
+    const r = ENGINES[id].rules, below = r.before;
+    assert.equal(r.date, "2026-11-23", id); assert.equal(r.n, below.n + 1, id); assert.equal(r.key, below.key, id);
+    assert.match(r.note, /^New rules \(bigger size limits\): each risk-sized option trade buys 1 to 200 contracts and at most \$200,000 of premium, whichever comes first \(was 1 to 25, no premium cap\); a risk-sized put 1 to 100 contracts and at most \$100,000 \(was 1 to 10\); a risk-sized share trade buys at most \$250,000 of stock \(was \$25,000\)\. Trades already open keep their size/, id);
+    assert.match(r.key, /\|cap:200\|prem:200000\|shcap:250000\|/, id); assert.match(r.key, /\|putcap:100\|putprem:100000\|/, id);
+  }
+  assert.equal(ENGINES.downside.rules.date === "2026-11-23", false, "Downside puts keep their own rules");
+  for (const id of CORE_IDS) assert.notEqual(ENGINES[id].rules.date, "2026-11-23", id);
+  // A running engine on main before today (cap 25, no premium cap in its key) logs this step only, once.
+  const es = newEngineState(ENGINES.technicals); es.rules = ENGINES.technicals.rules.n - 1;
+  es.rulesKey = ENGINES.technicals.rules.key.replace("|cap:200|prem:200000|shcap:250000", "|cap:25").replace("|putcap:100|putprem:100000", "|putcap:10");
+  const made = adoptRules(es, ENGINES.technicals, "2026-11-23");
+  assert.equal(made.kind, "rules"); assert.equal(made.text, ENGINES.technicals.rules.note); assert.equal(es.rulesKey, ENGINES.technicals.rules.key); assert.equal(es.v, 2);
+  assert.equal(adoptRules(es, ENGINES.technicals, "2026-11-23"), null, "once");
+  // A premium cap changed later in Owner Settings is a logged change at the same rules number.
+  const p50 = engineSpecs(undefined, undefined, null, 200, 100, { maxPremiumUsd: 50000 });
+  assert.equal(p50.technicals.rules.n, ENGINES.technicals.rules.n); assert.notEqual(p50.technicals.rules.key, ENGINES.technicals.rules.key);
+  const ch = adoptRules(es, p50.technicals, "2026-11-24");
+  assert.match(ch.text, /Size range: each risk-sized option trade buys 1 to 200 contracts and at most \$50,000 of premium/); assert.equal(es.v, 3);
+  // Risk sizing off: no step (the caps are not in play).
+  const flat = engineSpecs({ riskSize: false });
+  assert.notEqual(flat.technicals.rules.date, "2026-11-23");
 });
 ok("live VIX: today's quote replaces the prior close on the decision day only; switch and Owner Settings", () => {
   const dates = []; for (let d = Date.parse("2026-08-03T12:00:00Z"); dates.length < 80; d += 86400000) { const w = new Date(d).getUTCDay(); if (w && w < 6) dates.push(new Date(d).toISOString().slice(0, 10)); }

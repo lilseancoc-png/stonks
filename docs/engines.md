@@ -133,7 +133,7 @@ A share trade (`sharesContract` in `contracts.mjs`, `BOOK.shares*`):
   engines' options) so its thresholds mean the same thing; its change notes
   say so.
 - Bought as stock in the Webull paper account since 2026-11-19 (the record's
-  whole-share count, moved inside the Owner's $2,000 to $25,000 stock order
+  whole-share count, moved inside the Owner's $10,000 to $250,000 stock order
   range, long only; Owner Settings `WEBULL_SHARES` off leaves them
   on the record only, as before). Share trades opened before share orders went
   live (`sharesGoLiveIso`) are never bought late. The same-contract rule does
@@ -383,7 +383,8 @@ sizing the cap of 10 set the size of about two option trades in three, so
 the conviction multiplier could rarely move it.
 
 - **The cap.** A risk-sized option trade buys 1 contract up to
-  `ENGINES_MAX_QTY` (Owner Settings → Data & desks, 1 to 25, default 25;
+  `ENGINES_MAX_QTY` (Owner Settings → Data & desks, 1 to 200, default 200
+  since 2026-11-23, 25 before;
   `BOOK.riskMaxQty`, `normalizeMaxQty`, read by `engineSwitches` into
   `sizing.maxQty`). The Riskier dial stops at the same cap (`scaleContract`
   in `lib/owner-controls.mjs`). Shares are unchanged (at most $25,000).
@@ -404,8 +405,10 @@ the conviction multiplier could rarely move it.
   the sized-up and the sized-down groups have `SIZE_READ_MIN` (20) closed
   trades. Labeled tests (one contract) are left out.
 - **Top Picks at Webull** have their own cap, `WEBULL_PICKS_MAX_QTY` (Owner
-  Settings → Account limits, 1 to 25, default 25; a Vercel value wins), and
-  the mirror never sends more than `MIRROR_MAX_QTY` (25). An engine trade at
+  Settings → Account limits, 1 to 200, default 200 since 2026-11-23; a Vercel
+  value wins), held under `WEBULL_PICKS_MAX_PREMIUM_USD` ($200,000) and, for
+  a put, `WEBULL_PICKS_PUT_MAX_QTY` (100) / `WEBULL_PICKS_PUT_MAX_PREMIUM_USD`
+  ($100,000), and the mirror never sends more than `MIRROR_MAX_QTY` (200). An engine trade at
   Webull follows its record. See docs/webull-paper-controls.md.
 
 History test, 2007-2026, the 1,265 closed option trades of the learning-on
@@ -499,9 +502,10 @@ pack is one dated rules step on top of every signal engine (`|down:` and
 - **Fundamentals holds up to 5 puts** (`ENGINES_FUN_PUTS5`): 8 slots, 3
   calls and 5 puts, still one new trade a run. Off goes back to 5 slots and
   2 puts.
-- **Put cap** (`ENGINES_PUT_MAX_QTY`, 1 to 25, default 10): a risk-sized put
-  buys at most this many contracts, under `ENGINES_MAX_QTY` too; calls keep
-  25. The Riskier dial stops at the same cap for puts (`sideMaxQty` in
+- **Put cap** (`ENGINES_PUT_MAX_QTY`, 1 to 200, default 100 since
+  2026-11-23, 10 before; and `ENGINES_PUT_MAX_PREMIUM_USD`, $100,000): a
+  risk-sized put buys at most this many contracts and this much premium,
+  under the calls' caps too; calls keep 200 and $200,000. The Riskier dial stops at the same cap for puts (`sideMaxQty` in
   `config.mjs`). Top Picks is not affected.
 - **News gate** (`ENGINES_NEWS_GATE`, every signal engine and Downside
   puts): the GDELT read for the name (`view.live.news`) with news volume at
@@ -859,6 +863,40 @@ profit for a smaller drawdown; the bounce option numbers are trust grade C
 50-day) the rule would have held back the MRK, ACN, HD and SHOP buys; at the
 Nov 20 close (VIX 35.9) it would not. `scripts/engines-backtest.mjs --off
 bounceSkip` runs the history test without it.
+
+### Bigger size limits (2026-11-23)
+
+Owner, 2026-11-23: "For shares its minimum is $10,000 and at most $250,000.
+Options up to 200 contracts per trade or a limit of $200,000 whichever
+first. Top picks can increase the cap to 200 contracts cap too with the same
+$200,000 limit", puts "100 contracts or a limit of $100,000", and open engine
+stock "a 1m total position at any point". New positions only: open trades
+and orders already sent keep their size.
+
+| Limit | Engines (record) | Webull paper | Owner Settings |
+|---|---|---|---|
+| Option contracts | 1 to 200 (25 before) | engine trades send the record's count, at most 200 (`MIRROR_MAX_QTY`); Top Picks 1 to 200 | `ENGINES_MAX_QTY`, `WEBULL_PICKS_MAX_QTY` |
+| Option premium | at most $200,000 (contracts x price x 100), whichever comes first | Top Picks the same (a credit spread: width less credit) | `ENGINES_MAX_PREMIUM_USD`, `WEBULL_PICKS_MAX_PREMIUM_USD` |
+| Puts | 100 contracts and $100,000 (10 contracts before) | Top Picks puts the same | `ENGINES_PUT_MAX_QTY`, `ENGINES_PUT_MAX_PREMIUM_USD`, `WEBULL_PICKS_PUT_MAX_QTY`, `WEBULL_PICKS_PUT_MAX_PREMIUM_USD` |
+| One share trade | at most $250,000 of stock ($25,000 before) | each stock order $10,000 to $250,000 ($2,000 to $25,000 before) | `ENGINES_SHARES_MAX_USD`, `WEBULL_STOCK_MIN_USD`, `WEBULL_STOCK_MAX_USD` |
+| Open engine stock | at most $1,000,000 at cost, the new trade included | the same over the account's live stock lots | `ACCOUNT_LIMIT_SHARES_USD` (0 = off) |
+
+Sizing is unchanged: each trade still risks about `ENGINES_RISK_USD` ($2,000)
+times its conviction multiplier (0.5x to 2x), so the caps bind only on a
+cheap contract (under about $0.20 to $0.30) or a much bigger budget; the
+budget, not the caps, is the lever. A contract over 2x the budget is still
+skipped or bought as shares (unchanged). The Riskier dial and the market tape
+stop at every cap (`capFor` / `sharesFor` in `book.mjs`). A share trade that
+would pass the open stock cap is not opened (no shadow); at Webull it is not
+bought and never bought later. Each option trade records `size.capBy`
+(`contracts` or `premium`) and `size.maxPremiumUsd`; a Webull Top Picks order
+capped by premium keeps `qtyCapBy: "premium"` and `premiumCapUsd`. The rules
+key gains `|prem:200000|shcap:250000` (and `|putprem:100000` in the downtrend
+pack), and a dated rules step on top of every signal engine with the fix
+history (`sizeLimitRules` in `config.mjs`, date 2026-11-23, while risk sizing
+is on) splits the record there with one note; Downside puts keeps its own
+rules but sizes under the same caps. A cap changed later in Owner Settings is
+a logged rule change at the same rules number.
 
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
@@ -1284,12 +1322,12 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_MIRROR` | Vercel env | `0` stops new engine trades entering the paper account. Trades already there keep being managed and closed |
 | `ENGINES_FIX_RETIRE_PUTS` | Owner Settings → Data & desks | Unset / on = Reversion's spike fade and Technicals' range breakdown open nothing. `0` brings them back for new trades |
 | `ENGINES_FIX_BOUNCE` | Owner Settings → Data & desks | Unset / on = the washout bounce buys ~0.3-delta calls about 21 days out with a -60% stop. `0` = the engine's 0.6-delta calls and -35% stop |
-| `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys the record's `qty` (1 to 25) unless Owner Settings `WEBULL_QTY` is off |
+| `ENGINES_FIX_SIZE` | Owner Settings → Data & desks | Unset / on = option trades record about $2,000 of premium. `0` = one contract, as before. Webull buys the record's `qty` (1 to 200) unless Owner Settings `WEBULL_QTY` is off |
 | `ENGINES_FIX_TEC_SHARES` | Owner Settings → Data & desks | Unset / on = Technicals' share trades stop 3 ATR under the entry. `0` = the setup's own stop or 2 ATR |
 | `ENGINES_FILL_BASIS` | Owner Settings → Data & desks | Unset / on = new option trades book the ask going in and the bid coming out (triggers stay on the mid). `0` = the mid both ways |
 | `ENGINES_SPLIT_GUARD` | Owner Settings → Data & desks | Unset / on = open trades follow a stock split (levels divided, count multiplied; see "Stock splits"). `0` = old prices marked on the new tape |
-| `ENGINES_RISK_SIZE` | Owner Settings → Data & desks | Unset / on = each trade risks about `ENGINES_RISK_USD`, 1 contract up to `ENGINES_MAX_QTY` or up to $25,000 of stock. `0` = the rules 3 sizing |
-| `ENGINES_MAX_QTY` | Owner Settings → Data & desks | The most contracts a risk-sized option trade buys, 1 to 25 (default 25 since 2026-11-20; 10 before). A cap other than 10 is a dated rules step; changing it later is logged as a rule change. The Riskier dial stops there too |
+| `ENGINES_RISK_SIZE` | Owner Settings → Data & desks | Unset / on = each trade risks about `ENGINES_RISK_USD`, 1 contract up to `ENGINES_MAX_QTY` and `ENGINES_MAX_PREMIUM_USD`, or up to `ENGINES_SHARES_MAX_USD` of stock ($250,000; $25,000 before 2026-11-23). `0` = the rules 3 sizing |
+| `ENGINES_MAX_QTY` | Owner Settings → Data & desks | The most contracts a risk-sized option trade buys, 1 to 200 (default 200 since 2026-11-23; 25 from 2026-11-20, 10 before). A cap other than 10 is a dated rules step; changing it later is logged as a rule change. The Riskier dial stops there too |
 | `ENGINES_RISK_USD` | Owner Settings → Data & desks | The risk budget a trade, $500 to $10,000 (default $2,000) |
 | `ENGINES_SIZE_MULTIPLIER` | Owner Settings → Data & desks | Unset / on = the conviction multiplier (0.5x to 2x, parts on each trade). `0` = the flat risk size |
 | `ENGINES_TEC_SHARES_ONLY` | Owner Settings → Data & desks | Unset / on = Technicals buys shares only (squeeze puts and rally fade retired). `0` = its rules 3 setups |
@@ -1303,7 +1341,11 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_RUNIN_BY_IV` | Owner Settings → Data & desks | Unset / on = the earnings run-in buys shares when options are rich or very rich. `0` = calls, and very rich skips |
 | `ENGINES_CONV_NO_SCORE` | Owner Settings → Data & desks | Unset / on = Reversion's and Macro's size leaves the setup score out. `0` = the score part is back |
 | `ENGINES_FUN_PUTS5` | Owner Settings → Data & desks | Unset / on = Fundamentals holds up to 3 calls and 5 puts (8 slots). `0` = 5 slots, 2 puts |
-| `ENGINES_PUT_MAX_QTY` | Owner Settings → Data & desks | The most contracts a risk-sized engine put buys, 1 to 25 (default 10, since 2026-11-20), never over `ENGINES_MAX_QTY` |
+| `ENGINES_PUT_MAX_QTY` | Owner Settings → Data & desks | The most contracts a risk-sized engine put buys, 1 to 200 (default 100 since 2026-11-23; 10 from 2026-11-20), never over `ENGINES_MAX_QTY` |
+| `ENGINES_MAX_PREMIUM_USD` | Owner Settings → Data & desks | Added 2026-11-23. The most premium a risk-sized option trade buys, $1,000 to $1,000,000 (default $200,000), whichever of this and `ENGINES_MAX_QTY` comes first; never under one contract. A rules key part (`prem:`), so a change is logged as a rule change |
+| `ENGINES_PUT_MAX_PREMIUM_USD` | Owner Settings → Data & desks | Added 2026-11-23. The most premium a risk-sized put buys (default $100,000), never over `ENGINES_MAX_PREMIUM_USD` (`putprem:` in the downtrend pack's key) |
+| `ENGINES_SHARES_MAX_USD` | Owner Settings → Data & desks | Added 2026-11-23 ($25,000 before). The most stock a risk-sized share trade buys, $1,000 to $1,000,000 (default $250,000); the Riskier dial and the tape stop there too (`shcap:` in the key) |
+| `ACCOUNT_LIMIT_SHARES_USD` | Owner Settings → Account limits | Added 2026-11-23. Cap on open engine stock at cost (every share trade, core holding and trial), default $1,000,000, 0 = off. A new share trade that would pass it is not opened (record: `account limit: open engine stock cap`; Webull: not bought, never later) |
 | `ENGINES_NEWS_GATE` | Owner Settings → Data & desks | Unset / on = a news spike with a souring tone holds back new longs on that stock, a brightening one new puts (tracked as shadow trades). `0` = no gate |
 | `ENGINES_TAPE_SIZE` | Owner Settings → Data & desks | Unset / on = new signal-engine longs are sized by the Top Picks tape's multiplier (0.4x severe risk-off); puts keep their size. `0` = full size |
 | `ENGINES_DOWNSIDE` | Owner Settings → Data & desks | Unset / on = Downside puts opens puts on a risk-off tape. `0` = it opens nothing new; open puts run to their exits |
@@ -1337,8 +1379,10 @@ Full spec: [`owner-controls.md`](owner-controls.md). In the book
   five sessions. No bar is lowered.
 - **Risk dial** (until Friday's close): Safer = half the contracts or shares,
   entry bar +5, one new trade a run across the engines. Riskier = 1.5x the
-  contracts or shares (at most the contract cap, 25 unless set in Owner
-  Settings, unless a trade already had more; 10 before 2026-11-20),
+  contracts or shares (at most the contract and premium caps, 200 and
+  $200,000 unless set in Owner Settings, and a share trade at most the share
+  cap, $250,000, unless a trade already had more; 25 before 2026-11-23, 10
+  before 2026-11-20),
   bar -3, and back to the normal size when 1.5x would pass an account limit.
   Core engines keep their size and have no bar.
 - **Account limits** (above) count signal and core option premium and money

@@ -67,6 +67,9 @@ const newVerdict=structuredClone(fixture);newVerdict.builtAtIso='2026-10-23T15:1
   assert.doesNotThrow(()=>JSON.stringify(ctl));
   assert.equal(deskControls({...activeControls(null,now),enabled:true,limits:accountLimits({})}),null,'Nothing set = no desk controls');
   assert.deepEqual(deskControls({...activeControls(doc,now),enabled:false,limits:accountLimits({})}),{enabled:false,limits:null});
+  // The open engine stock cap (2026-11-23): on at $1,000,000 by default (quiet), shown once the Owner sets it.
+  assert.equal(deskControls({...activeControls(null,now),enabled:true,limits:accountLimits({ACCOUNT_LIMIT_SHARES_USD:'500000'})}).limits.sharesUsd,500000);
+  assert.equal(deskControls({...activeControls(null,now),enabled:true,limits:accountLimits({ACCOUNT_LIMIT_NEW_PER_DAY:'4'})}).limits.sharesUsd,1000000,'any limit set shows the stock cap too');
   const ledger={trades:{
     a:{tradeId:'a',engineEntryIso:'2026-10-22T15:00:00Z',state:'open',requestedQty:2,filledQty:2,fillPrice:1,entryDiffPct:1.5},
     b:{tradeId:'b',engineEntryIso:'2026-10-22T15:00:00Z',state:'open',requestedQty:4,filledQty:1,fillPrice:1,entryDiffPct:-0.5},

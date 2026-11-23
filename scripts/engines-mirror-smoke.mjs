@@ -334,7 +334,7 @@ await ok("shares (share orders on, the live default): the same share trade is bo
   const { ledger, summary } = await run({ client: wb, accountId: "PAPER1", acc: m, ledger: null, nowMs: T0, sizing: { ...LIVE_SIZING, riskUsd: 2000 } });
   assert.equal(summary.placed, 2);
   const stock = wb.placed.find((o) => o.symbol === "SHR");
-  assert.equal(stock.instrument_type, "EQUITY"); assert.equal(stock.side, "BUY"); assert.equal(stock.quantity, "50");
+  assert.equal(stock.instrument_type, "EQUITY"); assert.equal(stock.side, "BUY"); assert.equal(stock.quantity, "100", "the $5,000 lot is raised to the $10,000 minimum (2026-11-23)");
   assert.equal(ledger.trades["TEC:SHR-S-11/16/26-11:00"].instrument, "stock");
   const led = { goLiveIso: "2026-11-16T15:00:00.000Z", sharesGoLiveIso: "2026-11-16T15:00:00.000Z", trades: {}, engineSnapshotIso: BUILT, reconciliation: { status: "matched", alerts: [], checkedAtIso: BUILT } };
   const h = mirrorHealth({ acc: accOf(), ledger: led, engines: engOf([shr]), sharesMirror: true }, T0);
@@ -348,7 +348,7 @@ await ok("paper trials: a trial share trade is bought at Webull like any engine 
   const wb = fakeWebull();
   const { ledger, summary } = await run({ client: wb, accountId: "PAPER1", acc: m, ledger: null, nowMs: T0, sizing: { ...LIVE_SIZING, riskUsd: 2000 } });
   assert.equal(summary.placed, 1);
-  assert.equal(wb.placed[0].instrument_type, "EQUITY"); assert.equal(wb.placed[0].quantity, "7");
+  assert.equal(wb.placed[0].instrument_type, "EQUITY"); assert.equal(wb.placed[0].quantity, "15", "$4,900 raised to the $10,000 minimum: 15 shares");
   assert.equal(ledger.trades["REV:SPY-S-11/19/26-11:00"].instrument, "stock");
   // Share orders off: the trial stays a record line, like every engine share trade.
   assert.deepEqual(merged(accOf(), engOf([tri]), null, { shares: false }).open, []);

@@ -131,9 +131,9 @@ try {
     const partlyN = fx.mirror.trades.filter((t) => t.fillOutcome === 'partial').length;
     if (partlyN) check(new RegExp('\\d+ of \\d+ (contracts|shares)').test(webullText), 'a partly filled order shows what filled of what was asked');
     check(/share orders on/.test(webullText) && /quantities above one on/.test(webullText), 'the paper account says which Webull sizing switches are on');
-    check(/each stock order \$2,000 to \$25,000 of stock/.test(webullText), 'the paper account states the stock order range');
+    check(/each stock order \$10,000 to \$250,000 of stock/.test(webullText), 'the paper account states the stock order range');
     const resized = fx.mirror.trades.filter((t) => t.qtyBasis === 'shares-max' || t.qtyBasis === 'shares-min');
-    if (resized.length) check(/(Cut to the \$25,000 maximum|Raised to the \$2,000 minimum) \(record \d+\)/.test(webullText), 'a stock order moved into the range says so, with the record count');
+    if (resized.length) check(/(Cut to the \$250,000 maximum|Raised to the \$10,000 minimum) \(record \d+\)/.test(webullText), 'a stock order moved into the range says so, with the record count');
     else console.log('note: no fixture stock order fell outside the range this run');
     check((await s.page.locator('#eng-all-runs tbody tr').count()) === Math.min(20, view.runs.length), 'the run log rendered');
     const openAll = view.engines.reduce((n, e) => n + e.open.length, 0);
@@ -152,16 +152,16 @@ try {
     // The downtrend pack (2026-11-20): its three switches, the put cap and the Downside puts engine.
     const fix6 = view.fixes.filter((f) => f.step === 6);
     check(fix6.length === 3 && (await s.page.locator('#eng-all-down .eng-fixes li').count()) === fix6.length + 2, 'one line per downtrend pack part (three switches, the put cap, Downside puts)');
-    check(/1 to 10 contracts/.test(await s.page.locator('#eng-all-down').innerText()) && /Owner Settings/.test(await s.page.locator('#eng-all-down').innerText()), 'the downtrend pack names the put cap and where to switch it');
+    check(/1 to 100 contracts/.test(await s.page.locator('#eng-all-down').innerText()) && /Owner Settings/.test(await s.page.locator('#eng-all-down').innerText()), 'the downtrend pack names the put cap and where to switch it');
     await s.page.locator('#eng-all-down').screenshot({ path: resolve(output, 'downtrend-pack-1440.png') });
     check(/Owner Settings/.test(await s.page.locator('#eng-all-fixes').innerText()) && (await s.page.locator('#eng-all-fixes .evb-s-pass').count()) === fix3.filter((f) => f.on).length, 'each fix shows whether it is on and where to switch it');
     // Honest paper trades (2026-11-19): their own section, one line each, and the sizing comparison.
     check((await s.page.locator('#eng-all-honest .eng-fixes li').count()) === fix4.length && fix4.length === 6, 'one line per honest-paper change');
     const honestText = await s.page.locator('#eng-all-honest').innerText();
-    check(/ask going in and the bid coming out/.test(honestText) && /1 to 25 contracts/.test(honestText) && /conviction/i.test(honestText) && /Owner Settings/.test(honestText), 'the honest-paper section says what changed and where to switch it');
+    check(/ask going in and the bid coming out/.test(honestText) && /1 to 200 contracts/.test(honestText) && /conviction/i.test(honestText) && /Owner Settings/.test(honestText), 'the honest-paper section says what changed and where to switch it');
     // The size-bucket read (2026-11-20): does bigger size do better?
     const cmp = view.sizing && view.sizing.compare;
-    if (cmp && (cmp.options.n || cmp.shares.n)) check(/Does bigger size do better\?/.test(honestText) && /Sized up \(over 1\.1x\)/.test(honestText) && /1 to 25 contracts \(1 to 10 before\)/.test(honestText), 'the sizing section splits closed trades by multiplier and says the range');
+    if (cmp && (cmp.options.n || cmp.shares.n)) check(/Does bigger size do better\?/.test(honestText) && /Sized up \(over 1\.1x\)/.test(honestText) && /1 to 200 contracts, at most \$200,000 of premium \(1 to 25 from 20 November, 1 to 10 before\)/.test(honestText), 'the sizing section splits closed trades by multiplier and says the range');
     check(/Fear and greed at the last run|No fear and greed reading/.test(honestText), 'the section says what fear and greed read at the last run');
     // Every open option trade opened under the new rules says how it was sized and filled.
     const sized = view.engines.flatMap((e) => e.open).filter((t) => t.size);
@@ -364,7 +364,7 @@ try {
     await s.page.screenshot({ path: resolve(output, 'experiments-1440.png'), fullPage: true });
 
     await pick(s, 'fundamentals'); await sub(s, 'now');
-    check(/3 calls and 5 puts at most/.test(await s.page.locator('.eng-rules').first().innerText()) && /\(puts 1 to 10\)/.test(await s.page.locator('.eng-rules').first().innerText()), 'Fundamentals rules read 3 calls and 5 puts, puts capped at 10 contracts');
+    check(/3 calls and 5 puts at most/.test(await s.page.locator('.eng-rules').first().innerText()) && /at most \$200,000 of premium, whichever comes first \(puts 1 to 100 and \$100,000\)/.test(await s.page.locator('.eng-rules').first().innerText()), 'Fundamentals rules read 3 calls and 5 puts, the premium cap, puts capped at 100 contracts and $100,000');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-now-1440.png'), fullPage: true });
     await sub(s, 'learn');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-learn-1440.png'), fullPage: true });
@@ -374,7 +374,7 @@ try {
     await sub(s, 'now');
     {
       const rules = await s.page.locator('.eng-rules').first().innerText();
-      check(/One single put,/.test(rules) && /1 to 10 contracts/.test(rules) && /50% of the \$[\d,]+ budget/.test(rules) && !/buys shares instead/.test(rules), 'Downside rules read puts only, half the risk budget and the 10-contract put cap');
+      check(/One single put,/.test(rules) && /1 to 100 contracts and at most \$100,000 of premium/.test(rules) && /50% of the \$[\d,]+ budget/.test(rules) && !/buys shares instead/.test(rules), 'Downside rules read puts only, half the risk budget and the put caps (100 contracts, $100,000)');
     }
     await s.page.screenshot({ path: resolve(output, 'downside-now-1440.png'), fullPage: true });
     await pick(s, 'technicals'); await sub(s, 'now');
