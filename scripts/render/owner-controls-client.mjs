@@ -185,7 +185,7 @@ export function renderOwnerControlsJs() {
     var dis = OC.saving ? ' disabled' : '';
     var dials = (d.dials || []).map(function(x){ return '<button type="button" class="oc-pill' + (x.level === d.dial.level ? ' is-on' : '') + (x.level !== 'normal' ? ' is-' + x.level : '') + '" data-oc-act="dial" data-oc-level="' + x.level + '" aria-pressed="' + (x.level === d.dial.level ? 'true' : 'false') + '" title="' + ocEsc(x.help) + '"' + dis + '>' + ocEsc(x.label) + '</button>'; }).join('');
     var lim = d.limits || {};
-    var limTxt = d.limits ? ['Open option premium ' + ocUsd(lim.openUsd), 'Daily loss stop ' + ocUsd(lim.dayLossUsd), 'Per stock ' + ocUsd(lim.nameUsd), 'New trades a day ' + (lim.newPerDay == null ? 'off' : lim.newPerDay)].join(' · ') : 'Unavailable';
+    var limTxt = d.limits ? ['Open option premium ' + ocUsd(lim.openUsd), 'Daily loss stop ' + ocUsd(lim.dayLossUsd), 'Per stock ' + ocUsd(lim.nameUsd), 'New trades a day ' + (lim.newPerDay == null ? 'off' : lim.newPerDay), 'Open engine stock ' + ocUsd(lim.sharesUsd)].join(' · ') : 'Unavailable';
     var log = (d.log || []).slice(0, 12).map(function(l){ return '<li' + (l.undone ? ' class="is-off"' : '') + '>' + ocEsc(l.text) + (l.undone ? ' <em>(undone)</em>' : '') + ' <span class="muted">· ' + ocEsc(ocWhen(l.at)) + (l.by ? ' · ' + ocEsc(l.by) : '') + '</span></li>'; }).join('');
     var today = d.now ? String(d.now).slice(0, 10) : '';
     box.innerHTML =

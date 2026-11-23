@@ -53,22 +53,28 @@ change never resizes a trade already there.
 
 | Trade | Webull asks for | Ledger `qtyBasis` |
 |---|---|---|
-| Strategy-engine option trade | the record's `contract.qty` (1 to 25 since 2026-11-20, 1 to 10 before; the engines' own cap `ENGINES_MAX_QTY` already holds it; a missing value is 1, as on every trade before 2026-11-17; above 25 is capped at 25, `MIRROR_MAX_QTY`). `flatQty`, where present, is comparison only and is never read | `record`, `record-capped` or `one` |
-| Top Picks option trade | `picksRiskQty`: the risk budget (`ENGINES_RISK_USD` from Owner Settings or env, else $2,000) divided by one contract's risk, rounded down, 1 to the Top Picks cap (`WEBULL_PICKS_MAX_QTY`, Owner Settings → Account limits, 1 to 25, default 25 since 2026-11-20, 10 before; a Vercel value wins; `picksCapFromSettings`). When the cap sets the size the ledger trade keeps `qtyCap` and `qtyWanted` (what the budget asked for). Risk is the whole premium under 30 days to expiry (or an unknown expiry), else premium × the trade's stop (50%) × 1.25 for gaps, never more than the premium; a credit spread risks width minus credit. A Top Pick is never skipped for size: at least one contract | `risk` |
+| Strategy-engine option trade | the record's `contract.qty` (1 to 200 since 2026-11-23, 1 to 25 from 2026-11-20, 1 to 10 before; the engines' own caps `ENGINES_MAX_QTY` / `ENGINES_MAX_PREMIUM_USD` and the put caps already hold it; a missing value is 1, as on every trade before 2026-11-17; above 200 is capped at 200, `MIRROR_MAX_QTY`). `flatQty`, where present, is comparison only and is never read | `record`, `record-capped` or `one` |
+| Top Picks option trade | `picksRiskQty`: the risk budget (`ENGINES_RISK_USD` from Owner Settings or env, else $2,000) divided by one contract's risk, rounded down, 1 to the Top Picks cap (`WEBULL_PICKS_MAX_QTY`, Owner Settings → Account limits, 1 to 200, default 200 since 2026-11-23, 25 from 2026-11-20, 10 before; a Vercel value wins; `picksCapFromSettings`) and at most the premium cap (`WEBULL_PICKS_MAX_PREMIUM_USD`, $200,000: contracts x price x 100, a credit spread its width less the credit), whichever comes first; a put (side `put`) also stays under `WEBULL_PICKS_PUT_MAX_QTY` (100) and `WEBULL_PICKS_PUT_MAX_PREMIUM_USD` ($100,000) (`picksCapsFor`). When the cap sets the size the ledger trade keeps `qtyCap` and `qtyWanted` (what the budget asked for), plus `qtyCapBy: "premium"` and `premiumCapUsd` when the premium cap set it. Risk is the whole premium under 30 days to expiry (or an unknown expiry), else premium × the trade's stop (50%) × 1.25 for gaps, never more than the premium; a credit spread risks width minus credit. A Top Pick is never skipped for size: at least one contract | `risk` |
 | Either, with **Webull quantities above one** off | one contract | `one` |
 | Top Picks, with **Webull Top Picks risk sizing** off | one contract | `one` |
 | Engine share trade, Trend follower, Momentum basket and Multi-asset rotation holdings | the record's whole-share count (`contract.shares`), as stock, moved inside the stock order range (below) | `shares`, `shares-min`, `shares-max` or `shares-over-max` |
 
-**Stock order range** (2026-11-19, Owner rule). Every engine stock order costs
-between $2,000 and $25,000 at the engine's entry price, unless the Owner
+**Stock order range** (2026-11-19, Owner rule; $10,000 to $250,000 since
+2026-11-23, $2,000 to $25,000 before). Every engine stock order costs
+between $10,000 and $250,000 at the engine's entry price, unless the Owner
 changes the range in Owner Settings → Account limits ("Smallest engine stock
 order" `WEBULL_STOCK_MIN_USD`, "Largest engine stock order"
 `WEBULL_STOCK_MAX_USD`; a Vercel value wins; `stockRangeFromSettings`). A lot
 under the smallest order is raised to the fewest whole shares that reach it
 (`shares-min`), a lot over the largest is cut to the most whole shares that fit
-(`shares-max`; the Trend follower's $50,000 lot becomes about $25,000), and a
+(`shares-max`), and a
 stock whose single share costs more than the largest order is not bought
-(`shares-over-max`, logged as not bought and never bought later). 0 for the
+(`shares-over-max`, logged as not bought and never bought later). Since
+2026-11-23 a stock order that would take the account's live stock lots (at
+fill price) past the open engine stock cap (Owner Settings → Account limits
+`ACCOUNT_LIMIT_SHARES_USD`, $1,000,000 unless set, 0 = off; `mirrorOpenGate`)
+is not bought either, logged with the reason and never bought later; the cap
+holds at its default even when the saved settings cannot be read. 0 for the
 smallest = no minimum; a smallest above the largest reads as the largest. The
 range is applied at the engine price; the entry ladder may pay up to its price
 allowance (2%, 4%, 5% at the end of the day) above that. The engine records

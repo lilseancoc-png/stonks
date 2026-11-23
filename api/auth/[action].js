@@ -1337,10 +1337,13 @@ async function webullSizing(store) {
   const fromEnv = Number(String(process.env.ENGINES_RISK_USD ?? "").trim() || NaN);
   sizing.riskUsd = Number.isFinite(saved) && saved > 0 ? saved : Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : null;
   // Engine stock order range (Owner Settings WEBULL_STOCK_MIN_USD /
-  // WEBULL_STOCK_MAX_USD, $2,000 to $25,000 unless changed; a Vercel value
-  // wins). An unreadable settings file uses the defaults.
-  // The Top Picks contract cap (Owner Settings WEBULL_PICKS_MAX_QTY, 1 to
-  // 25, default 25 since 2026-11-20; a Vercel value wins).
+  // WEBULL_STOCK_MAX_USD, $10,000 to $250,000 unless changed since
+  // 2026-11-23, $2,000 to $25,000 before; a Vercel value wins). An unreadable
+  // settings file uses the defaults.
+  // The Top Picks caps (Owner Settings WEBULL_PICKS_MAX_QTY, 1 to 200,
+  // default 200, WEBULL_PICKS_MAX_PREMIUM_USD, default $200,000, and the put
+  // caps WEBULL_PICKS_PUT_MAX_QTY 100 / WEBULL_PICKS_PUT_MAX_PREMIUM_USD
+  // $100,000, since 2026-11-23; a Vercel value wins).
   const { stockRangeFromSettings, picksCapFromSettings } = await import("../../lib/webull-mirror.mjs");
   Object.assign(sizing, stockRangeFromSettings(values), picksCapFromSettings(values));
   return sizing;
@@ -1409,7 +1412,7 @@ async function webullMirror(req, res) {
         health: mirrorHealth({ acc: rawRecord, ledger: rawLedger, executionLock, enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on", engines: enginesRecord, enginesMirror, sharesMirror: sizing.shares }),
         executionLock,
         enginesMirror,
-        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY, picksMaxQty: sizing.picksMaxQty ?? mirror.PICKS_MAX_QTY,
+        sizing: { shares: sizing.shares, quantities: sizing.quantities, picksSizing: sizing.picksSizing, riskUsd: sizing.riskUsd ?? mirror.DEFAULT_RISK_USD, maxQty: mirror.MIRROR_MAX_QTY, picksMaxQty: sizing.picksMaxQty ?? mirror.PICKS_MAX_QTY, picksMaxPremiumUsd: sizing.picksMaxPremiumUsd ?? mirror.PICKS_MAX_PREMIUM_USD, picksPutMaxQty: sizing.picksPutMaxQty ?? mirror.PICKS_PUT_MAX_QTY, picksPutMaxPremiumUsd: sizing.picksPutMaxPremiumUsd ?? mirror.PICKS_PUT_MAX_PREMIUM_USD,
           stockMinUsd: sizing.stockMinUsd, stockMaxUsd: sizing.stockMaxUsd },
         webullData: { ...mirrorDataSwitches(), orderHistoryShape: rawLedger.orderHistoryShape ?? null, lastFeeSweep: rawLedger.lastFeeSweep ?? null },
         sharesGoLiveIso: ledger.sharesGoLiveIso ?? null,
@@ -1484,7 +1487,8 @@ async function webullMirror(req, res) {
       const sizing = await webullSizing(store);
       acc = mirror.mergeEngineTrades(acc, enginesRecord, ledger, { mirrorNew: enginesMirrorOn(), shares: sizing.shares });
       // The Owner controls and account limits (lib/owner-controls.mjs), read
-      // fresh every run. An unreadable file holds nothing back.
+      // fresh every run. An unreadable file holds nothing back except the
+      // default account limits (the open engine stock cap).
       let openGate = null;
       try {
         const [oc, os] = await Promise.all([import("../../lib/owner-controls.mjs"), import("../../lib/owner-settings.mjs")]);
@@ -1495,7 +1499,12 @@ async function webullMirror(req, res) {
         // account limits still apply.
         const active = oc.activeControls(oc.controlsEnabledFromSettings(values) ? oc.readOwnerControlsDoc(ctlBuf) : null, nowMs);
         openGate = oc.mirrorOpenGate(active, oc.accountLimitsFromSettings(values), { nowMs });
-      } catch (err) { console.error("owner controls read failed", { message: String(err?.message || err) }); openGate = null; }
+      } catch (err) {
+        console.error("owner controls read failed", { message: String(err?.message || err) });
+        // The default account limits still hold (the $1,000,000 open engine
+        // stock cap, 2026-11-23) when the saved files cannot be read.
+        try { const oc = await import("../../lib/owner-controls.mjs"); openGate = oc.mirrorOpenGate(null, oc.accountLimits({}), { nowMs: Date.now() }); } catch { openGate = null; }
+      }
       const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
       const data = mirrorDataSwitches();
       const [{ makeContractCheck }, { makeWebullStockFetcher }, { backfillFees }] = await Promise.all([

@@ -14,7 +14,7 @@
 // paper order) that keeps option and stock positions from its own fills.
 import assert from "node:assert/strict";
 import {
-  runWebullMirror as runActual, mergeEngineTrades, picksRiskQty, mirrorQty, buildOrder, newTrade, fillOutcome,
+  runWebullMirror as runActual, mergeEngineTrades, picksRiskQty, picksCapsFor, mirrorQty, buildOrder, newTrade, fillOutcome,
   ledgerToTestTrades, ledgerToFillRows, fillRowsToCsv, makeQuoteFn, isStockTrade, positionText,
   LIVE_SIZING, DEFAULT_SIZING, MIRROR_MAX_QTY, describeKindCounts, CASH_NOTE, parseCashPower, openingCash,
   STOCK_MIN_USD, STOCK_MAX_USD, stockOrderShares, stockRangeFromSettings, stockSizeNote, picksCapFromSettings,
@@ -124,14 +124,36 @@ await ok("risk sizing: under a month the whole premium is at risk", () => {
   assert.equal(r.riskPerContract, PX * 100);
   assert.equal(r.qty, Math.min(MIRROR_MAX_QTY, Math.max(1, Math.floor(RISK / (PX * 100)))));
 });
-await ok("risk sizing: a cheap contract is capped at the Top Picks cap (25 unless set), a dear one is still bought once", () => {
-  // $0.40 a contract, past a month: risk $25 a contract, 80 asked.
+await ok("risk sizing: a cheap contract is capped at the Top Picks cap (200 unless set), a dear one is still bought once", () => {
+  // $0.40 a contract, past a month: risk $25 a contract, 80 asked, under the 200 cap (2026-11-23; 25 before).
   const cheap = flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 0.4 } });
-  const r = picksRiskQty(cheap, 2000);
-  assert.equal(r.qty, 25); assert.equal(r.cap, 25); assert.equal(r.capped, true); assert.equal(r.wantQty, 80);
+  const r0 = picksRiskQty(cheap, 2000);
+  assert.equal(r0.qty, 80); assert.equal(r0.cap, 200); assert.equal(r0.capped, undefined); assert.equal(r0.capBy, "contracts"); assert.equal(r0.maxPremiumUsd, 200000);
+  // $0.04 a contract: risk $2.50 a contract, 800 asked, 200 bought.
+  const dust = flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 0.04 } });
+  const r = picksRiskQty(dust, 2000);
+  assert.equal(r.qty, 200); assert.equal(r.cap, 200); assert.equal(r.capped, true); assert.equal(r.wantQty, 800);
   assert.equal(picksRiskQty(cheap, 2000, 10).qty, 10, "a cap of 10 from Owner Settings");
   assert.equal(picksRiskQty(cheap, 2000, 1).qty, 1);
-  assert.equal(picksRiskQty(cheap, 2000, 40).qty, 25, "out of range = the default");
+  assert.equal(picksRiskQty(dust, 2000, 400).qty, 200, "out of range = the default");
+  // The premium cap (2026-11-23): whichever of the contract and premium caps comes first.
+  const pc = picksRiskQty(cheap, 2000, 200, 1000);
+  assert.equal(pc.qty, 25, "$1,000 of premium at $40 a contract = 25"); assert.equal(pc.capBy, "premium"); assert.equal(pc.capped, true); assert.equal(pc.wantQty, 80);
+  assert.equal(picksRiskQty(cheap, 2000, 200, 500).maxPremiumUsd, 200000, "a premium cap under $1,000 = the default");
+  assert.equal(picksRiskQty(flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 45 } }), 2000, 200, 1000).qty, 1, "never under one contract");
+  // A big budget: the premium cap binds before the contract cap.
+  const big = picksRiskQty(flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP_NEAR, mid: 12 } }), 1e9);
+  assert.equal(big.qty, Math.floor(200000 / 1200)); assert.equal(big.capBy, "premium");
+  assert.ok(big.qty * 1200 <= 200000);
+  // Puts: the put caps (100 contracts, $100,000), never over the calls'.
+  assert.deepEqual(picksCapsFor(flag("A"), LIVE_SIZING), { maxQty: 200, maxPremiumUsd: 200000 });
+  assert.deepEqual(picksCapsFor(flag("A", { side: "put" }), LIVE_SIZING), { maxQty: 100, maxPremiumUsd: 100000 });
+  assert.deepEqual(picksCapsFor(flag("A", { side: "put" }), { ...LIVE_SIZING, picksMaxQty: 30, picksMaxPremiumUsd: 50000 }), { maxQty: 30, maxPremiumUsd: 50000 }, "a put is held under both");
+  assert.deepEqual(picksCapsFor(flag("A", { side: "put" }), { ...LIVE_SIZING, picksPutMaxQty: 7, picksPutMaxPremiumUsd: 9000 }), { maxQty: 7, maxPremiumUsd: 9000 });
+  const putDust = mirrorQty(flag("A", { side: "put", contract: { structure: "long", optionType: "put", strike: 100, expiry: EXP, mid: 0.04 } }), live());
+  assert.equal(putDust.qty, 100, "a cheap put stops at 100"); assert.equal(putDust.maxQty, 100);
+  const putBig = mirrorQty(flag("A", { side: "put", contract: { structure: "long", optionType: "put", strike: 100, expiry: EXP_NEAR, mid: 12 } }), live({ riskUsd: 1e9 }));
+  assert.equal(putBig.qty, Math.floor(100000 / 1200), "a dear put stops at $100,000 of premium");
   assert.equal(picksRiskQty(flag("AAA"), 2000).capped, undefined, "under the cap: no capped mark");
   assert.equal(picksRiskQty(flag("AAA", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 45 } }), 2000).qty, 1);
   assert.equal(picksRiskQty(flag("AAA"), 0).qty, 1);
@@ -146,8 +168,9 @@ await ok("risk sizing: a credit spread risks its width less the credit", () => {
 });
 await ok("mirrorQty: engine qty, cap, missing qty, switches, shares", () => {
   assert.deepEqual(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 2, qty: 3 } }), live()).qty, 3);
-  const capped = mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 0.4, qty: 50 } }), live());
-  assert.equal(capped.qty, 25); assert.equal(capped.basis, "record-capped"); assert.equal(capped.recordQty, 50);
+  assert.equal(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 0.4, qty: 50 } }), live()).qty, 50, "50 is under the 200 cap");
+  const capped = mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 0.4, qty: 250 } }), live());
+  assert.equal(capped.qty, 200); assert.equal(capped.basis, "record-capped"); assert.equal(capped.recordQty, 250);
   assert.equal(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 0.4, qty: 18 } }), live({ picksMaxQty: 5 })).qty, 18, "an engine trade follows its record, not the Top Picks cap");
   const pk = mirrorQty(flag("A", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 0.4 } }), live({ picksMaxQty: 7 }));
   assert.equal(pk.qty, 7); assert.equal(pk.maxQty, 7); assert.equal(pk.capped, true); assert.equal(pk.wantQty, 80);
@@ -157,12 +180,19 @@ await ok("mirrorQty: engine qty, cap, missing qty, switches, shares", () => {
   const atDefault = mirrorQty(flag("A", { contract: { structure: "long", strike: 100, expiry: EXP, mid: 4 } }), live({ riskUsd: 2000 }));
   assert.equal(noBudget.riskUsd, 2000); assert.equal(noBudget.qty, atDefault.qty); assert.ok(noBudget.qty > 1, "a missing budget sizes at $2,000");
   // The saved Owner Settings cap, with a Vercel value winning.
-  assert.deepEqual(picksCapFromSettings({}, {}), { picksMaxQty: 25 });
-  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 12 }, {}), { picksMaxQty: 12 });
-  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 12 }, { WEBULL_PICKS_MAX_QTY: "4" }), { picksMaxQty: 4 });
-  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 99 }, { WEBULL_PICKS_MAX_QTY: " " }), { picksMaxQty: 25 });
+  const CAPS0 = { picksMaxQty: 200, picksMaxPremiumUsd: 200000, picksPutMaxQty: 100, picksPutMaxPremiumUsd: 100000 };
+  assert.deepEqual(picksCapFromSettings({}, {}), CAPS0);
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 12 }, {}), { ...CAPS0, picksMaxQty: 12 });
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 12 }, { WEBULL_PICKS_MAX_QTY: "4" }), { ...CAPS0, picksMaxQty: 4 });
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_QTY: 999 }, { WEBULL_PICKS_MAX_QTY: " " }), CAPS0);
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_PREMIUM_USD: 50000, WEBULL_PICKS_PUT_MAX_QTY: 20 }, { WEBULL_PICKS_PUT_MAX_PREMIUM_USD: "30000" }),
+    { ...CAPS0, picksMaxPremiumUsd: 50000, picksPutMaxQty: 20, picksPutMaxPremiumUsd: 30000 });
+  assert.deepEqual(picksCapFromSettings({ WEBULL_PICKS_MAX_PREMIUM_USD: "x", WEBULL_PICKS_PUT_MAX_QTY: 0, WEBULL_PICKS_PUT_MAX_PREMIUM_USD: 5 }, {}), CAPS0, "bad values fall back");
   const capDef = ownerSettingDef("WEBULL_PICKS_MAX_QTY");
-  assert.equal(capDef.default, 25); assert.equal(capDef.min, 1); assert.equal(capDef.max, 25); assert.equal(capDef.tab, "Account limits"); assert.equal(capDef.impact, "high");
+  assert.equal(capDef.default, 200); assert.equal(capDef.min, 1); assert.equal(capDef.max, 200); assert.equal(capDef.tab, "Account limits"); assert.equal(capDef.impact, "high");
+  for (const [k, d] of [["WEBULL_PICKS_MAX_PREMIUM_USD", 200000], ["WEBULL_PICKS_PUT_MAX_QTY", 100], ["WEBULL_PICKS_PUT_MAX_PREMIUM_USD", 100000]]) {
+    const def = ownerSettingDef(k); assert.ok(def, k); assert.equal(def.default, d, k); assert.equal(def.tab, "Account limits", k); assert.equal(def.impact, "high", k);
+  }
   assert.equal(mirrorQty(eng("flow", "A"), live()).qty, 1, "an old trade without qty is one contract");
   assert.equal(mirrorQty(eng("flow", "A", { contract: { structure: "long", mid: 2, qty: 3 } }), live({ quantities: false })).qty, 1);
   assert.equal(mirrorQty(flag("A"), live({ picksSizing: false })).qty, 1);
@@ -172,8 +202,9 @@ await ok("mirrorQty: engine qty, cap, missing qty, switches, shares", () => {
   assert.equal(mirrorQty(shr("technicals", "S", 33), live({ quantities: false })).qty, 33, "shares are the trade itself");
   assert.equal(mirrorQty(shr("technicals", "S", 0), live()).qty, null);
   assert.equal(mirrorQty(flag("A")).qty, 1, "no sizing passed = the old one-contract path");
-  assert.deepEqual({ ...DEFAULT_SIZING, riskUsd: 0 }, { quantities: false, picksSizing: false, shares: false, riskUsd: 0, stockMinUsd: 2000, stockMaxUsd: 25000, picksMaxQty: 25 });
-  assert.equal(LIVE_SIZING.stockMinUsd, 2000); assert.equal(LIVE_SIZING.stockMaxUsd, 25000); assert.equal(LIVE_SIZING.picksMaxQty, 25); assert.equal(MIRROR_MAX_QTY, 25);
+  assert.deepEqual({ ...DEFAULT_SIZING, riskUsd: 0 }, { quantities: false, picksSizing: false, shares: false, riskUsd: 0, stockMinUsd: 10000, stockMaxUsd: 250000,
+    picksMaxQty: 200, picksMaxPremiumUsd: 200000, picksPutMaxQty: 100, picksPutMaxPremiumUsd: 100000 });
+  assert.equal(LIVE_SIZING.stockMinUsd, 10000); assert.equal(LIVE_SIZING.stockMaxUsd, 250000); assert.equal(LIVE_SIZING.picksMaxQty, 200); assert.equal(MIRROR_MAX_QTY, 200);
 });
 
 // --- 2. Stock order body and prices ----------------------------------------------------
@@ -626,13 +657,19 @@ const RANGE = { stockMinUsd: SMIN, stockMaxUsd: SMAX };
 const runRange = (args, range = RANGE) => runActual({ clock: () => 0, quoteFn: quote, sizing: { ...LIVE_SIZING, riskUsd: RISK, ...range }, ...args });
 
 await ok("stock range: the share count rule at the edges", () => {
-  assert.deepEqual(stockOrderShares(20, 150), { qty: 20, basis: "shares" }, "$3,000 is inside the range");
-  assert.deepEqual(stockOrderShares(5, 150), { qty: 14, basis: "shares-min" }, "$750 is raised to 14 shares ($2,100)");
-  assert.deepEqual(stockOrderShares(100, 600), { qty: 41, basis: "shares-max" }, "$60,000 is cut to 41 shares ($24,600)");
-  assert.deepEqual(stockOrderShares(2, 30000), { qty: null, basis: "shares-over-max" }, "one share over the maximum is not bought");
-  assert.deepEqual(stockOrderShares(1, 2000), { qty: 1, basis: "shares" }, "exactly the minimum stays");
-  assert.deepEqual(stockOrderShares(125, 200), { qty: 125, basis: "shares" }, "exactly the maximum stays");
-  assert.deepEqual(stockOrderShares(126, 200), { qty: 125, basis: "shares-max" });
+  const OLD = [2000, 25000];
+  assert.deepEqual(stockOrderShares(20, 150, ...OLD), { qty: 20, basis: "shares" }, "$3,000 is inside the range");
+  assert.deepEqual(stockOrderShares(5, 150, ...OLD), { qty: 14, basis: "shares-min" }, "$750 is raised to 14 shares ($2,100)");
+  assert.deepEqual(stockOrderShares(100, 600, ...OLD), { qty: 41, basis: "shares-max" }, "$60,000 is cut to 41 shares ($24,600)");
+  assert.deepEqual(stockOrderShares(2, 30000, ...OLD), { qty: null, basis: "shares-over-max" }, "one share over the maximum is not bought");
+  assert.deepEqual(stockOrderShares(1, 2000, ...OLD), { qty: 1, basis: "shares" }, "exactly the minimum stays");
+  assert.deepEqual(stockOrderShares(125, 200, ...OLD), { qty: 125, basis: "shares" }, "exactly the maximum stays");
+  assert.deepEqual(stockOrderShares(126, 200, ...OLD), { qty: 125, basis: "shares-max" });
+  // The defaults since 2026-11-23: $10,000 to $250,000.
+  assert.deepEqual(stockOrderShares(20, 150), { qty: 67, basis: "shares-min" }, "$3,000 is raised to 67 shares ($10,050)");
+  assert.deepEqual(stockOrderShares(100, 600), { qty: 100, basis: "shares" }, "$60,000 is inside the range");
+  assert.deepEqual(stockOrderShares(1000, 600), { qty: 416, basis: "shares-max" }, "$600,000 is cut to 416 shares ($249,600)");
+  assert.deepEqual(stockOrderShares(2500, 100), { qty: 2500, basis: "shares" }, "exactly $250,000 stays");
   assert.deepEqual(stockOrderShares(1, 1300, 2000, 2500), { qty: 1, basis: "shares-min" }, "raising stops at the maximum");
   assert.deepEqual(stockOrderShares(3, 100, 0, 25000), { qty: 3, basis: "shares" }, "0 = no minimum");
   assert.deepEqual(stockOrderShares(3, 100, 9000, 5000), { qty: 50, basis: "shares-min" }, "a minimum above the maximum is read as the maximum");
@@ -645,17 +682,17 @@ await ok("stock range: the share count rule at the edges", () => {
   }
 });
 await ok("stock range: Owner Settings values, Vercel values and bad values", () => {
-  assert.deepEqual(stockRangeFromSettings({}, {}), { stockMinUsd: 2000, stockMaxUsd: 25000 }, "nothing saved = the defaults");
+  assert.deepEqual(stockRangeFromSettings({}, {}), { stockMinUsd: 10000, stockMaxUsd: 250000 }, "nothing saved = the defaults");
   assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 500, WEBULL_STOCK_MAX_USD: 10000 }, {}), { stockMinUsd: 500, stockMaxUsd: 10000 });
-  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 500 }, { WEBULL_STOCK_MIN_USD: "3000", WEBULL_STOCK_MAX_USD: " " }), { stockMinUsd: 3000, stockMaxUsd: 25000 }, "a Vercel value wins; a blank one does not");
-  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: "abc", WEBULL_STOCK_MAX_USD: -5 }, {}), { stockMinUsd: 2000, stockMaxUsd: 25000 }, "bad values fall back");
-  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 0 }, {}), { stockMinUsd: 0, stockMaxUsd: 25000 }, "0 = no minimum");
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 500 }, { WEBULL_STOCK_MIN_USD: "3000", WEBULL_STOCK_MAX_USD: " " }), { stockMinUsd: 3000, stockMaxUsd: 250000 }, "a Vercel value wins; a blank one does not");
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: "abc", WEBULL_STOCK_MAX_USD: -5 }, {}), { stockMinUsd: 10000, stockMaxUsd: 250000 }, "bad values fall back");
+  assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 0 }, {}), { stockMinUsd: 0, stockMaxUsd: 250000 }, "0 = no minimum");
   assert.deepEqual(stockRangeFromSettings({ WEBULL_STOCK_MIN_USD: 40000, WEBULL_STOCK_MAX_USD: 30000 }, {}), { stockMinUsd: 30000, stockMaxUsd: 30000 });
   const lo = ownerSettingDef("WEBULL_STOCK_MIN_USD"), hi = ownerSettingDef("WEBULL_STOCK_MAX_USD");
-  assert.equal(lo.default, 2000); assert.equal(hi.default, 25000); assert.equal(lo.impact, "high"); assert.equal(hi.impact, "high");
+  assert.equal(lo.default, 10000); assert.equal(hi.default, 250000); assert.equal(lo.impact, "high"); assert.equal(hi.impact, "high");
   for (const d of [lo, hi]) { assert.equal(d.tab, "Account limits"); assert.equal(d.group, "Webull paper stock orders"); assert.equal(d.kind, "number"); assert.equal(d.scope, "build"); assert.ok(d.warn, "a big-impact setting has a warning"); }
   assert.equal(cleanValue(lo, 2500), 2500); assert.equal(cleanValue(lo, 2550), undefined, "off the $100 step");
-  assert.equal(cleanValue(hi, 500), undefined, "the maximum is at least $1,000"); assert.equal(cleanValue(hi, 300000), undefined);
+  assert.equal(cleanValue(hi, 500), undefined, "the maximum is at least $1,000"); assert.equal(cleanValue(hi, 300000), 300000); assert.equal(cleanValue(hi, 1000500), undefined, "at most $1,000,000");
 });
 await ok("stock range: a small lot is raised, bought, labeled and sold whole", async () => {
   const wb = fakeWebull(), px = 150, s = shrAt("technicals", "SML", 5, px);

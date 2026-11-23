@@ -131,9 +131,12 @@ try {
     check(await page.evaluate(() => document.querySelector('.os-ask-back') === null), tag + ' box removed from the page');
 
     // Webull engine stock order range (2026-11-19): two numbers on the
-    // Account limits tab, $2,000 and $25,000 by default, behind the box.
+    // Account limits tab, $10,000 and $250,000 by default since 2026-11-23
+    // ($2,000 and $25,000 before), behind the box; the open engine stock cap
+    // ($1,000,000) beside them.
     await page.click('[data-os-tab="Account limits"]');
-    check(await page.inputValue('#os-WEBULL_STOCK_MIN_USD') === '2000' && await page.inputValue('#os-WEBULL_STOCK_MAX_USD') === '25000', tag + ' stock order range defaults');
+    check(await page.inputValue('#os-WEBULL_STOCK_MIN_USD') === '10000' && await page.inputValue('#os-WEBULL_STOCK_MAX_USD') === '250000', tag + ' stock order range defaults');
+    check(await page.inputValue('#os-ACCOUNT_LIMIT_SHARES_USD') === '1000000', tag + ' open engine stock cap default');
     check(/Webull paper stock orders/.test(await page.textContent('#os-root, body')), tag + ' stock order range group');
     await page.fill('#os-WEBULL_STOCK_MAX_USD', '20000'); await page.click('[data-os-save="WEBULL_STOCK_MAX_USD"]'); await page.waitForSelector('[role=alertdialog]');
     check(/cut to this much/.test(await page.textContent('[role=alertdialog]')), tag + ' stock range box explains');

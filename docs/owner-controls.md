@@ -15,7 +15,7 @@ Added 2026-11-19 (engine roadmap, thread 4). Owner only. Code:
 | **Avoid** a stock | No new entry on it in any engine or in Top Picks. With "close its open trades" (confirm box), every open trade on it opened before the avoid closes at the next 11:00 or 15:30 ET run, as the counted status `owner-avoid`. | When lifted, or on an optional end date |
 | **Watch closely** | The stock goes to the front of each signal engine's queue and first among the ready names for Top Picks' six AI review slots. No bar is lowered. | Five sessions, counting today until the close (`watchUntil`) |
 | **Flag a catalyst** | One line (optional stock, text, date) shown on Top Picks, Open picks, the engines page and Owner Settings until its date. Display only. Trades on that stock are stamped `catalyst` for the scorecard. | Its date |
-| **Risk dial** | Safer: signal-engine trades buy half the contracts or shares, their entry bar is 5 points higher, and the whole run opens one new trade (engines and Top Picks each). Riskier (confirm box): 1.5x the contracts or shares (at most the engines' contract cap, `ENGINES_MAX_QTY`, 25 unless set and 10 before 2026-11-20, unless a trade already had more), entry bar 3 points lower, and back to the normal size when 1.5x would pass an account limit. Not tied to fear. Top Picks' bar and size are unchanged by either setting (its grade is on a different scale). | Friday's close (13:00 on a half day; after that close, the next Friday) (`dialUntil`) |
+| **Risk dial** | Safer: signal-engine trades buy half the contracts or shares, their entry bar is 5 points higher, and the whole run opens one new trade (engines and Top Picks each). Riskier (confirm box): 1.5x the contracts or shares (at most the engines' contract and premium caps, `ENGINES_MAX_QTY` / `ENGINES_MAX_PREMIUM_USD`, 200 contracts and $200,000 unless set (a put 100 and $100,000; 25 contracts before 2026-11-23, 10 before 2026-11-20), and a share trade at most `ENGINES_SHARES_MAX_USD`, $250,000, unless a trade already had more), entry bar 3 points lower, and back to the normal size when 1.5x would pass an account limit. Not tied to fear. Top Picks' bar and size are unchanged by either setting (its grade is on a different scale). | Friday's close (13:00 on a half day; after that close, the next Friday) (`dialUntil`) |
 | **Check this stock** | Read-only: every engine row for the stock at the last run (setup, side, score against the bar, opened or why not), its open engine trades and a live quote. | Nothing saved |
 
 Every change is logged (who, when, what), and the change log has **Undo**,
@@ -25,10 +25,11 @@ at their end whether or not anything is saved.
 
 ## Account limits
 
-Four Owner Settings numbers (Owner Settings → **Account limits**, beside the
-kill switch), all 0 =
-off until the Owner sets them, each a "Big impact" setting with its own
-confirm box:
+Five Owner Settings numbers (Owner Settings → **Account limits**, beside the
+kill switch), the first four 0 = off until the Owner sets them, the open
+engine stock cap on at $1,000,000 unless set (0 = off; added 2026-11-23,
+owner: "a 1m total position at any point"), each a "Big impact" setting with
+its own confirm box:
 
 | Setting | Engines | Webull paper mirror |
 |---|---|---|
@@ -36,6 +37,7 @@ confirm box:
 | `ACCOUNT_LIMIT_DAY_LOSS_USD` | signal engines: today's closed results plus the open book's move since the day's first run; at or past it, no new signal trade that day | today's realized result from paper close fills |
 | `ACCOUNT_LIMIT_NAME_USD` | money in one stock across every engine's open trades (options and shares, at cost) plus the new trade | the same in the paper account |
 | `ACCOUNT_LIMIT_NEW_PER_DAY` | new signal-engine trades opened today (ET) | new paper opens today (skipped and missed ones not counted) |
+| `ACCOUNT_LIMIT_SHARES_USD` | open engine stock at cost (every share trade, core holding and paper trial) plus the new share trade; option trades are not held by it | live stock lots in the paper account at fill price plus the new stock order (held at the default even when the saved settings cannot be read) |
 
 The bake reads them through the Owner Settings preload (a repo variable,
 when set, wins). The mirror and the page read the saved setting from the

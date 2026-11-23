@@ -172,21 +172,37 @@ await ok("stamps, closes and sizes", () => {
   assert.equal(scaleContract({ qty: 4, mid: 5 }, 0.5).qty, 2);
   assert.equal(scaleContract({ qty: 1, mid: 5 }, 0.5).qty, 1, "at least one contract");
   assert.equal(scaleContract({ qty: 4, mid: 5 }, 1.5).qty, 6);
-  assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5).qty, 14, "Riskier: 1.5x, under the 25-contract cap");
-  assert.equal(scaleContract({ qty: 20, mid: 5 }, 1.5).qty, 25, "Riskier tops out at the engines' cap (25 since 2026-11-20)");
+  assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5).qty, 14, "Riskier: 1.5x, under the 200-contract cap");
+  assert.equal(scaleContract({ qty: 150, mid: 5 }, 1.5).qty, 200, "Riskier tops out at the engines' cap (200 since 2026-11-23)");
+  assert.equal(scaleContract({ qty: 20, mid: 5 }, 1.5, 25).qty, 25, "a cap of 25 from Owner Settings");
   assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5, 10).qty, 10, "a cap of 10 from Owner Settings");
   assert.equal(scaleContract({ qty: 9, mid: 5 }, 1.5, null).qty, 14, "no cap passed: the default");
-  assert.equal(scaleContract({ qty: 30, mid: 5 }, 1.5).qty, 30, "never below what it was");
+  assert.equal(scaleContract({ qty: 250, mid: 5 }, 1.5).qty, 250, "never below what it was");
   assert.equal(scaleContract({ qty: 20, mid: 5 }, 1.5, 10).qty, 20, "never below what it was, under a lower cap");
   assert.deepEqual(scaleContract({ structure: "shares", shares: 51, mid: 98 }, 0.5), { structure: "shares", shares: 25, mid: 98, usd: 2450 });
   assert.equal(scaleContract({ structure: "shares", shares: 51, mid: 98 }, 1.5).shares, 76);
+  // The share cap (2026-11-23): a scale-up stops at the most shares the cap buys, never below what it was.
+  assert.equal(scaleContract({ structure: "shares", shares: 2000, mid: 100 }, 1.5, 200, 2500).shares, 2500, "$250,000 at $100 = 2,500 shares");
+  assert.equal(scaleContract({ structure: "shares", shares: 3000, mid: 100 }, 1.5, 200, 2500).shares, 3000, "never below what it was");
+  assert.equal(scaleContract({ structure: "shares", shares: 2000, mid: 100 }, 0.5, 200, 2500).shares, 1000, "a cut ignores the cap");
+  assert.equal(scaleContract({ structure: "shares", shares: 2000, mid: 100 }, 1.5).shares, 3000, "no share cap passed = none (the contract cap is not a share count)");
   const skip = { skip: "no contract" };
   assert.equal(scaleContract(skip, 0.5), skip);
 });
 
 await ok("account limits: off until set, a Vercel value wins over the saved setting", () => {
-  assert.deepEqual(accountLimits({}), { openUsd: null, dayLossUsd: null, nameUsd: null, newPerDay: null, any: false });
-  assert.equal(accountLimits({ ACCOUNT_LIMIT_OPEN_USD: "0", ACCOUNT_LIMIT_NEW_PER_DAY: "-3", ACCOUNT_LIMIT_NAME_USD: "abc" }).any, false);
+  // The open engine stock cap (2026-11-23) is on at $1,000,000 unless set; 0 turns it off.
+  assert.deepEqual(accountLimits({}), { openUsd: null, dayLossUsd: null, nameUsd: null, newPerDay: null, sharesUsd: 1000000, any: true });
+  assert.equal(accountLimits({ ACCOUNT_LIMIT_SHARES_USD: "0" }).any, false, "0 = off");
+  assert.equal(accountLimits({ ACCOUNT_LIMIT_SHARES_USD: "0" }).sharesUsd, null);
+  assert.equal(accountLimits({ ACCOUNT_LIMIT_SHARES_USD: " 500000 " }).sharesUsd, 500000);
+  assert.equal(accountLimits({ ACCOUNT_LIMIT_SHARES_USD: "abc" }).sharesUsd, 1000000, "a bad value = the default");
+  assert.equal(accountLimits({ ACCOUNT_LIMIT_SHARES_USD: "-5" }).sharesUsd, 1000000, "a negative value = the default");
+  assert.equal(accountLimits({ ACCOUNT_LIMIT_OPEN_USD: "0", ACCOUNT_LIMIT_NEW_PER_DAY: "-3", ACCOUNT_LIMIT_NAME_USD: "abc", ACCOUNT_LIMIT_SHARES_USD: "0" }).any, false);
+  assert.equal(accountLimitsFromSettings({ ACCOUNT_LIMIT_SHARES_USD: 2000000 }, { ACCOUNT_LIMIT_SHARES_USD: "300000" }).sharesUsd, 300000, "a Vercel value wins");
+  assert.equal(accountLimitsFromSettings({ ACCOUNT_LIMIT_SHARES_USD: 2000000 }, {}).sharesUsd, 2000000);
+  const shDef = ownerSettingDef("ACCOUNT_LIMIT_SHARES_USD");
+  assert.equal(shDef.default, 1000000); assert.equal(shDef.min, 0); assert.equal(shDef.impact, "high"); assert.equal(shDef.tab, "Account limits");
   const l = accountLimitsFromSettings({ ACCOUNT_LIMIT_OPEN_USD: 20000, ACCOUNT_LIMIT_NEW_PER_DAY: 3 }, { ACCOUNT_LIMIT_OPEN_USD: "15000" });
   assert.equal(l.openUsd, 15000); assert.equal(l.newPerDay, 3); assert.equal(l.any, true);
   assert.equal(accountLimitsFromSettings({ ACCOUNT_LIMIT_OPEN_USD: 20000 }, { ACCOUNT_LIMIT_OPEN_USD: " " }).openUsd, 20000, "a blank pin does not count");
@@ -199,7 +215,7 @@ await ok("account limits: off until set, a Vercel value wins over the saved sett
   // limits. Other settings may share the tab (the Webull stock order range
   // and the Top Picks contract cap, checked in webull-shares-smoke), so count
   // these by key.
-  const controlKeys = ["OWNER_CONTROLS", "ACCOUNT_LIMIT_OPEN_USD", "ACCOUNT_LIMIT_DAY_LOSS_USD", "ACCOUNT_LIMIT_NAME_USD", "ACCOUNT_LIMIT_NEW_PER_DAY"];
+  const controlKeys = ["OWNER_CONTROLS", "ACCOUNT_LIMIT_OPEN_USD", "ACCOUNT_LIMIT_DAY_LOSS_USD", "ACCOUNT_LIMIT_NAME_USD", "ACCOUNT_LIMIT_NEW_PER_DAY", "ACCOUNT_LIMIT_SHARES_USD"];
   for (const key of controlKeys) assert.equal(ownerSettingDef(key)?.tab, "Account limits", key);
   assert.deepEqual(OWNER_SETTINGS.filter((d) => d.tab === "Account limits" && !/^Webull paper (stock|option) orders$/.test(d.group)).map((d) => d.key).sort(), [...controlKeys].sort());
 });
@@ -280,6 +296,14 @@ await ok("mirror gate: share lots are priced per share, stay out of the option p
   // A $1 drop on 20 shares closed today is a $20 loss, not $2,000.
   assert.equal(g({ ACCOUNT_LIMIT_DAY_LOSS_USD: "21" }, { symbol: "NEW" }, newOpt), null);
   assert.match(g({ ACCOUNT_LIMIT_DAY_LOSS_USD: "20" }, { symbol: "NEW" }, newOpt), /daily loss stop/);
+  // The open engine stock cap (2026-11-23, $1,000,000 unless set): live stock lots at cost plus the new lot.
+  assert.equal(g({}, { symbol: "NEW" }, newShares), null, "$6,000 is far under the default");
+  assert.equal(g({ ACCOUNT_LIMIT_SHARES_USD: "6000" }, { symbol: "NEW" }, newShares), null, "$3,000 open + $3,000 new; the closed lot does not count");
+  assert.match(g({ ACCOUNT_LIMIT_SHARES_USD: "5999" }, { symbol: "NEW" }, newShares), /\$5,999 cap on open engine stock would be passed/);
+  assert.equal(g({ ACCOUNT_LIMIT_SHARES_USD: "0" }, { symbol: "NEW" }, newShares), null, "0 = off");
+  assert.equal(g({ ACCOUNT_LIMIT_SHARES_USD: "1" }, { symbol: "NEW" }, newOpt), null, "an option order is not held by the stock cap");
+  const big = { structure: "shares", instrument: "stock", engineEntryPrice: 500, requestedQty: 2000 };
+  assert.match(g({}, { symbol: "NEW" }, big), /\$1,000,000 cap on open engine stock/, "$3,000 open + $1,000,000 new");
 });
 
 // ---- the strategy engines' book ------------------------------------------
