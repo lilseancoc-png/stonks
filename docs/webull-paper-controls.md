@@ -515,8 +515,11 @@ reconciliation controls above apply to it unchanged.
   runs as usual and engine trades already in the ledger are held for that run.
 - **Switch.** `ENGINES_MIRROR=0` in Vercel stops new engine trades entering
   the account; trades already there keep being managed and closed.
-- **Load.** The engines open at most five new trades a run in total, which
-  keeps a mirror run inside its time budget.
+- **Load.** The engines open at most 20 new trades a run in total (five
+  before 2026-11-23; the engines' own limits add up to 17). With Top Picks
+  that can be more entries than one mirror run sends inside its time budget
+  and Webull's call limit; the rest go out at the build window's two-minute
+  follow-ups (see "Call limits").
 
 Test: `node scripts/engines-mirror-smoke.mjs` (fake broker).
 
@@ -524,6 +527,41 @@ Primary references: [Webull options orders](https://developer.webull.com/apis/do
 [account positions](https://developer.webull.com/apis/docs/reference/account-position/),
 [NYSE calendar](https://www.nyse.com/trade/hours-calendars), and
 [R2 conditional writes](https://developers.cloudflare.com/r2/api/s3/extensions/).
+
+## Call limits (2026-11-23)
+
+Webull counts calls per app key and per endpoint. On the sandbox host, the
+only one the mirror may use, each trading endpoint the mirror calls (place,
+preview, cancel, order detail, balance, positions) allows 30 calls a minute;
+a call over the limit is answered 429 and not processed
+([rate limits](https://developer.webull.com/apis/docs/rate-limits)). A 429 on
+an order or an order read leaves the order unconfirmed, which pauses every
+entry until a person checks it, so the mirror keeps its own count
+(`lib/webull-quota.mjs`):
+
+- Each limited call is logged in the ledger (`webullCalls`, epoch ms per
+  endpoint, the last minute only), so the count carries across runs.
+- The mirror stops at 27 a minute per endpoint (three spare for clock skew).
+  A call with no room is never sent: the run stops before it, the same way
+  it stops at its time budget (code `RUN_BUDGET`), and the work waits for the
+  next run.
+- An entry goes out only when its whole first step fits (preview, place, one
+  order read, and the balance read if the run has not read cash yet) with
+  four place calls kept back for exits; a re-price also needs the cancel and
+  its reads. An entry that does not fit is logged "Waiting: Webull's call
+  limit for this minute is used up; the entry goes out at the next run." and
+  is sent by the next follow-up. Exits never wait behind entries.
+- A cancel is checked first for its cancel, its settle reads and the
+  positions read, so a cancel is never left without its confirmation reads.
+- The run summary carries `webullCalls` (calls used per endpoint).
+
+The same change fixed a time-budget stop between the "prepared" save and the
+order submission: the stop is now checked before the save, so a stopped run
+never leaves a prepared order that was not sent (`webull-quota-smoke`).
+
+Test: `node scripts/webull-quota-smoke.mjs` (a fake sandbox that answers 429
+past 30 calls a minute: 21 trades go out in one run; 30 trades go out over a
+run and a follow-up two minutes later, with no alert).
 
 ## Webull's own data (2026-11-19)
 

@@ -500,7 +500,7 @@ pack is one dated rules step on top of every signal engine (`|down:` and
 `|putcap:N` in the rules key, so a switch flipped later is a logged change).
 
 - **Fundamentals holds up to 5 puts** (`ENGINES_FUN_PUTS5`): 8 slots, 3
-  calls and 5 puts, still one new trade a run. Off goes back to 5 slots and
+  calls and 5 puts, one new trade a run (two since 2026-11-23). Off goes back to 5 slots and
   2 puts.
 - **Put cap** (`ENGINES_PUT_MAX_QTY`, 1 to 200, default 100 since
   2026-11-23, 10 before; and `ENGINES_PUT_MAX_PREMIUM_USD`, $100,000): a
@@ -898,6 +898,44 @@ is on) splits the record there with one note; Downside puts keeps its own
 rules but sizes under the same caps. A cap changed later in Owner Settings is
 a logged rule change at the same rules number.
 
+### More trades a run (2026-11-23)
+
+Owner, 2026-11-23: "the signal engines should be able to open at most 15
+instead of 5 new trades per run", then "actually raise it to 20", with the
+goal "gather market data by opening more trades but not sacrifice quality by
+forcing bad trades to open". The Owner also chose to raise each signal
+engine's own run limit by one, so the larger book limit can be reached.
+
+| Limit | Before | Now |
+|---|---|---|
+| New signal-engine trades a run, all engines (`BOOK.perRunTotal`) | 5 | 20 (Owner Settings `ENGINES_PER_RUN_TOTAL`, 1 to 25) |
+| Earnings, Technicals, Reversion (each) | 2 | 3 |
+| Macro, Fundamentals, Flow, Downside puts (each) | 1 | 2 |
+
+The engines' own limits add up to 17, so a run opens at most 17 signal
+trades (18 with the extreme-fear test, which has its own limit of one); the
+book limit of 20 is room above that, and a lower Owner Settings number binds
+first. Paper trials and the core engines stay outside both limits, as before.
+
+Nothing else moves: entry bars, scores, the ranking and turn order, slots,
+side slots, cooldowns, the price filter, sizing and every Owner control are
+unchanged. In `consider()` the "below the bar" and slot checks come before
+the run-limit checks, so more room only lets in trades that already passed
+every rule and were turned away for room alone (`engines-smoke`: the same run
+at 5 and at 20 opens a superset, the same scores and sizes, and every extra
+trade was "book run limit" at 5). Slots still cap what an engine holds:
+Fundamentals still holds three calls and five puts, it just fills them in
+fewer runs. The risk dial's Safer setting still allows one new trade a run.
+
+It is a dated rules step on top of every signal engine (`runLimitRules` in
+`config.mjs`, `RUN_LIMIT_BEFORE` keeps the old numbers; same rules key, so a
+running engine logs the note once and the record splits there). The run log
+keeps each run's book limit as `runCap`, and the page file carries it as `book.perRunTotal`.
+
+At Webull more entries can land in one mirror run; the mirror now keeps
+Webull's own call limit (below and docs/webull-paper-controls.md "Call
+limits"), and entries that do not fit go out at the two-minute follow-up.
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -924,7 +962,8 @@ one rank of every covered stock (`lib/engines/rank.mjs`).
   (the same price filter every engine uses). The 0 to 100 number shown is
   the distance from the end of the rank; it orders the candidates and is not
   compared with an entry bar. The bar does not move for this engine.
-- **Book.** At most three calls and two puts, one new trade a run.
+- **Book.** At most three calls and two puts, one new trade a run (two since
+  2026-11-23, "More trades a run").
 - **Exit.** +50% / -40% on the option, 60 sessions (was 45), two sessions
   before expiry, or **the stock leaves its third**: a call closes when the
   stock is no longer in the top third of the rank, a put when it is no longer
@@ -989,10 +1028,11 @@ Each run, in order (`stepBook` in `lib/engines/book.mjs`):
    before expiry, or the name left coverage (not counted).
 2. Let each engine learn from what closed.
 3. Score this run's candidates and open new trades inside each engine's slots
-   and per-run limit, five new engine trades a run at most.
+   and per-run limit, at most 20 new engine trades a run (five before
+   2026-11-23; Owner Settings `ENGINES_PER_RUN_TOTAL`).
 
-**Turns (2026-11-16).** The five are handed out in turns: each engine opens at
-most one trade per pass, in order, and passes repeat until the five are used
+**Turns (2026-11-16).** The run's trades are handed out in turns: each engine opens at
+most one trade per pass, in order, and passes repeat until the limit is used
 or no engine has a candidate left. The engine that goes first moves on by one
 every run (`state.turn`; the run log's "Went first" column),
 so no engine keeps first call on the shared limit. Before this the engines
