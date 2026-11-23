@@ -49,6 +49,7 @@ jobs:
           node scripts/top-picks-real-prices-smoke.mjs
           node scripts/engines-smoke.mjs
           node scripts/engines-mirror-smoke.mjs
+          node scripts/webull-quota-smoke.mjs
           npm run test:prediction
           node scripts/prediction-markets-smoke.mjs
           node scripts/quant-labs-smoke.mjs
