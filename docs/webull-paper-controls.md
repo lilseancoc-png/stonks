@@ -553,6 +553,15 @@ entry until a person checks it, so the mirror keeps its own count
   is sent by the next follow-up. Exits never wait behind entries.
 - A cancel is checked first for its cancel, its settle reads and the
   positions read, so a cancel is never left without its confirmation reads.
+  Entries also leave room for one exit's cancel, reads and positions check.
+- The opening pass that re-reads every tracked order keeps back the reads
+  the run's own orders and exits need (`READ_RESERVE`); an order it skips is
+  read first at the next run (`summary.readsDeferred`), so a book with more
+  working orders than a minute's reads still reaches positions and exits.
+- An unacknowledged order whose replay the limit holds back is replayed at
+  the next run, not raised as an alert, and an entry held by the limit is
+  logged "entry waiting for the Webull call limit", which the build window
+  treats as a planned wait.
 - The run summary carries `webullCalls` (calls used per endpoint).
 
 The same change fixed a time-budget stop between the "prepared" save and the

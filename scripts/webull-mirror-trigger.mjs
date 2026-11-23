@@ -50,7 +50,8 @@ try {
     // 2% / 4% ladder state: the order stays live and the end-of-day window
     // gives it the 5% ceiling; anything else is worth a look.
     const pk = body?.summary?.pendingKinds || null, normal = "entry order working inside its price allowance";
-    onlyNormal = !!pk && Object.keys(pk).every((k) => k === normal || k === "exit order working") && !body?.summary?.errors && !body?.summary?.alerts;
+    // An entry the Webull call limit held for the next run is a planned wait too (2026-11-23).
+    onlyNormal = !!pk && Object.keys(pk).every((k) => k === normal || k === "exit order working" || k === "entry waiting for the Webull call limit") && !body?.summary?.errors && !body?.summary?.alerts;
     console.log(`Webull mirror: still pending after this build window${describeKinds(pk) ? ` (${describeKinds(pk)})` : ""}. ` +
       (onlyNormal ? "This is the normal state of the price ladder: a limit order is still working inside its cap and stays live until it fills or the end-of-day window raises it to the 5% ceiling." : "Check the Owner Webull test view or run the manual reconciliation."));
   }

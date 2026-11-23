@@ -169,4 +169,29 @@ await ok("mirror: an exit never waits behind entries", async () => {
   assert.equal(stuck(r2.ledger).length, 0);
 });
 
+await ok("mirror: with more working orders than the limit reads in a minute, positions and exits still run", async () => {
+  // Audit 2026-11-23: the opening pass read every working order first; past
+  // 27 of them every run stopped there, before positions and exits.
+  const sim = { t: T0 }, wb = fakeSandbox(sim);
+  let a = acc(30), L;
+  for (let i = 0; i < 2; i++) { sim.t = T0 + i * 120000; L = (await runWebullMirror({ client: wb, accountId: "PAPER1", acc: a, ledger: L, nowMs: sim.t, clock: () => 0, quoteFn })).ledger; }
+  assert.equal(sentCount(L), 30, "30 orders working");
+  const [id] = Object.keys(L.trades), t0 = L.trades[id];
+  const o = wb.orders.get(t0.entryAttempts[0].clientOrderId); o.status = "FILLED"; o.filled_quantity = String(o.body.quantity); o.filled_price = "2.00"; o.filled_time_at = "2026-10-21T15:13:00.000Z";
+  a = { ...a, builtAtIso: "2026-10-21T15:15:00Z", open: a.open.slice(1), closed: [{ ...a.open[0], exitDate: "2026-10-21T15:15:00.000Z", status: "hit-tp-prem", optionPnlPct: 25 }] };
+  sim.t = T0 + 240000;
+  const r = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: a, ledger: L, nowMs: sim.t, clock: () => 0, quoteFn });
+  assert.equal(r.summary.note, null, "the run finished: no call-limit stop");
+  assert.ok(r.summary.readsDeferred > 0, "some order reads wait for the next run");
+  assert.equal(r.ledger.trades[id].exitAttempts.length, 1, "the exit went out");
+  assert.deepEqual(wb.over, []);
+  assert.equal(r.summary.alerts, 0); assert.equal(r.summary.followUpNeeded, true);
+  // The next run reads the orders this one skipped first.
+  sim.t = T0 + 360000;
+  const r2 = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: a, ledger: r.ledger, nowMs: sim.t, clock: () => 0, quoteFn });
+  assert.deepEqual(wb.over, []); assert.equal(r2.summary.note, null);
+  const stale = Object.values(r2.ledger.trades).filter((t) => t.lastRefreshedIso && Date.parse(t.lastRefreshedIso) < T0 + 240000);
+  assert.equal(stale.length, 0, "every order has been read within two runs");
+});
+
 console.log(`Webull call limits: ${pass} checks passed (${QUOTA_PER_WINDOW} calls a minute per endpoint, ${EXIT_RESERVE} kept for exits).`);
