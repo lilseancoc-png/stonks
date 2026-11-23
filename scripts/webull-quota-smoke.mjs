@@ -43,7 +43,10 @@ await ok("quota client: a call with no room is refused before it is sent", async
 });
 
 // A fake sandbox: 30 calls a minute per endpoint, then 429 (not processed).
-function fakeSandbox(sim) {
+// v3: positions come back the way Webull's sandbox sends them, one group per
+// filled order whose legs carry no side or quantity, and order reads carry
+// the order's legs (scripts/webull-grouped-smoke.mjs).
+function fakeSandbox(sim, { v3 = false } = {}) {
   const orders = new Map(), calls = {}, over = [];
   const limited = (ep, fn) => async (...args) => {
     const list = (calls[ep] ||= []).filter((ms) => ms > sim.t - 60000);
@@ -56,6 +59,9 @@ function fakeSandbox(sim) {
     orders, over, calls,
     accountList: async () => [{ account_id: "PAPER1" }],
     positions: limited("positions", async () => {
+      if (v3) return [...orders.entries()].filter(([, o]) => Number(o.filled_quantity || 0) > 0).map(([id, o]) => ({
+        position_id: "P-" + id, symbol: o.body.symbol, instrument_type: "OPTION", quantity: String(o.filled_quantity), option_strategy: o.body.option_strategy,
+        legs: o.body.legs.map((l, i) => ({ leg_id: `${id}-${i}`, symbol: l.symbol, option_type: l.option_type, option_expire_date: l.option_expire_date, option_exercise_price: l.strike_price, option_contract_multiplier: "100", option_contract_deliverable: "100" })) }));
       const net = new Map();
       for (const order of orders.values()) {
         const qty = Number(order.filled_quantity || 0);
@@ -72,8 +78,12 @@ function fakeSandbox(sim) {
     }),
     previewOrder: limited("previewOrder", async () => ({ estimated_transaction_fee: "0.65" })),
     placeOrder: limited("placeOrder", async (acct, list) => { const o = list[0]; orders.set(o.client_order_id, { status: "SUBMITTED", body: o }); return {}; }),
-    orderDetail: limited("orderDetail", async (acct, id) => { const o = orders.get(id); if (!o) throw new Error("not found"); return { orders: [{ client_order_id: id, status: o.status, filled_quantity: o.filled_quantity || "0", filled_price: o.filled_price ?? null, filled_time_at: o.filled_time_at ?? null }] }; }),
-    cancelOrder: limited("cancelOrder", async (acct, id) => { const o = orders.get(id); if (o) o.status = "CANCELLED"; return {}; }),
+    orderDetail: limited("orderDetail", async (acct, id) => {
+      const o = orders.get(id); if (!o) throw new Error("not found");
+      return { orders: [{ client_order_id: id, status: o.status, filled_quantity: o.filled_quantity || "0", filled_price: o.filled_price ?? null, filled_time_at: o.filled_time_at ?? null,
+        ...(v3 ? { order_id: `${id}-b`, total_quantity: o.body.quantity, legs: o.body.legs.map((l) => ({ ...l, option_contract_multiplier: "100", option_contract_deliverable: "100" })) } : {}) }] };
+    }),
+    cancelOrder: limited("cancelOrder", async (acct, id) => { const o = orders.get(id); if (o && o.status === "SUBMITTED") o.status = "CANCELLED"; return {}; }),
   };
 }
 const EXP = Date.UTC(2026, 11, 18) / 1000;
@@ -201,8 +211,8 @@ await ok("mirror: with more working orders than the limit reads in a minute, pos
 // Re-audit 2026-11-23: orders the call limit left unread can fill. That fill
 // shows up in the positions read before the order is read again; it is an
 // order filling, not a missing leg, so nothing alerts or pauses.
-await ok("mirror: fills on orders the limit left unread are not a holdings alert", async () => {
-  const sim = { t: T0 }, wb = fakeSandbox(sim);
+for (const v3 of [false, true]) await ok(`mirror: fills on orders the limit left unread are not a holdings alert${v3 ? " (Webull v3 position groups)" : ""}`, async () => {
+  const sim = { t: T0 }, wb = fakeSandbox(sim, { v3 });
   let L;
   for (let i = 0; i < 2; i++) { sim.t = T0 + i * 120000; L = (await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(30), ledger: L, nowMs: sim.t, clock: () => 0, quoteFn })).ledger; }
   assert.equal(sentCount(L), 30);
@@ -227,6 +237,8 @@ await ok("mirror: fills on orders the limit left unread are not a holdings alert
   }
   assert.ok(filled.every((id) => r.ledger.trades[id].filledQty === r.ledger.trades[id].requestedQty), "the next runs book every fill");
   assert.equal(r.summary.followUpNeeded, true, "the window keeps following up");
+  const bare = Object.values(r.ledger.trades).filter((t) => t.state === "entering" && !t.entryAttempts.some((a) => wb.orders.get(a.clientOrderId)?.status === "SUBMITTED"));
+  assert.equal(bare.length, 0, "every unfilled entry still has a working order (nothing cancelled for a mismatch)");
 });
 
 await ok("mirror: a busy run still re-prices several entries", async () => {

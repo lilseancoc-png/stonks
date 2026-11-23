@@ -568,7 +568,12 @@ entry until a person checks it, so the mirror keeps its own count
   missing leg: no alert and nothing pauses (`optionsFilling` on the
   reconciliation). Every order is re-read before a new one replaces it, and
   the next run's read books the fill. A difference outside that range is
-  still an alert.
+  still an alert. Webull's sandbox reports a new fill as a position group
+  whose legs carry no side or quantity, which the mirror can bind only from
+  that order's own read: before parsing positions, the mirror reads the
+  unread orders on any contract such a group holds (and the run stops at the
+  call limit, cancelling nothing, if those reads don't fit).
+- An exit order goes out only with room for its order call and one read.
 - An unacknowledged order whose replay the limit holds back, or that a
   stopped run never reached, is replayed at the next run, not raised as an
   alert, and an entry held by the limit is logged "entry waiting for the
