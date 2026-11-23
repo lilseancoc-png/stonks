@@ -83,6 +83,7 @@ const acc = (n) => ({ builtAtIso: "2026-10-21T15:02:00Z", open: trades(n), close
 const T0 = Date.parse("2026-10-21T15:10:00Z"); // Wed 11:10 ET
 const quoteFn = async (t) => ({ bid: t.engineEntryPrice, ask: t.engineEntryPrice });
 const stuck = (L) => Object.values(L.trades).flatMap((t) => [...t.entryAttempts, ...t.exitAttempts]).filter((a) => ["PREPARED", "UNKNOWN"].includes(a.status) || a.lookupFailed);
+const FINAL_OK = (t) => t.state !== "entering";
 const sentCount = (L) => Object.values(L.trades).filter((t) => t.entryAttempts.some((a) => a.status === "SUBMITTED" || a.status === "SENT")).length;
 
 await ok("mirror: 15 engine trades plus 6 Top Picks go out in one run, inside the limit", async () => {
@@ -186,12 +187,82 @@ await ok("mirror: with more working orders than the limit reads in a minute, pos
   assert.equal(r.ledger.trades[id].exitAttempts.length, 1, "the exit went out");
   assert.deepEqual(wb.over, []);
   assert.equal(r.summary.alerts, 0); assert.equal(r.summary.followUpNeeded, true);
-  // The next run reads the orders this one skipped first.
-  sim.t = T0 + 360000;
-  const r2 = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: a, ledger: r.ledger, nowMs: sim.t, clock: () => 0, quoteFn });
-  assert.deepEqual(wb.over, []); assert.equal(r2.summary.note, null);
+  // The next runs read the orders this one skipped first.
+  let r2 = r;
+  for (const k of [3, 4]) {
+    sim.t = T0 + k * 120000;
+    r2 = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: a, ledger: r2.ledger, nowMs: sim.t, clock: () => 0, quoteFn });
+    assert.deepEqual(wb.over, []); assert.equal(r2.summary.note, null);
+  }
   const stale = Object.values(r2.ledger.trades).filter((t) => t.lastRefreshedIso && Date.parse(t.lastRefreshedIso) < T0 + 240000);
-  assert.equal(stale.length, 0, "every order has been read within two runs");
+  assert.equal(stale.length, 0, "every order has been read within three runs");
+});
+
+// Re-audit 2026-11-23: orders the call limit left unread can fill. That fill
+// shows up in the positions read before the order is read again; it is an
+// order filling, not a missing leg, so nothing alerts or pauses.
+await ok("mirror: fills on orders the limit left unread are not a holdings alert", async () => {
+  const sim = { t: T0 }, wb = fakeSandbox(sim);
+  let L;
+  for (let i = 0; i < 2; i++) { sim.t = T0 + i * 120000; L = (await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(30), ledger: L, nowMs: sim.t, clock: () => 0, quoteFn })).ledger; }
+  assert.equal(sentCount(L), 30);
+  // The opening pass reads the oldest-read orders first (ties in ledger
+  // order): fill the last six of the newest-read ones, which it skips.
+  const filled = Object.values(L.trades).sort((x, y) => String(x.lastRefreshedIso || "").localeCompare(String(y.lastRefreshedIso || ""))).slice(-6).map((t) => t.tradeId);
+  for (const id of filled) {
+    const o = wb.orders.get(L.trades[id].entryAttempts.at(-1).clientOrderId);
+    o.status = "FILLED"; o.filled_quantity = String(o.body.quantity); o.filled_price = "2.00"; o.filled_time_at = "2026-10-21T15:13:00.000Z";
+  }
+  // Every working entry is also due a re-price: each re-price reads the
+  // account's positions after its cancel.
+  const moved = async (t) => ({ bid: t.engineEntryPrice, ask: t.engineEntryPrice * 1.03 });
+  let r = { ledger: L };
+  for (const k of [2, 3, 4]) {
+    sim.t = T0 + k * 120000;
+    r = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(30), ledger: r.ledger, nowMs: sim.t, clock: () => 0, quoteFn: moved });
+    assert.deepEqual(wb.over, [], "no call past Webull's limit");
+    assert.equal(r.summary.alerts, 0, `run ${k}: no alert (${(r.ledger.reconciliation?.alerts || []).join("; ")})`);
+    assert.equal(r.summary.note, null, `run ${k} finished`);
+    assert.equal(stuck(r.ledger).length, 0);
+  }
+  assert.ok(filled.every((id) => r.ledger.trades[id].filledQty === r.ledger.trades[id].requestedQty), "the next runs book every fill");
+  assert.equal(r.summary.followUpNeeded, true, "the window keeps following up");
+});
+
+await ok("mirror: a busy run still re-prices several entries", async () => {
+  const sim = { t: T0 }, wb = fakeSandbox(sim);
+  let L;
+  for (let i = 0; i < 2; i++) { sim.t = T0 + i * 120000; L = (await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(30), ledger: L, nowMs: sim.t, clock: () => 0, quoteFn })).ledger; }
+  const before = wb.calls.cancelOrder?.length || 0;
+  // Every working entry is due a re-price: the quote moved above its limit.
+  sim.t = T0 + 6 * 60000;
+  const moved = async (t) => ({ bid: t.engineEntryPrice * 1.03, ask: t.engineEntryPrice * 1.05 });
+  const r = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(30), ledger: L, nowMs: sim.t, clock: () => 0, quoteFn: moved });
+  assert.deepEqual(wb.over, []);
+  const repriced = Object.values(r.ledger.trades).filter((t) => t.entryAttempts.length >= 2 && !FINAL_OK(t)).length;
+  assert.ok((wb.calls.cancelOrder?.length || 0) - before >= 3 && repriced >= 3, `re-priced ${repriced}`);
+  assert.equal(r.summary.alerts, 0);
+});
+
+await ok("mirror: a run stopped before an unacknowledged order's replay leaves only the incomplete alert", async () => {
+  const sim = { t: T0 }, wb = fakeSandbox(sim);
+  const r1 = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(3), nowMs: T0, clock: () => 0, quoteFn });
+  // One order never reached Webull: its intent stays unacknowledged.
+  const [id] = Object.keys(r1.ledger.trades), at = r1.ledger.trades[id].entryAttempts[0];
+  wb.orders.delete(at.clientOrderId); at.status = "UNKNOWN";
+  // The run stops right after the position check, before the replay.
+  let now = 0, prior = null;
+  const checkpoint = async (L) => { if (prior && L.reconciliation !== prior && L.reconciliation?.checkedAtIso) now = 50000; prior ||= L.reconciliation; };
+  sim.t = T0 + 120000;
+  const r2 = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(3), ledger: r1.ledger, nowMs: sim.t, clock: () => now, budgetMs: 40000, quoteFn, checkpoint });
+  assert.match(r2.summary.note || "", /Time budget/);
+  assert.equal(r2.summary.alerts, 1, (r2.ledger.reconciliation?.alerts || []).join("; "));
+  assert.equal(r2.summary.followUpNeeded, true);
+  // The next run replays it with the same client order ID.
+  sim.t = T0 + 240000;
+  const r3 = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: acc(3), ledger: r2.ledger, nowMs: sim.t, clock: () => 0, quoteFn });
+  assert.ok(wb.orders.has(at.clientOrderId), "replayed");
+  assert.equal(r3.summary.alerts, 0);
 });
 
 console.log(`Webull call limits: ${pass} checks passed (${QUOTA_PER_WINDOW} calls a minute per endpoint, ${EXIT_RESERVE} kept for exits).`);

@@ -555,13 +555,24 @@ entry until a person checks it, so the mirror keeps its own count
   positions read, so a cancel is never left without its confirmation reads.
   Entries also leave room for one exit's cancel, reads and positions check.
 - The opening pass that re-reads every tracked order keeps back the reads
-  the run's own orders and exits need (`READ_RESERVE`); an order it skips is
-  read first at the next run (`summary.readsDeferred`), so a book with more
-  working orders than a minute's reads still reaches positions and exits.
-- An unacknowledged order whose replay the limit holds back is replayed at
-  the next run, not raised as an alert, and an entry held by the limit is
-  logged "entry waiting for the Webull call limit", which the build window
-  treats as a planned wait.
+  the run's own orders and exits need (`READ_RESERVE`, room for two
+  re-prices, which in practice lets a busy run re-price several entries); an
+  order it skips is read first at the next run (`summary.readsDeferred`), so
+  a book with more working orders than a minute's reads still reaches
+  positions and exits. The spread leg proof (`proveLegs`) follows the same
+  rule.
+- A skipped order can fill before it is read again. Like a share order
+  filling mid-run, an option holding that the mirror's own still-working
+  option orders can explain (up to the contracts an entry has left to buy,
+  or down to what an exit has left to sell) is an order filling, not a
+  missing leg: no alert and nothing pauses (`optionsFilling` on the
+  reconciliation). Every order is re-read before a new one replaces it, and
+  the next run's read books the fill. A difference outside that range is
+  still an alert.
+- An unacknowledged order whose replay the limit holds back, or that a
+  stopped run never reached, is replayed at the next run, not raised as an
+  alert, and an entry held by the limit is logged "entry waiting for the
+  Webull call limit", which the build window treats as a planned wait.
 - The run summary carries `webullCalls` (calls used per endpoint).
 
 The same change fixed a time-budget stop between the "prepared" save and the
