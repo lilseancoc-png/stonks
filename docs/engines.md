@@ -1,15 +1,17 @@
 # Strategy engines
 
-Nine rules-only paper engines run beside Top Picks: six signal engines and
-three core engines (Trend follower and Momentum basket since 2026-11-17, the
-Multi-asset rotation since 2026-11-20). Each has its own idea, its own data and
-its own track record. The signal engines score their own setups 0 to 100 and
-trade options (and $5,000 share lots on the slow call setups) in the one
-Webull paper account that Top Picks uses. The core engines (Trend follower,
-Momentum basket) hold long-only shares picked at a monthly check, on the
-record only. The Allocator (2026-11-17) reads every signal setup's record in
-today's market type; see [Allocator](#allocator-2026-11-17). Paper tracking
-starts 2026-11-16.
+Ten rules-only paper engines run beside Top Picks: seven signal engines (the
+first six, plus Downside puts since 2026-11-20) and three core engines (Trend
+follower and Momentum basket since 2026-11-17, the Multi-asset rotation since
+2026-11-20). Each has its own idea, its own data and its own track record. The
+signal engines score their own setups 0 to 100 and trade options, and risk-sized
+shares on the slow call setups, in the one Webull paper account that Top Picks
+uses. The core engines hold long-only shares picked at a monthly check, bought
+as stock in the same Webull paper account since 2026-11-19 (the Webull stock
+order range applies there, so a lot under its minimum is bought larger at
+Webull than on the record). The Allocator (2026-11-17) reads every signal
+setup's record in today's market type; see [Allocator](#allocator-2026-11-17).
+Paper tracking starts 2026-11-16.
 
 None of them makes an AI call or a network request, and none can read or
 change a Top Pick, a grade, a gate or the Top Picks Track Record. Top Picks
@@ -898,6 +900,45 @@ is on) splits the record there with one note; Downside puts keeps its own
 rules but sizes under the same caps. A cap changed later in Owner Settings is
 a logged rule change at the same rules number.
 
+### Trade audit fixes (2026-11-24)
+
+Owner, 2026-11-23: "Build fixes 1-3" from the two-pass engine audit. Three
+problems seen in live trades, each an Owner Settings switch (on by default;
+off puts that part back) and one dated rules step on top of every signal
+engine (`TRADE_PACK`, step 11, key `|trade:`; Downside puts gets the two
+contract fixes on its own rules). New trades only.
+
+1. **Contract fit** (`ENGINES_FIX_CONTRACT_FIT`). `pickContract` walked the
+   first four expiries nearest the ideal and took the first one with any
+   passing strike, however poor the fit: on 2026-11-23 Downside wanted a 0.50
+   delta UNH put and bought the 355 put at 0.70 delta with a 13.6% spread and
+   1 contract traded. Now an expiry is used only when it has a strike within
+   `BOOK.fitDelta` (0.15) of the target delta, and the best such strike is
+   taken there even if a tighter strike further off scores better;
+   otherwise the best fit over the expiries looked at wins (the same fit score: delta miss plus spread /
+   400). An on-target strike in the nearest expiry is still taken there.
+2. **Liquidity** (`ENGINES_FIX_LIQUIDITY`). A strike passed with open
+   interest of 50 *or* 10 contracts traded, so one busy day let open
+   interest of 3 or 4 through (MRK 137 and ACN 230 calls, both lost). Now it
+   needs open interest of 50 *and* 10 traded today, or open interest of 100
+   (`BOOK.minOiAlone`), so a liquid strike is not refused for a quiet
+   morning.
+3. **Share risk floor** (`ENGINES_FIX_SHARE_RISK`). A risk-sized share
+   trade buys budget / (entry minus stop). With the $250,000 cap of
+   2026-11-23 a stop 1% away bought about $200,000 of stock, and a 5% gap
+   through it lost about five times the budget. Now the risk counted a share
+   is at least 1 ATR or 2% of the price, whichever is larger
+   (`BOOK.shareRiskAtr`, `BOOK.shareRiskPct`; `minRisk` in `sizeShares`);
+   the stop itself does not move. The size records `riskFloor` and
+   `stopGap` when the floor set it. Paper trial lots and core holdings are
+   not risk sized and are untouched.
+
+The switches ride the spec (`contractFit`, `liquidAnd`, `shareRisk`): the
+first two go to `pickContract` as `prefs.fit` / `prefs.liquidAnd` (the `pick`
+wrapper in `index.mjs`), the third to `sizeShares` from `sharesLeg` in
+`book.mjs`, so the history test runs the same code. No AI call, no new
+download.
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -1386,6 +1427,9 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_SLOT_RETRY` | Owner Settings → Data & desks | Unset / on = a signal turned away for a slot or the run limit is shadowed once and can open at a later run. `0` = it is marked done |
 | `ENGINES_FIX_RUNIN_EARLY` | Owner Settings → Data & desks | Unset / on = new earnings run-in trades close at the first run (11:00 or 15:30) of their last day. `0` = 15:30 only |
 | `ENGINES_BOUNCE_SKIP` | Owner Settings → Data & desks | Unset / on = Reversion opens no new washout bounce or RSI(2) dip while VIX is under 30 and the market is grinding lower (SPY under its 50-day, more than 60% of covered names under theirs; the rate-hike part was dropped 2026-11-22); `0` / off = both trade in every market. A dated rules change on Reversion (bounce skip rules, 2026-11-22). |
+| `ENGINES_FIX_CONTRACT_FIT` | Owner Settings → Data & desks | Unset / on = an option is taken from the expiry nearest the ideal only when its best strike is within 0.15 of the target delta, else the best fit over the first four expiries; `0` / off = the first expiry with any passing strike. A dated rules change (trade audit fixes, 2026-11-24). |
+| `ENGINES_FIX_LIQUIDITY` | Owner Settings → Data & desks | Unset / on = a strike needs open interest 50 and 10 traded today, or open interest 100; `0` / off = open interest 50 or 10 traded. Same rules step. |
+| `ENGINES_FIX_SHARE_RISK` | Owner Settings → Data & desks | Unset / on = a risk-sized share trade counts at least 1 ATR or 2% of the price of risk a share (the stop is unchanged); `0` / off = the stop distance alone. Same rules step. |
 | `ENGINES_LIVE_VIX` | Owner Settings → Data & desks | Unset / on = on the run day the engines' market read (`buildMacro`) uses the day's VIX and VIX3M quote from the bake's macro backdrop, only when that quote is stamped today; `0` / off = the prior close, as before. The history test always reads the prior close. A plain switch, not a rules step (2026-11-22). |
 | `TRADE_POP` | Owner Settings → Research | Unset / on = every new engine trade (and every Top Picks trade) gets a stated chance of profit at entry and its outcome at the close, shown on Open picks with a Why and graded in the Chance of profit check (`docs/trade-pop.md`). Off = no new stamps. Changes no trade |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
