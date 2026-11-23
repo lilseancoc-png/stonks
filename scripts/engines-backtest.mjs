@@ -130,10 +130,23 @@ export function buildEnginesResearch({ longDir, earningsFile = null } = {}) {
 // (`--fg <file>`, [date, score] closes or { date: score }) is read by the
 // extreme-fear bounce test and the index-fear paper trial; without it
 // neither opens anything in the test.
-export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {}, keepOnTrades = false } = {}) {
-  const ids = engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum", "rotation"];
-  const base = { series: R.series, auxSeries: R.auxSeries || null, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: ids,
+// The engines every history run covers, and the inputs they share.
+export const researchIds = (R, engines = null) => engines || ["technicals", "reversion", "macro", ...(R.reports ? ["earnings", "fundamentals"] : []), "trend", "momentum", "rotation"];
+export function researchBase(R, { from = "2007-01-03", to = "9999-12-31", engines = null, settings = {} } = {}) {
+  return { series: R.series, auxSeries: R.auxSeries || null, isEtf: R.isEtf, fred: R.H.fred, vix: R.vix, vix3m: R.vix3m, macroEvents: R.macroEvents, reports: R.reports, labels: R.labels, from, to, engines: researchIds(R, engines),
     groupOf: (s) => { try { return sectorGroupOf(s) || null; } catch { return null; } }, ...settings };
+}
+// The Allocator's prior from the "every setup" run: signal-engine trades,
+// paper trials left out (counts and sums by setup, side, instrument and
+// market type).
+export function allocPriorOfRaw(raw) {
+  const priorTrades = (raw.trades || []).filter((t) => !ENGINES[t.engine]?.core && !t.trial);
+  return { from: raw.from, to: raw.to, n: priorTrades.length, rows: allocPriorFrom(priorTrades) };
+}
+
+export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", engines = null, split = "2016-12-31", settings = {}, keepOnTrades = false } = {}) {
+  const ids = researchIds(R, engines);
+  const base = researchBase(R, { from, to, engines: ids, settings });
   const raw = runBacktest({ ...base, learn: false, raw: true, keepTrades: true });
   const off = runBacktest({ ...base, learn: false });
   const on = runBacktest({ ...base, learn: true, allocator: "advise", ...(keepOnTrades ? { keepTrades: true } : {}) });
@@ -143,8 +156,7 @@ export function runEnginesResearch(R, { from = "2007-01-03", to = "9999-12-31", 
   const withAlloc = sig.length ? runBacktest({ ...base, engines: sig, learn: true, control: 0, allocator: "on" }) : null;
   // The Allocator's prior: signal-engine trades, paper trials left out.
   const isSig = (t) => !ENGINES[t.engine]?.core && !t.trial;
-  const priorTrades = (raw.trades || []).filter(isSig);
-  const allocPrior = { from: raw.from, to: raw.to, n: priorTrades.length, rows: allocPriorFrom(priorTrades) };
+  const allocPrior = allocPriorOfRaw(raw);
   delete raw.trades;
   let oos = null;
   if (sig.length && split > from && split < to) {

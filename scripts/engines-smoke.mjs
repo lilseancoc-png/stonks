@@ -16,7 +16,7 @@ import { ENGINES, ENGINE_IDS, SIGNAL_IDS, CORE_IDS, BOOK, MACRO_ETFS, FLAGSHIP, 
 import { precompute, featAt, toColumns, barDate, monthEnds } from "../lib/engines/features.mjs";
 import { trendRead, momentumRead, rotationRead, standCore, evalCore, ret12, ret12skip1, avg10 } from "../lib/engines/core.mjs";
 import { HEDGE, vixTrack, hedgePauseWhy, isTechName, basketVol, volScale, auxView, BOUNCE, bounceSkipWhy, breadthUnder50 } from "../lib/engines/hedge.mjs";
-import { ALLOC, allocObserve, allocDecide, allocKey, allocStamp, allocBook, allocPriorFrom, allocView, emptyAlloc } from "../lib/engines/allocator.mjs";
+import { ALLOC, allocObserve, allocDecide, allocKey, allocStamp, allocBook, allocPriorFrom, allocView, allocRowLive, emptyAlloc } from "../lib/engines/allocator.mjs";
 import { evalTechnicals, evalReversion, evalMacro, evalEarnings, evalFundamentals, evalFlow, evalDownside, DOWNSIDE, withSkips, thesisCheck } from "../lib/engines/signals.mjs";
 import { stepBook, emptyRecord, emptyState, engineTradeId } from "../lib/engines/book.mjs";
 import { pickContract, quoteContract, contractKey, sharesContract, positionUsd, optionQty, contractsOf, exitFill, sizeOption, sizeShares, convictionRead, entryPxOf, flatPositionUsd } from "../lib/engines/contracts.mjs";
@@ -28,7 +28,7 @@ import { prepareReports, earnView, fundCore } from "../lib/engines/earn.mjs";
 import { buildMacro, fearReading } from "../lib/engines/macro.mjs";
 import { engineStats, summarize, scoreBand, tradeUsd, flatTradeUsd } from "../lib/engines/record.mjs";
 import { runBacktest, publicResult } from "../lib/engines/backtest.mjs";
-import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEngineViews, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare, SIZE_READ_MIN, auxViews } from "../lib/engines/index.mjs";
+import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, buildEngineViews, buildEnginesView, flagshipCompare, enginesEnabled, liveVsHistory, LIVE_VS_HISTORY, ENGINES_RECORD_KEY, ENGINES_STATE_KEY, ENGINES_VIEW_KEY, fearGreedCtx, sizingCompare, SIZE_READ_MIN, auxViews, realAllocPrior, ENGINES_ALLOC_PRIOR_PATH } from "../lib/engines/index.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { DIAL, accountLimits } from "../lib/owner-controls.mjs";
 import { ownerSettingDef } from "../lib/owner-settings.mjs";
@@ -1373,6 +1373,13 @@ ok("honest: the extreme-fear test opens one call plus a shares twin on its own c
   assert.match(test.reasons.join(" "), /Fear and greed 18/);
   // Twins take no slot: three test trades on three names, one a run.
   assert.equal(record.open.filter((t) => t.setup === "fear-bounce").length, 2);
+  // The Allocator reads each half on its own row (2026-11-23): option row
+  // losing, shares row earning, in a prior with 40 results each.
+  const prior = { [allocKey("reversion", "fear-bounce", "call", "option")]: { "*": [40, -400] }, [allocKey("reversion", "fear-bounce", "call", "shares")]: { "*": [40, 200] } };
+  const al = go(fg(18), { allocator: { mode: "advise", prior } }).out.opened;
+  const aT = al.find((t) => t.setup === "fear-bounce" && !isSharesTrade(t)), aW = al.find((t) => t.setup === "fear-bounce" && isSharesTrade(t));
+  assert.equal(aT.alloc.status, "closed"); assert.equal(aT.alloc.ev, -10);
+  assert.equal(aW.alloc.status, "open"); assert.equal(aW.alloc.ev, 5);
   // No reading, a stale or old one, or 25 and over: no test trade.
   for (const ctx of [CTX, fg(18, { stale: true }), fg(18, { asOf: "2026-11-10" }), fg(25)]) assert.ok(!go(ctx).out.opened.some((t) => t.setup === "fear-bounce"), JSON.stringify(ctx.fearGreed || null));
   // Switch off: retired, the washout bounce alone.
@@ -1642,6 +1649,16 @@ ok("history test: runs, is repeatable, and learning off / raw / on are separate 
   const pub = publicResult(a);
   assert.ok(!JSON.stringify(pub).includes("tradeId"), "the public copy has no trade rows");
   assert.ok(Array.isArray(pub.engines.technicals.bySetup) && pub.engines.technicals.curve);
+  // ivAdj (the Allocator's real-price prior): returning the modeled read
+  // changes nothing; it is called with the symbol; another read moves options only.
+  const seen = new Set();
+  const same = runBacktest({ ...base, ivAdj: (sym, P, i, iv) => { seen.add(sym); return iv; } });
+  assert.equal(same.engines.technicals.n, a.engines.technicals.n); assert.equal(same.engines.reversion.avg, a.engines.reversion.avg);
+  assert.ok([...seen].every((x) => typeof x === "string" && SERIES[x]), "ivAdj gets the symbol");
+  const dear = runBacktest({ ...base, raw: true, keepTrades: true, ivAdj: (sym, P, i, iv) => iv * 1.6 });
+  const rawT = runBacktest({ ...base, raw: true, keepTrades: true });
+  const sh = (r) => r.trades.filter((t) => t.contract?.structure === "shares").map((t) => t.optionPnlPct);
+  assert.deepEqual(sh(dear), sh(rawT), "share trades do not read option prices");
 });
 
 // ---- the build hook --------------------------------------------------------
@@ -2019,10 +2036,62 @@ ok("book: the Allocator holds a losing setup back as a shadow trade; 'advise' on
   assert.equal(record.closed.length, 1);
   assert.deepEqual(state.alloc.table[allocKey("technicals", "pullback", "call", "option")]["up-calm"][0], 1);
   // The page's table: every live signal setup, ordered open / new / closed.
-  const v = allocView(losing(), null, ENGINES, SIGNAL_IDS, "up-calm");
+  // (ENGINES_SHARES off: Technicals' pullback calls are options again.)
+  const v = allocView(losing(), null, ENGINES, SIGNAL_IDS, "up-calm", { shares: false });
   assert.equal(v.rows.find((r) => r.key === allocKey("technicals", "pullback", "call", "option")).status, "closed");
   assert.ok(v.rows.every((r) => !ENGINES[r.engine].setups[r.setup].retired));
   assert.equal(v.cellLabel, "trending-up, calm");
+  assert.equal(v.oldRows, 0);
+  // With shares on (the default) that option row is one the rules no longer
+  // reach: left off the page, counted as an older row, its record kept.
+  const vs = allocView(losing(), null, ENGINES, SIGNAL_IDS, "up-calm");
+  assert.ok(!vs.rows.some((r) => r.key === allocKey("technicals", "pullback", "call", "option")));
+  assert.equal(vs.oldRows, 1);
+});
+
+ok("allocator: rows the rules no longer reach are left off the page", () => {
+  const T = ENGINES.technicals, R = ENGINES.reversion, D = ENGINES.downside;
+  assert.equal(allocRowLive(T, "pullback", "call", "o"), false);           // buys shares only
+  assert.equal(allocRowLive(T, "pullback", "call", "o", { shares: false }), true);
+  assert.equal(allocRowLive(T, "pullback", "call", "s"), true);
+  assert.equal(allocRowLive(T, "squeeze", "put", "o"), false);             // retired put side
+  assert.equal(allocRowLive(R, "oversold-bounce", "call", "o"), true);     // still an option call
+  assert.equal(allocRowLive(R, "oversold-bounce", "call", "s"), true);     // rich IV can still buy shares
+  assert.equal(allocRowLive(D, "lost-200", "call", "o"), false);           // Downside buys puts only
+  assert.equal(allocRowLive(D, "lost-200", "put", "o"), true);
+  assert.equal(allocRowLive(T, "no-such-setup", "call", "s"), false);
+  // The owner's per-engine instrument choice: Technicals on options reaches its
+  // option rows again and its share rows no longer (no rich-IV swap then).
+  assert.equal(allocRowLive({ ...T, instrument: "options" }, "pullback", "call", "o"), true);
+  assert.equal(allocRowLive({ ...T, instrument: "options" }, "pullback", "call", "s"), false);
+  assert.equal(allocRowLive(R, "oversold-bounce", "call", "s", { shares: false }), false); // no swap with shares off
+  assert.equal(allocRowLive(T, "pullback", "call", "s", { shares: false }), false);
+  assert.equal(allocRowLive(R, "fear-bounce", "call", "s"), true);          // the test's shares twin
+  assert.equal(allocRowLive(R, "fear-bounce", "call", "o"), true);
+  assert.equal(allocRowLive(T, "squeeze", "put", "s"), false);              // a put is never shares
+});
+
+ok("allocator: the real-price prior file replaces the modeled one, and a bad file is ignored", () => {
+  const good = { from: "2007-01-03", to: "2026-11-06", n: 2, generatedAt: "2026-11-23", rows: { "macro|rates-fall|call|o": { "*": [2, 6], "up-calm": [1, 4] } } };
+  const p = realAllocPrior(good);
+  assert.equal(p.pricing, "real"); assert.equal(p.n, 2); assert.deepEqual(p.rows, good.rows);
+  assert.equal(allocDecide({}, p.rows, "macro|rates-fall|call|o", "up-calm").n, 2);
+  for (const bad of [null, {}, { rows: [] }, { rows: {} }, { rows: "x" }, { rows: { "a|b|call|o": { "*": [1, "x"] } } }]) assert.equal(realAllocPrior(bad), null);
+  // A bad row is dropped, the good ones kept.
+  const mixed = realAllocPrior({ rows: { ...good.rows, "macro|stress-on|put|o": { "*": [3, 1], "up-calm": [1, null] }, "bad-key": { "*": [1, 1] } } });
+  assert.deepEqual(Object.keys(mixed.rows), ["macro|rates-fall|call|o"]);
+  // The committed file loads, in the Allocator's shape, with today's setups.
+  const file = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "..", ENGINES_ALLOC_PRIOR_PATH), "utf8"));
+  const fp = realAllocPrior(file);
+  assert.ok(fp && fp.n > 1000 && /real 30-day implied volatility/.test(file.source));
+  for (const [key, row] of Object.entries(fp.rows)) {
+    const [engine, setup] = key.split("|");
+    assert.ok(ENGINES[engine] && !ENGINES[engine].core, key);
+    assert.ok(ENGINES[engine].setups[setup] && !ENGINES[engine].setups[setup].trial, key);
+    assert.ok(Array.isArray(row["*"]) && row["*"][0] > 0, key);
+    const cells = Object.entries(row).filter(([c]) => c !== "*");
+    assert.equal(cells.reduce((a, [, x]) => a + x[0], 0), row["*"][0], `${key}: the market types add up`);
+  }
 });
 
 ok("views: the Webull earnings backup fills only names the main source has no report for", () => {
