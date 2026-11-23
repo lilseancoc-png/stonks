@@ -1298,7 +1298,8 @@ w = expected / 4, clamped to 0.1x-2x.
   current rules and each option priced on real 30-day implied volatility
   through `runBacktest`'s `ivAdj` hook (the Cboe index for SPY, QQQ, IWM, AAPL,
   AMZN, GOOGL, GS, IBM, TLT, GLD, SLV, USO, else k x VIX^0.7, the loser brake's
-  pricing). Share trades are unchanged. First run, 2007-01-03 to 2026-11-06,
+  pricing). Share trades are priced on the stock as before (their counts move
+  a little, since option prices change which trades take the slots). First run, 2007-01-03 to 2026-11-06,
   3,496 trades. Against modeled prices on the same rules, the extreme-fear
   bounce calls went from +23.9% a trade to -5.2%, the washout calls from
   +10.2% to +0.6%, TLT rates-fall calls from +8.0% to +3.0% and the VIX-curve
@@ -1306,6 +1307,10 @@ w = expected / 4, clamped to 0.1x-2x.
   is stamped, not sized, `ENGINES_FIX_ALLOC_ADVISE`); it changes what the
   Allocator would do if switched `on` and its own dollar line. Rerun it after a
   rule change to a history-tested engine.
+- **A shares twin reads its own row (2026-11-23).** The extreme-fear bounce
+  test opens an option and a shares twin; each now carries the read of its
+  own row (`readFor` in `book.mjs`), where the twin used to carry the option
+  row's. The hold-back stays one call per signal.
 - **Older rows.** A row the rules no longer reach (an option call on a setup
   that buys shares only, a retired put side) keeps its record but is left off
   the page (`allocRowLive`, `oldRows`).

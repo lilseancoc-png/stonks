@@ -1370,6 +1370,13 @@ ok("honest: the extreme-fear test opens one call plus a shares twin on its own c
   assert.match(test.reasons.join(" "), /Fear and greed 18/);
   // Twins take no slot: three test trades on three names, one a run.
   assert.equal(record.open.filter((t) => t.setup === "fear-bounce").length, 2);
+  // The Allocator reads each half on its own row (2026-11-23): option row
+  // losing, shares row earning, in a prior with 40 results each.
+  const prior = { [allocKey("reversion", "fear-bounce", "call", "option")]: { "*": [40, -400] }, [allocKey("reversion", "fear-bounce", "call", "shares")]: { "*": [40, 200] } };
+  const al = go(fg(18), { allocator: { mode: "advise", prior } }).out.opened;
+  const aT = al.find((t) => t.setup === "fear-bounce" && !isSharesTrade(t)), aW = al.find((t) => t.setup === "fear-bounce" && isSharesTrade(t));
+  assert.equal(aT.alloc.status, "closed"); assert.equal(aT.alloc.ev, -10);
+  assert.equal(aW.alloc.status, "open"); assert.equal(aW.alloc.ev, 5);
   // No reading, a stale or old one, or 25 and over: no test trade.
   for (const ctx of [CTX, fg(18, { stale: true }), fg(18, { asOf: "2026-11-10" }), fg(25)]) assert.ok(!go(ctx).out.opened.some((t) => t.setup === "fear-bounce"), JSON.stringify(ctx.fearGreed || null));
   // Switch off: retired, the washout bounce alone.
@@ -2050,8 +2057,15 @@ ok("allocator: rows the rules no longer reach are left off the page", () => {
   assert.equal(allocRowLive(D, "lost-200", "call", "o"), false);           // Downside buys puts only
   assert.equal(allocRowLive(D, "lost-200", "put", "o"), true);
   assert.equal(allocRowLive(T, "no-such-setup", "call", "s"), false);
-  // The owner's per-engine instrument choice: Technicals on options reaches its option rows again.
+  // The owner's per-engine instrument choice: Technicals on options reaches its
+  // option rows again and its share rows no longer (no rich-IV swap then).
   assert.equal(allocRowLive({ ...T, instrument: "options" }, "pullback", "call", "o"), true);
+  assert.equal(allocRowLive({ ...T, instrument: "options" }, "pullback", "call", "s"), false);
+  assert.equal(allocRowLive(R, "oversold-bounce", "call", "s", { shares: false }), false); // no swap with shares off
+  assert.equal(allocRowLive(T, "pullback", "call", "s", { shares: false }), false);
+  assert.equal(allocRowLive(R, "fear-bounce", "call", "s"), true);          // the test's shares twin
+  assert.equal(allocRowLive(R, "fear-bounce", "call", "o"), true);
+  assert.equal(allocRowLive(T, "squeeze", "put", "s"), false);              // a put is never shares
 });
 
 ok("allocator: the real-price prior file replaces the modeled one, and a bad file is ignored", () => {
@@ -2059,7 +2073,10 @@ ok("allocator: the real-price prior file replaces the modeled one, and a bad fil
   const p = realAllocPrior(good);
   assert.equal(p.pricing, "real"); assert.equal(p.n, 2); assert.deepEqual(p.rows, good.rows);
   assert.equal(allocDecide({}, p.rows, "macro|rates-fall|call|o", "up-calm").n, 2);
-  for (const bad of [null, {}, { rows: [] }, { rows: {} }, { rows: "x" }]) assert.equal(realAllocPrior(bad), null);
+  for (const bad of [null, {}, { rows: [] }, { rows: {} }, { rows: "x" }, { rows: { "a|b|call|o": { "*": [1, "x"] } } }]) assert.equal(realAllocPrior(bad), null);
+  // A bad row is dropped, the good ones kept.
+  const mixed = realAllocPrior({ rows: { ...good.rows, "macro|stress-on|put|o": { "*": [3, 1], "up-calm": [1, null] }, "bad-key": { "*": [1, 1] } } });
+  assert.deepEqual(Object.keys(mixed.rows), ["macro|rates-fall|call|o"]);
   // The committed file loads, in the Allocator's shape, with today's setups.
   const file = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "..", ENGINES_ALLOC_PRIOR_PATH), "utf8"));
   const fp = realAllocPrior(file);
