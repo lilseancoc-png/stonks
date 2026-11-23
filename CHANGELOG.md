@@ -44,6 +44,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 - Add NBA team offensive/defensive efficiency, net rating and pace to prop research, player forecasts and Pick Builder; fit stat-specific efficiency and pace adjustments on prior complete games and use them only when they improve the historical check. NFL predictions are unchanged (#823).
 
+## 2026-11-24
+
+### Changed
+- Strategy engines (trade audit fixes, owner chose "Build fixes 1-3" from the 2026-11-23 engine audit): the option picker takes a strike within 0.15 of the engine's target delta, else the best fit over the first four expiries (it took the first expiry with any usable strike, so a 0.50-delta UNH put was bought at 0.70 delta with a 13.6% spread); a strike counts as liquid with open interest of 50 and 10 traded today, or open interest of 100 (one busy day let open interest of 3 through); and a risk-sized share trade counts at least 1 ATR or 2% of the price of risk a share, so a tight stop can no longer buy about $200,000 of stock. Each is an Owner Settings switch (`ENGINES_FIX_CONTRACT_FIT`, `ENGINES_FIX_LIQUIDITY`, `ENGINES_FIX_SHARE_RISK`), on by default, and one dated rules step on the signal engines. New trades only; changes no Top Pick. No AI call.
+
 ## 2026-11-23
 
 ### Added
