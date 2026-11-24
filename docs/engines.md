@@ -1560,6 +1560,52 @@ curve setups, the UVXY market tile, the heat maps and the history test.
 Tests: `engines-smoke` (three never-trade checks), `entry-policy-smoke`,
 `owner-controls-smoke`, `trade-instructions-smoke`, `owner-settings-browser`.
 
+## Data checks (2026-11-24)
+
+`lib/data-checks.mjs` checks every data feed the engines read on every bake
+(5 a trading day), so a broken feed is caught by the build instead of by an
+audit. Ten feeds: daily bars, option flow, Webull capital flow, GDELT news,
+crowd, VIX, FRED series, Fear & Greed, sector funds and earnings dates.
+
+Each feed gets three checks:
+
+- **Coverage**: did it read most names? Under half of the covered names (bars:
+  under 75%) is a fail, not "ok".
+- **Believable values**: sane ranges per feed (`LIMITS`, `FRED_LIMITS`). A
+  daily bar is a bad print when a close is zero or not a number, the high is
+  under the low, a close sits outside the day's range, or a 50%+ day comes back
+  within 5% of the prior close the next session. A 50%+ move that holds is a
+  warning only (real moves such as SNDK or MRNA stay readable). A news spike on
+  half the stocks at once is a fail.
+- **Freshness**: from the latest session (sessions behind, per feed).
+  Stale data that is quietly reused is marked.
+
+States are ok / warn / fail / missing. A check that throws marks its feed
+fail ("the check itself failed"). A feed whose own switch is off on purpose (`GDELT_NEWS=0`,
+`CROWD=0`) reads missing and is not guarded. The feeds are built in a
+function inside a try, so a bad input can never stop the bake.
+
+**Engine guard** (`guardEngineInputs`, on the 11:00 / 15:30 runs only): a
+failed feed is handed to `runEngines` as missing, which every rule already
+reads as "no reading" (the news gate does not block, no VIX pause, no flow
+setups, and so on). A name with a bad-print bar is left out of the views for
+that run: no new entry, open trades are still marked and closed. Bad FRED
+series, bad Webull names and bad sector funds are dropped one by one. The bake's
+own objects are never changed (the guard works on a copy), and nothing reaches
+Top Picks, a grade, a gate or the Track Record. Earnings dates are checked but
+never guarded. Caveat: a name left out on the first run of a month can be
+missing from that month's Momentum target, the same as a name with stale bars.
+
+**Where it shows:** the Update Checker's "Engine data checks" table (source
+health `engineFeeds`), one Owner brief finding when a feed failed (`desk`
+`dataChecks`), and the Strategy engines page's data guard note (what was
+skipped this run and why). The bake log prints one `[data-checks]` line.
+
+**Switch:** Owner Settings `DATA_CHECKS` (Data & desks → Strategy engines):
+`guard` (default: check and guard), `report` (check and show only), `off`.
+No AI call, no new download, function or workflow. Test:
+`node scripts/data-checks-smoke.mjs` (no npm script).
+
 ## Not in scope
 
 - No real money and no broker other than the Webull paper sandbox.

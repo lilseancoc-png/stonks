@@ -101,8 +101,9 @@ import { loadQuantLabs, carryQuantLabs, writeQuantLabs, runQuantLabs, loadQuantL
 import { picksTradePop, stampPopResults, webullPopOutcomes, tradePopEnabled, popRows, popLabSources, loopForecastFor } from "../lib/trade-pop.mjs";
 import { refreshFilingText } from "../lib/labs/filing-text.mjs";
 import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
-import { engineName as strategyEngineName } from "../lib/engines/config.mjs";
+import { engineName as strategyEngineName, MACRO_ETFS as ENGINES_MACRO_ETFS } from "../lib/engines/config.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
+import { checkEngineFeeds, guardEngineInputs, dataChecksMode, compactChecks, feedsSwitchedOff } from "../lib/data-checks.mjs";
 import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // The Owner Settings report from scripts/owner-settings-env.mjs (null when the
 // build ran without the preload). picksTag is stamped on new record trades.
@@ -42590,46 +42591,93 @@ async function main() {
       console.warn(`[webull-data] backup check skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
   }
+  // The feeds the strategy engines read (built on every bake, so the
+  // automatic data checks below run on every bake too; the engines read
+  // them only on the 11:00 and 15:30 ET runs).
+  // Built inside a function: a throw here must not stop the bake (before the
+  // data checks these feeds were only built inside the engine run's own try).
+  const enginesFeedFred = (id) => historicalSourceCache?.context?.[id]?.rows || [];
+  const buildEnginesFeeds = () => ({
+    builtAtIso, chains, tickers: TICKERS,
+    isEtf: (sym) => SECTORS[sym] === "ETF",
+    barsOf: (sym) => chains?.[sym]?._patternBars || chains?.[sym]?._bars || [],
+    earningsStore: earningsHxStore,
+    // Webull earnings-date backup (data integration, 2026-11-19): the
+    // same backup the Top Picks run reads, for names the main source
+    // has no upcoming date for; the engines use it to stay out of the
+    // report, never to open a run-in trade (lib/engines/index.mjs).
+    earningsBackup: webullW3?.backup ? earningsBackupMap(TICKERS, webullW3.backup, etDateKey(new Date(builtAtIso)), { isEtf: (s) => SECTORS[s] === "ETF" }) : null,
+    unusual: scoringUnusual, crowdRollup: crowdPayload?.rollup || null,
+    // Live data pack (2026-11-20): Webull large-order flow for the Flow
+    // engine's big-order paper trial (sessions before today only), and
+    // the policy and news read for Reversion's news tag (log only).
+    webullFlow: webullShadow?.flow || null,
+    // VIX and rates pack (2026-11-21): the non-tech sector funds the
+    // Momentum basket can switch to, from the wide tier's stored daily
+    // closes (read before the wipe) and its last hourly mark. No call.
+    sectorBars: priorWideState?.bars?.dates ? Object.fromEntries(ENGINES_HEDGE.sectorFunds.map((s) => [s, wideBarsFor(priorWideState.bars, s)])) : null,
+    sectorSpot: Array.isArray(priorWide?.tickers) ? Object.fromEntries(priorWide.tickers.filter((r) => r && r.fund && !r.stale && ENGINES_HEDGE.sectorFunds.includes(r.t) && r.sp > 0).map((r) => [r.t, r.sp])) : null,
+    policyNews: policyNewsState ? policyNewsShadow(policyNewsState, { nowMs: Date.parse(builtAtIso), symbols: TICKERS }).rows : null,
+    fred: Object.fromEntries(["DGS10", "DGS2", "T10Y2Y", "DFF", "NFCI", "DTWEXBGS", "CPIAUCSL", "UNRATE", "USREC"].map((id) => [id, enginesFeedFred(id)])),
+    vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
+    vix3m: regimeLabVolSeries(historicalSourceCache, null, globalMarkets?.["^VIX3M"]),
+    // Live VIX (2026-11-22, Owner Settings ENGINES_LIVE_VIX, on): the
+    // tape's own VIX / VIX3M quote from this bake, so the engines' VIX
+    // pause, fear reads and VIX bands match the Top Picks tape instead of
+    // the prior close. Only a quote stamped today (ET) counts.
+    liveVol: macroBackdrop?.vix?.value > 0 && macroBackdrop.vix.asOf && etDateKey(new Date(macroBackdrop.vix.asOf)) === etDateKey(new Date(builtAtIso))
+      ? { date: etDateKey(new Date(builtAtIso)), vix: macroBackdrop.vix.value, vix3m: macroBackdrop.vixTerm?.mid ?? null, asOf: macroBackdrop.vix.asOf }
+      : null,
+    // CNN fear and greed as fetched this bake (stale = last-good); the
+    // extreme-fear bounce test reads it (2026-11-19). When CNN failed
+    // and Webull's index is proven to be CNN's (webullFearGreed above),
+    // Webull's newer reading stands in, labeled "webull-backup".
+    fearGreed: webullFearGreed?.standIn || fearGreed,
+    // Daily Fear & Greed closes (the index-fear paper trial reads the
+    // last two before today).
+    fearHistory: fngHistoryNext?.snapshots || [],
+  });
+  let enginesFeeds = null;
+  try { enginesFeeds = buildEnginesFeeds(); } catch (err) {
+    console.warn(`[data-checks] engine feeds not built — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Automatic data checks (lib/data-checks.mjs, 2026-11-24): coverage,
+  // believable values and freshness for every feed above, on every bake.
+  // In "guard" mode (Owner Settings DATA_CHECKS, the default) a feed that
+  // fails is taken away from the engines' run, so the rules that read it
+  // skip it. The result rides source-health.json and the Owner brief.
+  // No fetch, no AI.
+  let engineDataChecks = null;
+  try {
+    const checksToday = etDateKey(new Date(builtAtIso));
+    if (!enginesFeeds) throw new Error("engine feeds were not built");
+    engineDataChecks = checkEngineFeeds({ ...enginesFeeds, crowd: crowdPayload, gdelt: policyNewsState?.gdelt || null }, {
+      today: checksToday, builtAtIso, mode: dataChecksMode(), switchedOff: feedsSwitchedOff(),
+      universe: [...new Set([...TICKERS, ...ENGINES_MACRO_ETFS])],
+      stocks: TICKERS.filter((s) => SECTORS[s] !== "ETF" && !ENGINES_MACRO_ETFS.includes(s)),
+    });
+    if (engineDataChecks) {
+      const bad = engineDataChecks.feeds.filter((f) => f.state === "fail" || f.state === "warn").map((f) => `${f.id}:${f.state}`);
+      console.log(`[data-checks] ${engineDataChecks.counts.ok}/${engineDataChecks.counts.feeds} engine feeds ok${bad.length ? `; ${bad.join(", ")}` : ""}; mode ${engineDataChecks.mode}${engineDataChecks.counts.guarded ? `, ${engineDataChecks.counts.guarded} guarded` : ""}`);
+    } else console.log("[data-checks] off (Owner Settings DATA_CHECKS)");
+  } catch (err) {
+    engineDataChecks = null;
+    console.warn(`[data-checks] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   if (enginesLoaded) {
     let enginesRan = false;
     if (refreshTopPicks && enginesEnabled() && !enginesLoaded.skip) {
       try {
         let accForEngines = null;
         try { accForEngines = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no flagship record this run */ }
-        const fredRows = (id) => historicalSourceCache?.context?.[id]?.rows || [];
         const cpiDates = historicalSourceCache?.releases?.cpi?.dates || [], jobsDates = historicalSourceCache?.releases?.jobs?.dates || [];
         const yearNow = Number(etDateKey(new Date(builtAtIso)).slice(0, 4));
         const enginesRun = runEngines({
-          loaded: enginesLoaded, builtAtIso, chains, tickers: TICKERS,
-          isEtf: (sym) => SECTORS[sym] === "ETF",
-          barsOf: (sym) => chains?.[sym]?._patternBars || chains?.[sym]?._bars || [],
-          earningsStore: earningsHxStore, groupOf: (sym) => sectorGroupOf(sym),
-          // Webull earnings-date backup (data integration, 2026-11-19): the
-          // same backup the Top Picks run reads, for names the main source
-          // has no upcoming date for; the engines use it to stay out of the
-          // report, never to open a run-in trade (lib/engines/index.mjs).
-          earningsBackup: webullW3?.backup ? earningsBackupMap(TICKERS, webullW3.backup, etDateKey(new Date(builtAtIso)), { isEtf: (s) => SECTORS[s] === "ETF" }) : null,
-          unusual: scoringUnusual, crowdRollup: crowdPayload?.rollup || null,
-          // Live data pack (2026-11-20): Webull large-order flow for the Flow
-          // engine's big-order paper trial (sessions before today only), and
-          // the policy and news read for Reversion's news tag (log only).
-          webullFlow: webullShadow?.flow || null,
-          // VIX and rates pack (2026-11-21): the non-tech sector funds the
-          // Momentum basket can switch to, from the wide tier's stored daily
-          // closes (read before the wipe) and its last hourly mark. No call.
-          sectorBars: priorWideState?.bars?.dates ? Object.fromEntries(ENGINES_HEDGE.sectorFunds.map((s) => [s, wideBarsFor(priorWideState.bars, s)])) : null,
-          sectorSpot: Array.isArray(priorWide?.tickers) ? Object.fromEntries(priorWide.tickers.filter((r) => r && r.fund && !r.stale && ENGINES_HEDGE.sectorFunds.includes(r.t) && r.sp > 0).map((r) => [r.t, r.sp])) : null,
-          policyNews: policyNewsState ? policyNewsShadow(policyNewsState, { nowMs: Date.parse(builtAtIso), symbols: TICKERS }).rows : null,
-          fred: Object.fromEntries(["DGS10", "DGS2", "T10Y2Y", "DFF", "NFCI", "DTWEXBGS", "CPIAUCSL", "UNRATE", "USREC"].map((id) => [id, fredRows(id)])),
-          vix: regimeLabVolSeries(historicalSourceCache, "VIXCLS", globalMarkets?.["^VIX"]),
-          vix3m: regimeLabVolSeries(historicalSourceCache, null, globalMarkets?.["^VIX3M"]),
-          // Live VIX (2026-11-22, Owner Settings ENGINES_LIVE_VIX, on): the
-          // tape's own VIX / VIX3M quote from this bake, so the engines' VIX
-          // pause, fear reads and VIX bands match the Top Picks tape instead of
-          // the prior close. Only a quote stamped today (ET) counts.
-          liveVol: macroBackdrop?.vix?.value > 0 && macroBackdrop.vix.asOf && etDateKey(new Date(macroBackdrop.vix.asOf)) === etDateKey(new Date(builtAtIso))
-            ? { date: etDateKey(new Date(builtAtIso)), vix: macroBackdrop.vix.value, vix3m: macroBackdrop.vixTerm?.mid ?? null, asOf: macroBackdrop.vix.asOf }
-            : null,
+          loaded: enginesLoaded,
+          // The feeds above, with any that failed a data check taken away
+          // (guard mode); dataGuard tells the engines page what was skipped.
+          ...guardEngineInputs(enginesFeeds || buildEnginesFeeds(), engineDataChecks),
+          groupOf: (sym) => sectorGroupOf(sym),
           // Fed decisions are the dated list; CPI and jobs days are the FRED
           // release calendars (the first-Friday rule stands in for jobs days
           // when that calendar did not load).
@@ -42648,14 +42696,6 @@ async function main() {
             ai: historyRhymes.now?.stage?.id || null, market: historyRhymes.now?.market?.stage?.id || null,
             roles: Object.fromEntries((historyRhymesOwner?.buildout || []).filter((x) => x?.symbol && x.role).map((x) => [x.symbol, x.role])),
           } : null,
-          // CNN fear and greed as fetched this bake (stale = last-good); the
-          // extreme-fear bounce test reads it (2026-11-19). When CNN failed
-          // and Webull's index is proven to be CNN's (webullFearGreed above),
-          // Webull's newer reading stands in, labeled "webull-backup".
-          fearGreed: webullFearGreed?.standIn || fearGreed,
-          // Daily Fear & Greed closes (the index-fear paper trial reads the
-          // last two before today).
-          fearHistory: fngHistoryNext?.snapshots || [],
           flagshipOpen: accForEngines?.open || picksAccuracyPrev?.open || [],
           flagshipStats: flagshipCompare(accForEngines),
           // The chance-of-profit check (lib/trade-pop.mjs) reads both
@@ -43140,7 +43180,7 @@ async function main() {
       ["webull-breadth.json", w3Session(webullW3?.on?.WEBULL_BREADTH_LOG, webullW3?.breadth?.today?.date)]]) {
       if (entry && !sourcePayloads.has(key)) sourcePayloads.set(key, entry);
     }
-    const health = buildSourceHealth({ payloads: sourcePayloads, prior: priorSourceHealth, builtAtIso });
+    const health = buildSourceHealth({ payloads: sourcePayloads, prior: priorSourceHealth, builtAtIso, feedChecks: compactChecks(engineDataChecks) });
     const healthInfo = await writeSourceHealth(DATA_DIR, health);
     const flagged = health.sources.filter((r) => r.review).map((r) => `${r.id}:${r.state}`);
     console.log(`wrote data/${healthInfo.key} — ${health.counts.ok}/${health.counts.sources} sources fresh${flagged.length ? `, review ${flagged.join(", ")}` : ""}, ${healthInfo.bytes} bytes`);
@@ -43266,6 +43306,9 @@ async function main() {
     } catch (err) {
       console.warn(`[owner-brief] policy and news on held names skipped — ${String(err?.message || err).split("\n")[0]}`);
     }
+    // Automatic data checks (lib/data-checks.mjs): a finding when an engine
+    // feed failed this bake's check.
+    ownerDeskForBrief.dataChecks = compactChecks(engineDataChecks);
     const ownerBrief = await publishOwnerMarketBrief({ dataDir: DATA_DIR, builtAtIso: ownerBriefNow.toISOString(), publicScan, publicCore, previous: priorOwnerMarketBrief, desk: ownerDeskForBrief });
     console.log(`wrote data/owner-market-brief.json — ${ownerBrief.ideas.length} research priorities; no extra model calls`);
   } catch (err) {
