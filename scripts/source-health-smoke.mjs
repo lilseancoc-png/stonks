@@ -156,4 +156,16 @@ assert.equal(res.statusCode, 200); assert.equal(res.body.sources, null);
   assert.equal(SOURCES.some((d) => d.id === "crowd-lev-flows"), false, "leveraged ETF flows are off and out of the list");
 }
 
+// GDELT news (2026-11-24): a run that read 4 of 64 stocks said "ok" because
+// the attempt time counted as an observation and one read cleared `stale`.
+{
+  const g = (extra) => ({ gdelt: { date: "2026-11-09", done: ["A", "B"], lastOkDate: "2026-11-09", stale: false, days: { A: [{ d: "2026-11-09", vol24: 3 }] }, health: { ranAt: "2026-11-09T18:31:00Z", calls: 31, read: 2 }, ...extra } });
+  const low = assessSource(def("gdelt-news"), g({ coverage: { checkedOn: "2026-11-09", fresh: 4, withRatio: 2, of: 64, status: "low" } }), now);
+  assert.equal(low.state, "partial", "under half the stocks read is partial");
+  assert.match(low.detail, /4 of 64/);
+  assert.equal(assessSource(def("gdelt-news"), g({ coverage: { fresh: 60, of: 64, status: "ok" } }), now).state, "ok", "a full read is ok");
+  const old = assessSource(def("gdelt-news"), g({ lastOkDate: "2026-11-02", health: { ranAt: "2026-11-09T18:31:00Z", calls: 31, read: 0 }, coverage: { fresh: 40, of: 64, status: "ok" } }), now);
+  assert.equal(old.state, "aged", "the last good read dates the block, not the attempt");
+}
+
 console.log("source-health-smoke: ok");
