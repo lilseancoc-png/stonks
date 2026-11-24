@@ -153,8 +153,12 @@ export function renderChartKitJs() {
     //   opts.ranges: ['1M','3M','6M','YTD','1Y'], opts.range: default range key
     //   opts.height, opts.intraday, opts.percent, opts.signed, opts.decimals, opts.prefix
     //   opts.source: text for the bottom-left corner
-    //   opts.markers: [{ time, text, color, position }] on the first series;
-    //   series[i].markers on that series. opts.extendRange keeps a series
+    //   opts.markers: [{ time, text, color, position, tip }] on the first series;
+    //   series[i].markers on that series. A marker with a tip explains itself:
+    //   tipped markers on one bar merge into one dot (with a count), hovering
+    //   or tapping that day shows their tips, and opts.markerLegend
+    //   ({ one, many }) adds a legend key that opens the full list.
+    //   opts.extendRange keeps a series
     //   that runs past the first one in view when a range button is pressed.
     //   opts.bands: [{ value, color, title }] horizontal price lines on the first series
     //   series[i].axis = 'left' puts that line on a left axis; series[i].pane =
@@ -189,7 +193,8 @@ export function renderChartKitJs() {
           }
           html += '</div>';
         }
-        html += '<div class="ck-canvas" style="height:' + height + 'px"></div>';
+        html += '<div class="ck-canvas" style="height:' + height + 'px"><div class="ck-mark-tip" role="tooltip" hidden></div></div>';
+        html += '<ul class="ck-mark-list" hidden></ul>';
         if (opts.source) html += '<p class="ck-source">' + escapeHtml(opts.source) + '</p>';
         el.innerHTML = html;
         var canvas = el.querySelector('.ck-canvas');
@@ -230,7 +235,11 @@ export function renderChartKitJs() {
         }
         // A marker dated between two points moves to the next point, so a
         // rule change on a day with no close still shows. opts.markers go on
-        // the first series; series[i].markers on that series.
+        // the first series; series[i].markers on that series. Markers with a
+        // tip that land on one bar become one dot with a count (they used to
+        // stack up the chart), and their tips are kept by bar for the hover
+        // tooltip and the list.
+        var markTips = {}, tipList = [];
         function placeMarkers(api, list){
           var times = api.data().map(function(d){ return d.time; });
           var snap = function(t){
@@ -239,9 +248,22 @@ export function renderChartKitJs() {
             for (var ti = 0; ti < times.length; ti++) if (timeKey(times[ti]) >= k) return times[ti];
             return null;
           };
-          var mk = list.map(function(m){ return { time: snap(toTime(m.time)), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 }; })
-            .filter(function(m){ return m.time != null; })
-            .sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
+          var mk = [], merged = {};
+          list.forEach(function(m){
+            var raw = toTime(m.time), t = snap(raw);
+            if (t == null) return;
+            var row = { time: t, position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 };
+            if (m.tip){
+              var k = timeKey(t), item = { time: raw, tip: String(m.tip), color: row.color };
+              (markTips[k] = markTips[k] || []).push(item);
+              tipList.push(item);
+              var mkey = k + '|' + row.position;
+              if (merged[mkey]){ merged[mkey].n++; merged[mkey].row.text = String(merged[mkey].n); return; }
+              merged[mkey] = { n: 1, row: row };
+            }
+            mk.push(row);
+          });
+          mk.sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
           try { api.setMarkers(mk); } catch (_) {}
         }
         made.forEach(function(m, mi){
@@ -278,9 +300,61 @@ export function renderChartKitJs() {
             if (!hovered && t == null && data.length) t = data[data.length - 1].time;
             parts.push('<span class="ck-leg-item"><i style="background:' + m.color + '"></i>' + (made.length > 1 || m.def.name ? '<span>' + escapeHtml(m.def.name || '') + '</span> ' : '') + '<b>' + escapeHtml(valueText(v, m.def)) + '</b></span>');
           });
-          legend.innerHTML = '<span class="ck-leg-time">' + escapeHtml(timeText(t)) + '</span>' + parts.join('');
+          legend.innerHTML = '<span class="ck-leg-time">' + escapeHtml(timeText(t)) + '</span>' + parts.join('') + markKeyHtml();
         }
-        chart.subscribeCrosshairMove(function(param){ paintLegend(param && param.time != null ? param : null); });
+        // Tipped markers: a legend key (a button that opens the list under
+        // the chart) and a tooltip on the hovered or tapped day.
+        var tipBox = el.querySelector('.ck-mark-tip');
+        var listBox = el.querySelector('.ck-mark-list');
+        var listOpen = false;
+        tipList.sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
+        function markWord(n){
+          var ml = opts.markerLegend || {};
+          return n === 1 ? (ml.one || 'note') : (ml.many || ml.one || 'notes');
+        }
+        function markKeyHtml(){
+          if (!tipList.length) return '';
+          var n = tipList.length;
+          return '<button type="button" class="ck-leg-item ck-mark-key" aria-expanded="' + (listOpen ? 'true' : 'false') + '" title="' + (listOpen ? 'Hide' : 'Show') + ' the list">' +
+            '<i style="background:' + tipList[0].color + '"></i><span>' + n + ' ' + escapeHtml(markWord(n)) + '</span><span class="ck-mark-caret" aria-hidden="true">' + (listOpen ? '▴' : '▾') + '</span></button>';
+        }
+        function tipRowHtml(item){
+          return '<li><b>' + escapeHtml(timeText(item.time)) + '</b> <span>' + escapeHtml(item.tip) + '</span></li>';
+        }
+        if (listBox && tipList.length){
+          listBox.innerHTML = tipList.map(tipRowHtml).join('');
+          el.addEventListener('click', function(ev){
+            var key = ev.target && ev.target.closest ? ev.target.closest('.ck-mark-key') : null;
+            if (!key || !el.contains(key)) return;
+            listOpen = !listOpen;
+            listBox.hidden = !listOpen;
+            paintLegend(null);
+          });
+        }
+        function paintTip(param){
+          if (!tipBox) return;
+          var items = param && param.time != null && param.point ? markTips[timeKey(param.time)] : null;
+          if (!items || !items.length){ tipBox.hidden = true; return; }
+          var ml = opts.markerLegend || {};
+          tipBox.innerHTML = '<p class="ck-mark-tip-head">' + items.length + ' ' + escapeHtml(markWord(items.length)) + (ml.where ? ' ' + escapeHtml(ml.where) : '') + '</p><ul>' + items.map(tipRowHtml).join('') + '</ul>';
+          tipBox.hidden = false;
+          var w = canvas.clientWidth || 0, tw = tipBox.offsetWidth || 0;
+          // Beside the hovered day, not on it, so the dot stays in view.
+          var x = param.point.x + 14;
+          if (x + tw > w - 4) x = param.point.x - 14 - tw;
+          x = Math.max(4, Math.min(w - tw - 4, x));
+          tipBox.style.left = Math.round(x) + 'px';
+        }
+        chart.subscribeCrosshairMove(function(param){
+          paintLegend(param && param.time != null ? param : null);
+          paintTip(param);
+        });
+        // A tap on a phone does not move the crosshair (only a long press
+        // does), so a tap or click on a day also opens that day's tooltip.
+        if (tipList.length) chart.subscribeClick(function(param){
+          if (param && param.time != null && param.seriesData) paintLegend(param);
+          paintTip(param);
+        });
         paintLegend(null);
         // Ranges
         var firstData = made[0].api.data();

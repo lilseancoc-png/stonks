@@ -27960,6 +27960,16 @@ body.jr-picking .jr-panel *, body.jr-picking .jr-pickbar * { cursor: auto !impor
 .ck-range:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .ck-canvas { position: relative; width: 100%; }
 .ck-source { margin: 6px 0 0; font-size: var(--t-12); color: var(--muted); }
+.ck-mark-key { appearance: none; border: 0; background: transparent; padding: 2px 4px; margin: -2px -4px; border-radius: 8px; font: inherit; cursor: pointer; }
+.ck-mark-key:hover, .ck-mark-key[aria-expanded="true"] { color: var(--text-strong); }
+.ck-mark-key:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ck-mark-caret { font-size: var(--t-10); }
+.ck-mark-tip { position: absolute; top: 6px; left: 0; z-index: 3; max-width: min(340px, calc(100% - 8px)); padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,0.25); font-size: var(--t-12); line-height: 1.4; color: var(--text); pointer-events: none; }
+.ck-mark-tip[hidden], .ck-mark-list[hidden] { display: none; }
+.ck-mark-tip-head { margin: 0 0 4px; font-weight: 600; color: var(--text-strong); }
+.ck-mark-tip ul, .ck-mark-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.ck-mark-tip b, .ck-mark-list b { color: var(--text-strong); font-weight: 600; white-space: nowrap; margin-right: 4px; }
+.ck-mark-list { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: var(--t-13); color: var(--text); }
 .ck-empty { margin: 0; padding: 40px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
 .ck-skeleton { width: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface) 50%, var(--surface-2) 100%); background-size: 200% 100%; animation: ck-shimmer 1.4s ease-in-out infinite; }
 @keyframes ck-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
@@ -28412,7 +28422,6 @@ a.ld-chip.is-covered:hover { background: color-mix(in srgb, var(--accent) 10%, t
 .acc-sum-equity { margin: 4px 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .acc-eq-chart { margin: 8px 0 4px; min-height: 120px; }
 .acc-eq-chart-note { margin: 4px 0 0; font-size: var(--t-12); line-height: 1.5; color: var(--muted); }
-.acc-eq-change b { color: var(--text); font-weight: 600; }
 /* === Historical Data event path === */
 .h-path { margin: 16px 0 8px; }
 .h-path figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 6px; font-size: var(--t-13); color: var(--muted); }

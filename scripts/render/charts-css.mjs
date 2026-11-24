@@ -49,7 +49,6 @@ export function renderChartsCss() {
 .acc-sum-equity { margin: 4px 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .acc-eq-chart { margin: 8px 0 4px; min-height: 120px; }
 .acc-eq-chart-note { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
-.acc-eq-change b { color: var(--text); font-weight: 600; }
 /* === Historical Data event path === */
 .h-path { margin: 16px 0 8px; }
 .h-path figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 6px; font-size: 13px; color: var(--muted); }

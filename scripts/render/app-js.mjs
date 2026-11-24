@@ -39753,20 +39753,33 @@ ${renderExportBindings()}
   function accEquityChartHtml(points, opts){
     opts = opts || {};
     if (!points || points.length < 2) return '<p class="muted acc-an-note">Need at least 2 resolved trades to plot an equity curve.</p>';
-    var changes = accRuleChangesIn(points);
+    var changes = accRuleChangesIn(points, opts.trades);
     return '<div class="acc-eq-chart" data-acc-eq-chart="' + escapeHtml(opts.key || 'eq') + '"></div>' +
       (opts.note === false ? '' : '<p class="acc-eq-chart-note">Top: running total. Bottom: how far it sits below its last high.' +
-        (changes.length ? ' Dots mark rule changes (the record was kept, not reset): ' + changes.map(function(c){ return '<span class="acc-eq-change"><b>' + escapeHtml(fmtDayUtc(c.date).replace(/, \\d{4}$/, '')) + '</b> ' + escapeHtml(c.notes.join('; ')) + '</span>'; }).join(' · ') : '') + '</p>');
+        (changes.length ? ' Gold dots mark Top Picks rule changes (the record was kept, not reset); a number on a dot counts the changes that day. Hover or tap a dot to read them, or open the list from the chart key.' : '') + '</p>');
   }
   // Rule changes (ACC_RULE_NOTES) dated inside a curve's span, one per day.
-  function accRuleChangesIn(points){
+  // Versions that share a dimension and a start date are alternatives (one
+  // per Owner setting); with trades given, only the ones a trade ran under
+  // are kept, so a dot never names a rule that was not live.
+  function accRuleChangesIn(points, trades){
     var days = (points || []).map(function(p){ return String(p.date || '').slice(0, 10); }).filter(function(d){ return /^\\d{4}-\\d{2}-\\d{2}$/.test(d); }).sort();
     if (days.length < 2) return [];
+    var seen = null;
+    if (trades && trades.length){
+      seen = {};
+      trades.forEach(function(e){ ACC_RULE_DIMS.forEach(function(dim){ var v = dim.get(e); if (v) seen[dim.key + '|' + v] = true; }); });
+    }
     var byDay = {};
     Object.keys(ACC_RULE_NOTES).forEach(function(dim){
-      Object.keys(ACC_RULE_NOTES[dim]).forEach(function(v){
+      var vs = Object.keys(ACC_RULE_NOTES[dim]);
+      vs.forEach(function(v){
         var n = ACC_RULE_NOTES[dim][v];
         if (!n || !n.since || n.since <= days[0] || n.since > days[days.length - 1]) return;
+        if (seen && !seen[dim + '|' + v]){
+          var rivalLive = vs.some(function(o){ return o !== v && ACC_RULE_NOTES[dim][o] && ACC_RULE_NOTES[dim][o].since === n.since && seen[dim + '|' + o]; });
+          if (rivalLive) return;
+        }
         (byDay[n.since] = byDay[n.since] || []).push(n.note || 'Rule change');
       });
     });
@@ -39789,7 +39802,13 @@ ${renderExportBindings()}
       dd.push({ time: day, value: ddPct });
     });
     if (eq.length < 2) { host.innerHTML = '<p class="muted acc-an-note">Not enough dated closes to draw the curve.</p>'; return; }
-    var marks = accRuleChangesIn(points).map(function(ch){ return { time: ch.date, text: '', position: 'aboveBar', shape: 'circle', size: 0.6 }; });
+    // One marker per rule change, with its note: the chart kit merges the
+    // ones that fall on one close day into a single numbered dot and shows
+    // the notes on hover or tap.
+    var marks = [];
+    accRuleChangesIn(points, opts.trades).forEach(function(ch){
+      ch.notes.forEach(function(note){ marks.push({ time: ch.date, text: '', position: 'aboveBar', shape: 'circle', size: 0.6, tip: note }); });
+    });
     var money = opts.formatValue || function(v){ return accMoney(v, false); };
     var c = CHART_KIT.colors();
     var up = eq[eq.length - 1].value >= eq[0].value;
@@ -39799,7 +39818,7 @@ ${renderExportBindings()}
         { name: 'Below high', type: 'baseline', pane: 'lower', data: dd, color: c.down, lastValue: false,
           format: function(v){ return v == null ? '—' : (opts.dollars || !(peak > 0)) ? (v < 0 ? '-' + money(-v) : money(0)) : (v < 0 ? v.toFixed(1) + '%' : '0%'); } }
       ],
-      markers: marks, height: opts.height || 320, priceLine: false,
+      markers: marks, markerLegend: { one: 'rule change', many: 'rule changes', where: 'took effect by this close' }, height: opts.height || 320, priceLine: false,
       ranges: ['1M', '3M', '6M', 'All'], range: 'All',
       source: opts.source || 'Closed trades, by close day · modeled results'
     });
@@ -40336,10 +40355,10 @@ ${renderExportBindings()}
     var eqBlock = sumCurve.points.length >= 2
       ? '<section class="acc-sum-equity"><div class="chart-head"><h3>Running total, $' + ACC_NOTIONAL.toLocaleString() + ' per trade</h3><span class="chart-foot">' +
           escapeHtml(accMoney(sumCurve.finalEquity - sumCurve.base, true)) + ' after ' + (sumCurve.points.length - 1) + ' closes · max drawdown ' + (sumCurve.maxDDpct > 0 ? '-' + Math.round(sumCurve.maxDDpct * 100) + '%' : 'none') + '</span></div>' +
-          accEquityChartHtml(sumCurve.points, { key: 'summary' }) + '</section>'
+          accEquityChartHtml(sumCurve.points, { key: 'summary', trades: closed }) + '</section>'
       : '';
     box.innerHTML = lead + eqBlock + banner + accountabilityBlock + lossBlock + winBlock + colsBlock + diagBlock + whyBlock;
-    if (eqBlock) accMountEquityChart(box, sumCurve.points, { key: 'summary' });
+    if (eqBlock) accMountEquityChart(box, sumCurve.points, { key: 'summary', trades: closed });
     bindBriefChips(box);
     var accOpen = box.querySelectorAll('[data-acc-open]');
     for (var ai = 0; ai < accOpen.length; ai++) accOpen[ai].addEventListener('click', function(){
@@ -40716,10 +40735,10 @@ ${renderExportBindings()}
     var decAll = accDecided(trades);
     box.innerHTML = toggles +
       '<p class="hint acc-an-lead">' + lead + '</p>' + accountNote +
-      tiles + accEquityChartHtml(ec.points, { key: paper ? 'paper' : 'equity' }) +
+      tiles + accEquityChartHtml(ec.points, { key: paper ? 'paper' : 'equity', trades: paper ? null : trades }) +
       (paper ? '' : accRollingWinHtml(decAll)) +
       accSplitCurvesHtml(decAll, splitLens) + accPnlHistogramHtml(decAll, paper ? { title: 'How big each paper trade was (P&amp;L %)' } : null) + accPnlCalendarHtml(decAll, paper ? basis : undefined);
-    accMountEquityChart(box, ec.points, { key: paper ? 'paper' : 'equity', dollars: account, label: account ? 'Paper P&L' : 'Equity',
+    accMountEquityChart(box, ec.points, { key: paper ? 'paper' : 'equity', trades: paper ? null : trades, dollars: account, label: account ? 'Paper P&L' : 'Equity',
       source: paper ? 'Webull paper fills, by close day' : 'Closed trades, by close day · ' + basisLbl });
     if (!paper) accMountRollingWin(box, decAll);
   }
