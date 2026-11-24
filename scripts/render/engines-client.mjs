@@ -701,6 +701,18 @@ function engEvidenceNote(t){
       ? ' Borrow fees were read for ' + hl.borrowNames + ' names.'
       : ' Borrow fees: none read (the borrow feed is off), so the short-squeeze setup never gets its hard-to-borrow bonus.';
   }
+  // Automatic data checks (lib/data-checks.mjs, 2026-11-24): feeds that
+  // failed their check and were taken away from the run, and names whose
+  // price bars were not believable (no new entries this run).
+  function engGuardHtml(hl){
+    var g = hl && hl.dataGuard;
+    if (!g) return '';
+    var sk = g.skipped || [], nm = g.names || [];
+    if (!sk.length && !nm.length) return '<p class="evb-note" id="eng-data-guard">Automatic data checks: every feed the engines read passed at this run.</p>';
+    var parts = sk.filter(function(r){ return r.id !== 'bars'; }).map(function(r){ return '<b>' + escapeHtml(r.label) + '</b> (' + escapeHtml(r.what) + ': ' + escapeHtml(String(r.why || '').replace(/\\.$/, '')) + ')'; });
+    if (nm.length) parts.push('<b>price bars</b> not believable, so no new entries this run: ' + nm.map(function(r){ return escapeHtml(r.symbol) + ' (' + escapeHtml(r.why) + ')'; }).join('; '));
+    return '<p class="evb-note" id="eng-data-guard">Automatic data checks skipped at this run: ' + parts.join('; ') + '. The rules that read a skipped feed treat it as no reading.</p>';
+  }
   // News data check (2026-11-24): the news gate on every signal engine and
   // Downside's souring-news points read GDELT news volume; a stock with no
   // fresh read is never blocked or scored, so show how many had one.
@@ -1108,7 +1120,7 @@ function engEvidenceNote(t){
       if ((hl.thinBars || []).length) miss.push('too little price history: ' + hl.thinBars.map(escapeHtml).join(', '));
       if ((hl.staleBars || []).length) miss.push('price history out of date: ' + hl.staleBars.map(escapeHtml).join(', '));
       if ((hl.badInput || []).length) miss.push('input could not be read (left out this run only): ' + hl.badInput.map(function(r){ return escapeHtml(r.symbol); }).join(', '));
-      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + ((hl.earnBackup || []).length ? ' Report date from Webull (the main source had none; used only to hold back new entries near the report, never to open one): ' + hl.earnBackup.map(escapeHtml).join(', ') + '.' : '') + '</p>' + engFlowHealthHtml(hl) + engNewsHealthHtml(hl);
+      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + ((hl.earnBackup || []).length ? ' Report date from Webull (the main source had none; used only to hold back new entries near the report, never to open one): ' + hl.earnBackup.map(escapeHtml).join(', ') + '.' : '') + '</p>' + engFlowHealthHtml(hl) + engNewsHealthHtml(hl) + engGuardHtml(hl);
     }
 
     var R = d.research, hist = '';

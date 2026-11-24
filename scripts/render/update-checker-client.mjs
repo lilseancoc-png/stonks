@@ -46,6 +46,25 @@ export function updateCheckerClient(window, document, ctx) {
       '<p class="uc-muted">From the last full build'+(src.builtAtIso?' at '+esc(time(src.builtAtIso)):'')+'. A feed the build could not read keeps its last-good copy and is marked carried; a carry streak of '+esc(src.reviewStreak||3)+' days or more is worth a look at the source.</p>'+
       '<div class="uc-source-wrap"><table class="uc-source-table"><thead><tr><th scope="col">Source</th><th scope="col">State</th><th scope="col" class="num">Newest data</th><th scope="col" class="num">Carry streak (days)</th><th scope="col" class="num">Bad days in 30</th></tr></thead><tbody>'+rows+'</tbody></table></div></details>';
   }
+  // Automatic engine data checks (lib/data-checks.mjs, in source-health.json
+  // as engineFeeds): coverage, believable values and freshness of every feed
+  // the strategy engines read, and what the guard took away.
+  function feedChecksHtml(c){
+    if(!c || !Array.isArray(c.feeds) || !c.feeds.length)return '';
+    var word={ok:'Passed',warn:'Check',fail:'Failed',missing:'Not read'};
+    var failed=c.feeds.filter(function(f){return f.state==='fail';}).length;
+    var order={fail:0,warn:1,missing:2,ok:3};
+    var rows=c.feeds.slice().sort(function(a,b){return (order[a.state]-order[b.state])||a.label.localeCompare(b.label);}).map(function(f){
+      var t=f.state==='ok'?'ok':f.state==='fail'?'bad':'warn';
+      var cov=f.coverage&&f.coverage.of?f.coverage.read+' of '+f.coverage.of:'—';
+      return '<tr data-uc-feed="'+esc(f.id)+'"><td><b>'+esc(f.label)+'</b><br><span class="uc-muted">'+esc(f.provider)+'</span></td>'+
+        '<td><span class="uc-source-state" data-tone="'+t+'"><i aria-hidden="true"></i>'+esc(word[f.state]||f.state)+'</span><br><span class="uc-muted">'+esc(f.detail||'')+'</span>'+(f.guarded?'<br><span class="uc-muted"><b>Engines:</b> '+esc(f.guard)+'</span>':'')+'</td>'+
+        '<td class="num">'+esc(cov)+'</td><td><span class="uc-muted">'+esc(f.uses||'')+'</span></td></tr>';
+    }).join('');
+    return '<details class="uc-workflows uc-sources uc-feed-checks"'+(failed?' open':'')+'><summary>Engine data checks · '+c.feeds.length+' feeds'+(failed?' · '+failed+' failed':' · none failed')+'</summary>'+
+      '<p class="uc-muted">Every full build checks each feed the strategy engines read: did it cover most of its names, is every number possible, and is it from the latest session.'+(c.mode==='report'?' Report mode: the engines still read a failed feed.':' A feed that fails is taken away from the engines for that run, so the rules that read it skip it.')+(c.builtAtIso?' Last checked '+esc(time(c.builtAtIso))+'.':'')+'</p>'+
+      '<div class="uc-source-wrap"><table class="uc-source-table"><thead><tr><th scope="col">Feed</th><th scope="col">Check</th><th scope="col" class="num">Covered</th><th scope="col">Read by</th></tr></thead><tbody>'+rows+'</tbody></table></div></details>';
+  }
   function render(){
     var root=document.getElementById('update-checker-root');if(!root || !ctx.owner())return;
     var html='<div class="uc-toolbar"><button type="button" class="book-more" data-uc-refresh'+(loading?' disabled':'')+'>'+(loading?'Checking…':'Refresh status')+'</button><span class="uc-muted">'+(data?'Observed '+esc(time(data.observedAt)):'')+'</span></div>';
@@ -65,6 +84,7 @@ export function updateCheckerClient(window, document, ctx) {
     if(m.endpoints && Array.isArray(m.endpoints.rows) && m.endpoints.rows.length){var epDown=m.endpoints.rows.filter(function(r){return r.status==='down';}).length;html+='<details class="uc-workflows uc-endpoints"'+(epDown?' open':'')+'><summary>Live endpoints · '+m.endpoints.rows.length+' checked'+(epDown?' · '+epDown+' failing':' · all answering')+'</summary><p class="uc-muted">Signed-out requests to the site at '+esc(time(m.endpoints.checkedAt))+'. An Owner endpoint should answer 401 when signed out; 500 or worse means the function is crashing.</p>'+m.endpoints.rows.map(function(r){return '<article><h4>'+esc(r.label)+' <span class="uc-muted">'+esc(r.path)+'</span></h4>'+badge(r.status)+'<p>'+esc(r.detail)+'</p></article>';}).join('')+'</details>';}
     var a=data.artifacts;html+='<details class="uc-workflows"><summary>Stored data and log integrity'+(a?' · '+a.checked+' artifacts checked':' · awaiting scan')+'</summary>';
     if(a){html+='<p>'+a.issueCount+' integrity or stored-log issues. '+(a.complete?'Inventory scan completed.':'Inventory coverage is incomplete.')+'</p>';(a.issues||[]).forEach(function(row){html+='<article><h4>'+esc(row.key)+'</h4>'+badge(row.status)+'<p>'+esc(row.detail)+'</p></article>';});}html+='</details>';
+    html+=feedChecksHtml(data.sources&&data.sources.engineFeeds);
     html+=sourcesHtml(data.sources);
     html+='<details class="uc-workflows"><summary>Monitored workflows</summary>'+(m.workflows||[]).map(function(w){return '<article><h4>'+esc(w.latest?w.latest.name:w.path)+'</h4>'+runCard(w.latest)+'</article>';}).join('')+'</details>';
     html+='<section class="uc-features"><h3>Feature coverage</h3><p class="uc-muted">Every feature has a data check or an explicit reference / request-driven designation. Valid empty results are allowed. Raw log text and private payload values are never included.</p><label>Show <select data-uc-filter><option value="issues">Needs review</option><option value="all">All features</option></select></label><div class="uc-feature-list">';
