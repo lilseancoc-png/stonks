@@ -1581,7 +1581,9 @@ Each feed gets three checks:
   Stale data that is quietly reused is marked.
 
 States are ok / warn / fail / missing. A check that throws marks its feed
-fail ("the check itself failed").
+fail ("the check itself failed"). A feed whose own switch is off on purpose (`GDELT_NEWS=0`,
+`CROWD=0`) reads missing and is not guarded. The feeds are built in a
+function inside a try, so a bad input can never stop the bake.
 
 **Engine guard** (`guardEngineInputs`, on the 11:00 / 15:30 runs only): a
 failed feed is handed to `runEngines` as missing, which every rule already

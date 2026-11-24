@@ -103,7 +103,7 @@ import { refreshFilingText } from "../lib/labs/filing-text.mjs";
 import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
 import { engineName as strategyEngineName, MACRO_ETFS as ENGINES_MACRO_ETFS } from "../lib/engines/config.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
-import { checkEngineFeeds, guardEngineInputs, dataChecksMode, compactChecks } from "../lib/data-checks.mjs";
+import { checkEngineFeeds, guardEngineInputs, dataChecksMode, compactChecks, feedsSwitchedOff } from "../lib/data-checks.mjs";
 import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // The Owner Settings report from scripts/owner-settings-env.mjs (null when the
 // build ran without the preload). picksTag is stamped on new record trades.
@@ -42594,8 +42594,10 @@ async function main() {
   // The feeds the strategy engines read (built on every bake, so the
   // automatic data checks below run on every bake too; the engines read
   // them only on the 11:00 and 15:30 ET runs).
+  // Built inside a function: a throw here must not stop the bake (before the
+  // data checks these feeds were only built inside the engine run's own try).
   const enginesFeedFred = (id) => historicalSourceCache?.context?.[id]?.rows || [];
-  const enginesFeeds = {
+  const buildEnginesFeeds = () => ({
     builtAtIso, chains, tickers: TICKERS,
     isEtf: (sym) => SECTORS[sym] === "ETF",
     barsOf: (sym) => chains?.[sym]?._patternBars || chains?.[sym]?._bars || [],
@@ -42634,7 +42636,11 @@ async function main() {
     // Daily Fear & Greed closes (the index-fear paper trial reads the
     // last two before today).
     fearHistory: fngHistoryNext?.snapshots || [],
-  };
+  });
+  let enginesFeeds = null;
+  try { enginesFeeds = buildEnginesFeeds(); } catch (err) {
+    console.warn(`[data-checks] engine feeds not built — ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Automatic data checks (lib/data-checks.mjs, 2026-11-24): coverage,
   // believable values and freshness for every feed above, on every bake.
   // In "guard" mode (Owner Settings DATA_CHECKS, the default) a feed that
@@ -42644,8 +42650,9 @@ async function main() {
   let engineDataChecks = null;
   try {
     const checksToday = etDateKey(new Date(builtAtIso));
+    if (!enginesFeeds) throw new Error("engine feeds were not built");
     engineDataChecks = checkEngineFeeds({ ...enginesFeeds, crowd: crowdPayload, gdelt: policyNewsState?.gdelt || null }, {
-      today: checksToday, builtAtIso, mode: dataChecksMode(),
+      today: checksToday, builtAtIso, mode: dataChecksMode(), switchedOff: feedsSwitchedOff(),
       universe: [...new Set([...TICKERS, ...ENGINES_MACRO_ETFS])],
       stocks: TICKERS.filter((s) => SECTORS[s] !== "ETF" && !ENGINES_MACRO_ETFS.includes(s)),
     });
@@ -42669,7 +42676,7 @@ async function main() {
           loaded: enginesLoaded,
           // The feeds above, with any that failed a data check taken away
           // (guard mode); dataGuard tells the engines page what was skipped.
-          ...guardEngineInputs(enginesFeeds, engineDataChecks),
+          ...guardEngineInputs(enginesFeeds || buildEnginesFeeds(), engineDataChecks),
           groupOf: (sym) => sectorGroupOf(sym),
           // Fed decisions are the dated list; CPI and jobs days are the FRED
           // release calendars (the first-Friday rule stands in for jobs days

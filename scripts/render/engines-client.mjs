@@ -708,7 +708,7 @@ function engEvidenceNote(t){
     var g = hl && hl.dataGuard;
     if (!g) return '';
     var sk = g.skipped || [], nm = g.names || [];
-    if (!sk.length && !nm.length) return '<p class="evb-note" id="eng-data-guard">Automatic data checks: every feed the engines read passed at this run.</p>';
+    if (!sk.length && !nm.length) return '<p class="evb-note" id="eng-data-guard">Automatic data checks: nothing was skipped at this run (details on the Update Checker).</p>';
     var parts = sk.filter(function(r){ return r.id !== 'bars'; }).map(function(r){ return '<b>' + escapeHtml(r.label) + '</b> (' + escapeHtml(r.what) + ': ' + escapeHtml(String(r.why || '').replace(/\\.$/, '')) + ')'; });
     if (nm.length) parts.push('<b>price bars</b> not believable, so no new entries this run: ' + nm.map(function(r){ return escapeHtml(r.symbol) + ' (' + escapeHtml(r.why) + ')'; }).join('; '));
     return '<p class="evb-note" id="eng-data-guard">Automatic data checks skipped at this run: ' + parts.join('; ') + '. The rules that read a skipped feed treat it as no reading.</p>';

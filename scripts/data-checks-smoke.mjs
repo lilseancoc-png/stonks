@@ -3,7 +3,7 @@
 // engines. Run: node scripts/data-checks-smoke.mjs (no npm script, so
 // verify:risk-cost stays green).
 import assert from "node:assert/strict";
-import { checkEngineFeeds, guardEngineInputs, dataChecksMode, compactChecks, checksBriefLine, barsProblem, priorSession, sessionsBehind, FEEDS } from "../lib/data-checks.mjs";
+import { checkEngineFeeds, guardEngineInputs, dataChecksMode, compactChecks, checksBriefLine, feedsSwitchedOff, barsProblem, priorSession, sessionsBehind, FEEDS } from "../lib/data-checks.mjs";
 import { buildEngineViews } from "../lib/engines/index.mjs";
 import { buildSourceHealth } from "../lib/source-health.mjs";
 import { buildOwnerMarketBrief } from "../lib/owner-market-brief.mjs";
@@ -102,6 +102,17 @@ test("news: a spike on most stocks at once fails (broken baseline, Nov 20)", () 
 test("news: stale GDELT day fails", () => {
   const f = feed(run(input({ gdelt: { lastOkDate: "2026-11-18" } })), "news");
   assert.equal(f.state, "fail"); assert.match(f.detail, /2026-11-18/);
+});
+
+test("a feed switched off on purpose reads missing and is not guarded", () => {
+  assert.deepEqual(feedsSwitchedOff({ GDELT_NEWS: "0", CROWD: "false" }), ["news", "crowd"]);
+  assert.deepEqual(feedsSwitchedOff({}), []);
+  const inp = input({ gdelt: { lastOkDate: "2026-11-10" } });
+  const c = checkEngineFeeds(inp, { today: TODAY, builtAtIso: `${TODAY}T16:00:00Z`, mode: "guard", universe: TICKERS, stocks: STOCKS, switchedOff: ["news"] });
+  const f = feed(c, "news");
+  assert.equal(f.state, "missing"); assert.equal(f.guarded, false); assert.match(f.detail, /switched off/);
+  assert.equal(guardEngineInputs(inp, c).policyNews, inp.policyNews);
+  assert.equal(checksBriefLine(c), null);
 });
 
 test("report mode shows the fail but takes nothing away", () => {
