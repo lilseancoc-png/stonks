@@ -37495,7 +37495,7 @@ ${renderExportBindings()}
   // time stop, the pre-earnings close and the weekly reset) kept only so
   // legacy resolved rows still label + sort; new closes use 'thesis-broken'
   // for the invalidation path.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','time-limit','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','reset'];
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','event-review','shock-time','time-limit','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','owner-avoid','never-trade','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -39943,7 +39943,7 @@ ${renderExportBindings()}
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'time-limit':'hold time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'event-review':'event review', 'shock-time':'post-shock time limit', 'time-limit':'hold time limit', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'owner-avoid':'closed by your Avoid', 'never-trade':'closed: on the never-trade list', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
@@ -41804,7 +41804,7 @@ ${renderExportBindings()}
   // text, and "Copy all" copies exactly what the feed link shows). Change one,
   // change the other. Ids and times are always ET so the tab matches the feed.
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'time-limit':'held its sessions (hold exit)', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control' };
+  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'event-review':'closed at the post-event review', 'shock-time':'post-shock time limit', 'time-limit':'held its sessions (hold exit)', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)', 'owner-avoid':'closed by your Avoid control', 'never-trade':'closed: on the never-trade list' };
   var TL_RULE = '============================================================';
   var TL_LABEL_W = 10;
   var tlFmt = null;

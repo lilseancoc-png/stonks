@@ -276,6 +276,13 @@ ok(!nm.misses.some((m) => m.symbol === "META"), "a picked name is never a near m
 eq(NP.nearMisses(runPicks, null, { n: 2 }).misses.length, 2, "n caps the list");
 eq(NP.nearMisses({ picks: [{ group: "actionable", entry: { now: true }, contract: {}, strategy: { type: "long" }, optionEconomics: { eligible: true } }] }, null, { isReady: (p) => pickDisplayDecision(p).ready }).readyCount, 1, "a ready pick counts");
 ok(Object.keys(NP.GATE_NEXT).every((k) => NP.GATE_LABEL[k]), "every rule with advice has a label");
+{
+  const gauge = NP.nearMisses({ picks: [], rosterMeta: { minConviction: 4, turnedAway: [
+    { sym: "UVXY", side: "call", total: 9, gate: "never-trade" }, { sym: "DRAM", side: "put", total: -8, gate: "shares-only" },
+    { sym: "AMD", side: "call", total: 6, gate: "sector-cap" } ] } }, { grades: { UVXY: { total: 3 }, DRAM: { total: -3 } } });
+  eq(gauge.misses.map((m) => m.symbol), ["AMD"], "never-trade and shares-only names are counted, never listed as near misses");
+  ok(gauge.gates.some((g) => g.gate === "never-trade" && /gauge/.test(g.label)) && gauge.gates.some((g) => g.gate === "shares-only"), "both rules have labels");
+}
 
 // --- Home-screen app (PWA) -------------------------------------------------------
 {

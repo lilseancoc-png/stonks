@@ -95,6 +95,18 @@ export function renderOwnerControlsJs() {
       el.innerHTML = ocBannerHtml(where);
     }
   }
+  // The never-trade list (lib/never-trade.mjs): locked in code, always on,
+  // even with Owner controls off. Read-only here.
+  function ocNeverHtml(nt){
+    if (!nt || !nt.list || !nt.list.length) return '';
+    // Grouped: a long group (the leveraged and inverse funds) shows as a count.
+    var groups = [];
+    nt.list.forEach(function(r){ var g = null; for (var i = 0; i < groups.length; i++) if (groups[i].name === r.group) g = groups[i]; if (!g) { g = { name: r.group, syms: [] }; groups.push(g); } g.syms.push(r.sym); });
+    var parts = groups.map(function(g){ return g.syms.length > 12 ? g.syms.length + ' ' + ocEsc(g.name.toLowerCase()) + ' funds' : ocEsc(g.syms.join(', ')); });
+    var so = (nt.sharesOnly || []).map(function(r){ return ocEsc(r.sym); });
+    return '<p class="oc-note" data-oc-never><b>Never traded (locked in code):</b> ' + parts.join('; ') + '. Read as market gauges only; no switch here lifts them.' +
+      (so.length ? ' <b>Shares only, no options:</b> ' + so.join(', ') + '.' : '') + ' <a href="?tab=owner-settings">Why each one &rarr;</a></p>';
+  }
   function ocListHtml(rows, kind){
     if (!rows.length) return '<p class="oc-empty">' + (kind === 'avoid' ? 'No stock is on the avoid list.' : kind === 'watch' ? 'No stock is being watched closely.' : 'No catalyst flagged.') + '</p>';
     return '<ul class="oc-list">' + rows.map(function(r){
@@ -199,7 +211,7 @@ export function renderOwnerControlsJs() {
       '</div>' +
       '<div class="oc-cell"><h3 class="oc-h3">Check this stock</h3><form class="oc-form" data-oc-form="check"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" value="' + ocEsc(OC.checkSym) + '"></label><button type="submit" class="oc-btn">Check</button></form><div class="oc-check">' + ocCheckHtml() + '</div></div>' +
       '<div class="oc-grid">' +
-        '<div class="oc-cell"><h3 class="oc-h3">Avoid</h3><p class="oc-note">No new entries on the stock in any engine or Top Picks until you lift it.</p><form class="oc-form" data-oc-form="avoid"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><label class="oc-lbl">Until (optional) <input class="oc-in" type="date" name="until" min="' + ocEsc(today) + '"></label><label class="oc-chk"><input type="checkbox" name="close"> Close its open trades at the next run</label><button type="submit" class="oc-btn"' + dis + '>Avoid</button></form>' + ocListHtml(d.avoid || [], 'avoid') + '</div>' +
+        '<div class="oc-cell"><h3 class="oc-h3">Avoid</h3><p class="oc-note">No new entries on the stock in any engine or Top Picks until you lift it.</p><form class="oc-form" data-oc-form="avoid"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><label class="oc-lbl">Until (optional) <input class="oc-in" type="date" name="until" min="' + ocEsc(today) + '"></label><label class="oc-chk"><input type="checkbox" name="close"> Close its open trades at the next run</label><button type="submit" class="oc-btn"' + dis + '>Avoid</button></form>' + ocListHtml(d.avoid || [], 'avoid') + ocNeverHtml(d.neverTrade) + '</div>' +
         '<div class="oc-cell"><h3 class="oc-h3">Watch closely</h3><p class="oc-note">Front of each engine’s queue and first for Top Picks’ AI review slots for ' + d.watchSessions + ' sessions (through ' + ocEsc(ocDay(d.nextWatchUntil)) + ' if set now). No bar is lowered.</p><form class="oc-form" data-oc-form="watch"><label class="oc-lbl">Ticker <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false" required></label><button type="submit" class="oc-btn"' + dis + '>Watch</button></form>' + ocListHtml(d.watch || [], 'watch') + '</div>' +
       '</div>' +
       '<div class="oc-cell"><h3 class="oc-h3">Catalyst log</h3><p class="oc-note">One line, shown on Top Picks, Open picks and here until its date. It changes no trade.</p><form class="oc-form" data-oc-form="catalyst"><label class="oc-lbl">Ticker (optional) <input class="oc-in oc-in-sym" name="sym" maxlength="10" autocomplete="off" spellcheck="false"></label><label class="oc-lbl oc-lbl-wide">What <input class="oc-in" name="text" maxlength="140" required></label><label class="oc-lbl">Date <input class="oc-in" type="date" name="date" min="' + ocEsc(today) + '" required></label><button type="submit" class="oc-btn"' + dis + '>Flag</button></form>' + ocListHtml(d.catalysts || [], 'catalyst') + '</div>' +

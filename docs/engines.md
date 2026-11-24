@@ -1508,6 +1508,58 @@ Full spec: [`owner-controls.md`](owner-controls.md). In the book
 - The history test passes no controls, so its result is unchanged.
 
 
+## Never-trade list (2026-11-23)
+
+Owner: "VIX should not be traded at all but should be used as a market
+gauge", then "Same for USO". `lib/never-trade.mjs` holds the list: VIX and
+its options (`VIX`, `^VIX`, `VIXW`), every VIX product (`UVXY`, `UVIX`,
+`VIXY`, `VXX`, `VIXM`, `VXZ`, `SVXY`, `SVIX`) and `USO`. It is code, not a
+setting: no Owner Settings switch, Owner control (the `OWNER_CONTROLS` kill
+switch included), repo variable or Vercel value lifts it.
+
+- **Engines** (`stepBook`): a listed name is dropped from every engine's
+  candidates before any rule and shown as skipped by rule ("never traded");
+  `consider` refuses it again, so it opens no trade and no shadow trade. An
+  open trade or shadow trade on it closes at the run's mark as `never-trade`
+  (this wins over the trade's own exit on the same run); like `owner-avoid`
+  it sets no cooldown and learning, the Allocator and the loser brake never
+  see it.
+- **Rotation**: listed funds stay ranked (the page and the read show them as
+  gauges, and the read's text names them) but are never held; the next fund
+  down takes the place. A stored target for the month that holds a listed
+  fund is read again the same month (`standCore`).
+- **Top Picks** (`buildTopPicks`): a listed name is held off before every
+  other gate (`rosterMeta.neverTradeHeld`, gate trace `never-trade`) and never
+  takes an AI grader slot (`aiGraderCandidates`); its grade still shows. An
+  open record trade on it closes as `never-trade`.
+- **Webull mirror**: a record trade on a listed name is logged `skipped`
+  ("Not bought: ... never-trade list") before the Owner controls gate, and
+  `place` refuses any entry order on it, even for a ledger row from before the
+  list. Exits still go out.
+- **Trade instructions**: an OPEN on a listed name carries `never_trade` in
+  `blocked_by`.
+- Shown read-only on Owner Settings → Account limits (`neverTrade` in the
+  settings view) and beside Avoid on the Owner controls card (`neverTrade` in
+  the controls view).
+
+**Shares only** (`SHARES_ONLY`, same file, owner review 2026-11-24): `DRAM`,
+`KWEB`, `EWY`, each with its reason (`MRNA` and `SPCX` keep options). The
+engines may trade them as stock, never through options: in `stepBook` a call signal's instrument becomes shares
+(an option twin too), and it is skipped by rule when share trades are off; a
+put signal is skipped by rule (the engines never short stock) and takes no
+run-limit room. Top Picks buys options only, so it holds them off right after
+the never-trade check (`rosterMeta.sharesOnlyHeld`, gate trace `shares-only`)
+and `aiGraderCandidates` skips them. The Webull mirror logs an option trade on
+one as skipped and `place` refuses an option entry; share orders go on.
+Trade instructions add `shares_only` to an option OPEN. Open option trades on
+these names were left to run to their own exits.
+
+Every read of these names as a gauge is unchanged: VIX and its curve, the VIX
+pause, the bounce skip, the VIX-rollover trial (it buys QQQ), Macro's VIX
+curve setups, the UVXY market tile, the heat maps and the history test.
+Tests: `engines-smoke` (three never-trade checks), `entry-policy-smoke`,
+`owner-controls-smoke`, `trade-instructions-smoke`, `owner-settings-browser`.
+
 ## Not in scope
 
 - No real money and no broker other than the Webull paper sandbox.

@@ -220,6 +220,22 @@ ok("the Owner controls hold OPENs: stop, avoid-and-close, avoid", () => {
   assert.equal(avoided.new_trades_stopped, false);
 });
 
+ok("the never-trade list holds an OPEN on UVXY with no control set", () => {
+  const nv = acc.open.find((x) => x.symbol === "NVDA");
+  const out = buildTradeInstructions({ ...acc, open: [...acc.open, { ...structuredClone(nv), id: String(nv.id || "").replace("NVDA", "UVXY") || "UVXY-C-11/19/26-11:05", symbol: "UVXY" }] }, { nowMs: NOW });
+  const u = out.instructions.find((x) => x.symbol === "UVXY" && x.kind === "OPEN");
+  assert.ok(u, "listed so the agent can see it"); assert.equal(u.agent_placeable, false); assert.ok(u.blocked_by.includes("never_trade"));
+  assert.equal(out.instructions.find((x) => x.symbol === "NVDA" && x.kind === "OPEN").blocked_by.includes("never_trade"), false);
+});
+
+ok("shares only: an option OPEN on KWEB is held with shares_only", () => {
+  const nv = acc.open.find((x) => x.symbol === "NVDA");
+  const out = buildTradeInstructions({ ...acc, open: [...acc.open, { ...structuredClone(nv), id: String(nv.id || "").replace("NVDA", "KWEB") || "KWEB-C-11/19/26-11:05", symbol: "KWEB" }] }, { nowMs: NOW });
+  const u = out.instructions.find((x) => x.symbol === "KWEB" && x.kind === "OPEN");
+  assert.ok(u); assert.equal(u.agent_placeable, false); assert.ok(u.blocked_by.includes("shares_only")); assert.ok(!u.blocked_by.includes("never_trade"));
+  assert.equal(out.instructions.find((x) => x.symbol === "NVDA" && x.kind === "OPEN").blocked_by.includes("shares_only"), false);
+});
+
 ok("filters: kind, since, placeable only", () => {
   assert.deepEqual(buildTradeInstructions(acc, { nowMs: NOW, kind: "close" }).instructions.map((x) => x.kind), ["CLOSE", "CLOSE", "CLOSE", "CLOSE", "CLOSE", "CLOSE"]);
   const opens = buildTradeInstructions(acc, { nowMs: NOW, kind: "open" }).instructions;

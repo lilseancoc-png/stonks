@@ -181,6 +181,7 @@ import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
 import { TOP_PICKS_MODE_KEY, readTopPicksModeDoc, marketModeForRun, marketModeBlocks, topPicksModeFactory } from "../lib/top-picks-mode.mjs";
+import { isNeverTrade, isSharesOnly } from "../lib/never-trade.mjs";
 import { OWNER_CONTROLS_KEY, readOwnerControlsDoc, activeControls, accountLimits, controlsEnabled, controlsSummary, tradeStamp as ownerControlsStamp, avoidCloses as ownerAvoidCloses } from "../lib/owner-controls.mjs";
 import { buildEarningsWeek, buildEarningsWeekPlan, EARNINGS_WEEK_DAYS } from "../lib/earnings-week.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
@@ -23569,11 +23570,26 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const marketSide = PICKS_MARKET_SIDE ? marketSideOfState(marketState) : null;
   meta.marketSide = marketSide ? { version: PICKS_MARKET_SIDE_VERSION, state: marketState, side: marketSide, withBar: marketLaneBar("with", strongBar), againstBar: marketLaneBar("against", strongBar) } : null;
   meta.marketLaneOpened = [];
+  meta.neverTradeHeld = [];
+  meta.sharesOnlyHeld = [];
   for (const r of scored) {
     const laneMin = marketLaneCandidateBar(marketLaneFor(r, r.side || (r.total >= 0 ? "call" : "put"), marketState), minConv);
     const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= laneMin;
     const actionable = preClearsBar && (r.marketAdjustment || Math.abs(r.total) >= laneMin) && r.side;
     const tactical = (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid";
+    // NEVER-TRADE LIST (lib/never-trade.mjs, 2026-11-23): VIX products and USO
+    // are read as gauges only. A hard block in code, before every other gate,
+    // that no Owner setting or control lifts. The grade still shows.
+    if (isNeverTrade(r.sym)) {
+      if (actionable || tactical) { meta.neverTradeHeld.push(r.sym); traceGate(r, actionable ? r.side : "put", "never-trade"); }
+      continue;
+    }
+    // SHARES ONLY (same file): names the engines trade as stock but never
+    // through options. Top Picks buys options only, so it leaves them out.
+    if (isSharesOnly(r.sym)) {
+      if (actionable || tactical) { meta.sharesOnlyHeld.push(r.sym); traceGate(r, actionable ? r.side : "put", "shares-only"); }
+      continue;
+    }
     // Disclosed terms near a collateral maintenance threshold add a downside
     // veto to new bullish ideas. They never manufacture a bearish entry.
     // A confirmed takeover target is kept off either side.
@@ -29933,6 +29949,9 @@ export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   const cands = [];
   for (const r of scored) {
     if (!r || !r.data) continue;
+    // The never-trade list and the shares-only names (lib/never-trade.mjs) can
+    // never ship as a pick, so they never take a grader slot (no AI spent).
+    if (isNeverTrade(r.sym) || isSharesOnly(r.sym)) continue;
     if (!regimePrimaryGateClears(r, macroBackdrop)) continue;
     let side = null, tactical = false;
     const laneMin = marketLaneCandidateBar(marketLaneFor(r, r.side || (r.total >= 0 ? "call" : "put"), marketState), minConv);
@@ -31320,6 +31339,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // Counted like any close (it is a real exit), checked after the price exits.
     if (!res && opts.ownerControls && ownerAvoidCloses(opts.ownerControls, e.symbol, e.entryDate)) {
       res = { status: "owner-avoid", outcome: outcomeFromPnl(scaleOut && pnum(optionPnlPct) != null ? scaleOut.pnlPct / 2 + optionPnlPct / 2 : pnum(optionPnlPct)) };
+    }
+    // NEVER-TRADE LIST (lib/never-trade.mjs): an open trade on a listed name
+    // closes at this run's mark, whatever the Owner controls say.
+    if (!res && isNeverTrade(e.symbol)) {
+      res = { status: "never-trade", outcome: outcomeFromPnl(scaleOut && pnum(optionPnlPct) != null ? scaleOut.pnlPct / 2 + optionPnlPct / 2 : pnum(optionPnlPct)) };
     }
     if (!res && e.eventPlay && e.eventPlay.kind) {
       const builtAt = new Date(builtAtIso);
