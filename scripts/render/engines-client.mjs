@@ -690,7 +690,25 @@ function engEvidenceNote(t){
     if (!f) return '';
     if (!f.scan) return '<p class="evb-note" id="eng-flow-health">Flow data check: no fresh option-flow scan reached this run, so the Flow engine read nothing from option prints.</p>';
     var pct = f.prints ? Math.round(f.readable / f.prints * 100) : 0;
-    return '<p class="evb-note" id="eng-flow-health">Flow data check: the scan of ' + escapeHtml(rglEt(f.scan)) + ' flagged ' + f.prints + ' option print' + (f.prints === 1 ? '' : 's') + '; ' + f.readable + ' (' + pct + '%) had a readable bought or sold side, ' + f.stale + ' traded more than 15 minutes before the scan (side unreadable) and ' + f.noTape + ' had no side for another reason. ' + f.signedNames + ' name' + (f.signedNames === 1 ? '' : 's') + ' had signed flow today. Webull large-order flow was read for ' + (hl.webullFlowNames || 0) + ' names (the big-order paper trial).</p>';
+    return '<p class="evb-note" id="eng-flow-health">Flow data check: the scan of ' + escapeHtml(rglEt(f.scan)) + ' flagged ' + f.prints + ' option print' + (f.prints === 1 ? '' : 's') + '; ' + f.readable + ' (' + pct + '%) had a readable bought or sold side, ' + f.stale + ' traded more than 15 minutes before the scan (side unreadable) and ' + f.noTape + ' had no side for another reason. ' + f.signedNames + ' name' + (f.signedNames === 1 ? '' : 's') + ' had signed flow today. Webull large-order flow was read for ' + (hl.webullFlowNames || 0) + ' names' + (hl.webullFlowDate ? ', latest session ' + escapeHtml(hl.webullFlowDate) : '') + ' (the big-order paper trial; Webull splits traded value by order size and by which side started the trade, its own estimate, not exchange data).' + engBorrowNote(hl) + '</p>';
+  }
+  // Borrow fees feed the short-squeeze setup's hard-to-borrow bonus; the
+  // borrow feed is off by default (2026-11-13), so say so instead of
+  // leaving the bonus silently unused (labeling pass, 2026-11-24).
+  function engBorrowNote(hl){
+    if (!hl || hl.borrowNames == null) return '';
+    return hl.borrowNames > 0
+      ? ' Borrow fees were read for ' + hl.borrowNames + ' names.'
+      : ' Borrow fees: none read (the borrow feed is off), so the short-squeeze setup never gets its hard-to-borrow bonus.';
+  }
+  // News data check (2026-11-24): the news gate on every signal engine and
+  // Downside's souring-news points read GDELT news volume; a stock with no
+  // fresh read is never blocked or scored, so show how many had one.
+  function engNewsHealthHtml(hl){
+    var n = hl && hl.news;
+    if (!n || !n.of) return '';
+    var low = n.read * 2 < n.of;
+    return '<p class="evb-note" id="eng-news-health">News data check: news volume (GDELT) was read for ' + n.read + ' of ' + n.of + ' stocks today or yesterday' + (n.read ? ', ' + n.spikes + ' at twice their usual volume or more' : '') + '. ' + (low ? 'Under half, so the news gate and the Downside news points saw few stocks this run; a stock with no read is never blocked or scored.' : 'A stock with no read is never blocked or scored.') + '</p>';
   }
   function engCoreReads(e, h){
     var r = h.reads || {};
@@ -1090,7 +1108,7 @@ function engEvidenceNote(t){
       if ((hl.thinBars || []).length) miss.push('too little price history: ' + hl.thinBars.map(escapeHtml).join(', '));
       if ((hl.staleBars || []).length) miss.push('price history out of date: ' + hl.staleBars.map(escapeHtml).join(', '));
       if ((hl.badInput || []).length) miss.push('input could not be read (left out this run only): ' + hl.badInput.map(function(r){ return escapeHtml(r.symbol); }).join(', '));
-      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + ((hl.earnBackup || []).length ? ' Report date from Webull (the main source had none; used only to hold back new entries near the report, never to open one): ' + hl.earnBackup.map(escapeHtml).join(', ') + '.' : '') + '</p>' + engFlowHealthHtml(hl);
+      health = '<p class="evb-note">Data check at the last run: ' + hl.views + ' of ' + hl.universe + ' names had everything the engines read.' + (miss.length ? ' Left out: ' + miss.join('; ') + '.' : '') + ((hl.earnBackup || []).length ? ' Report date from Webull (the main source had none; used only to hold back new entries near the report, never to open one): ' + hl.earnBackup.map(escapeHtml).join(', ') + '.' : '') + '</p>' + engFlowHealthHtml(hl) + engNewsHealthHtml(hl);
     }
 
     var R = d.research, hist = '';

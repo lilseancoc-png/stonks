@@ -2193,6 +2193,18 @@ ok("views: the Webull earnings backup fills only names the main source has no re
   assert.deepEqual(on.health.earnBackup, [a]);
 });
 
+ok("views: data check counts fresh news reads, borrow fees and the newest Webull flow session (2026-11-24)", () => {
+  const nowIso = "2026-11-18T16:00:00.000Z", today = "2026-11-18";
+  const input = fixture(nowIso);
+  const stocks = input.tickers.filter((s) => !input.isEtf(s) && !MACRO_ETFS.includes(s));
+  const [a, b] = stocks;
+  const v = buildEngineViews({ ...input, today, nowMs: Date.parse(nowIso), policyNews: { [a]: { nvr: 2.4, ntn: -1.2 }, [b]: { frn: 1 } }, webullFlow: { [a]: { wfl: 5, wft: 1, wfl5: 12, date: "2026-11-17" }, [b]: { wfl: 1, wft: 0, wfl5: 2, date: "2026-11-14" } } });
+  assert.deepEqual(v.health.news, { of: stocks.length, read: 1, spikes: 1 }, "a row with no volume ratio is not a news read");
+  assert.equal(v.health.borrowNames, (input.crowdRollup || []).filter((r) => Number.isFinite(Number(r?.borrowFeePct)) && r?.borrowFeePct != null).length);
+  assert.equal(v.health.webullFlowDate, "2026-11-17");
+  assert.equal(v.views[a].live.flow.wb.date, "2026-11-17", "the trial's reason can name the session");
+});
+
 // ---- live data pack (2026-11-20) ----------------------------------------------
 ok("live pack: registry, switches and rules steps", () => {
   // Under the downtrend pack (2026-11-20), which sits on top of every signal engine.
@@ -2242,7 +2254,7 @@ ok("live pack: Flow big-order trial reads Webull large-order flow, stocks above 
   const hit = evalFlow(flowView("BIG", { wb: { wfl5: 24, wfl: 50, wft: 30 } }), CTX);
   assert.equal(hit.length, 1); assert.equal(hit[0].setup, "big-order-buying"); assert.equal(hit[0].side, "call");
   assert.equal(hit[0].score, 60 + 7 + 3); assert.deepEqual(hit[0].facts, { wfl5: 24, wfl: 50, wft: 30 });
-  assert.ok(hit[0].reasons.some((r) => /Large orders net bought 24% of everything traded over the last five sessions/.test(r)));
+  assert.ok(hit[0].reasons.some((r) => /Large orders net bought 24% of the value Webull classified over the last five sessions .Webull.s own order-size split, not exchange data./.test(r)));
   assert.equal(evalFlow(flowView("BIG", { wb: { wfl5: 9.9, wfl: 50 } }), CTX).length, 0, "under 10% over five sessions");
   assert.equal(evalFlow(flowView("BIG", { wb: { wfl5: 24, wfl: -1 } }), CTX).length, 0, "the latest session must be net buying");
   assert.equal(evalFlow(flowView("BIG", { wb: { wfl5: 24, wfl: 5 }, f: { sma50: 105 } }), CTX).length, 0, "under the 50-day");

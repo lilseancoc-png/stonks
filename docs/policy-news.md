@@ -25,6 +25,32 @@ GDELT asks for at most about one request every five seconds; the reader waits
 budget. Stocks it did not reach stay due and are read on the next
 non-Top-Picks bake the same day.
 
+### Fixes of 2026-11-24 (reads and labels)
+
+- **Ratio needs a real base.** GDELT returns hourly points only for hours it
+  has data (missing hours are not zero-filled). The first reads (Nov 20)
+  showed about a 20x "spike" on every stock read because GDELT held almost
+  nothing for the six days before. The base is now the average over the days
+  among the six that hold any point (`baseDays`), and a ratio needs four of
+  six (`GDELT_MIN_BASE_DAYS`). GDELT's own monitored volume per hour (`norm`)
+  is compared too: when the last 24 hours run more than 3x above or below the
+  base (`normShift`), the read gives no ratio. Rows now carry `baseDays` and,
+  when GDELT sent `norm`, `normShift`.
+- **Network failures.** On Nov 23, 29 of 31 calls ended with Node's bare
+  "fetch failed". The error now names the cause (`network: ECONNRESET`,
+  `network: timeout`, ...), a failed call is retried once after 12 s, and
+  three stocks in a row with no answer stop the pass as `unreachable`
+  instead of spending the budget on timeouts (`health.network` counts them).
+- **Honest health.** One stock read used to clear `stale`, and the read
+  attempt time (`health.at`, now `health.ranAt`) counted as an observation,
+  so source health said "ok" with 4 of 64 stocks read. `gdelt.coverage`
+  (`{ checkedOn, fresh, withRatio, of, status }`, written every bake) counts
+  covered stocks with a read from today or yesterday; source health shows
+  `partial` under half ("Fresh reads for 4 of 64 names") and dates the block
+  only by `lastOkDate`.
+- The engines page's data check says how many stocks had a news read (the
+  news gate and Downside's news points skip a stock with none).
+
 ## Tagging rules (Federal Register)
 
 `lib/policy-news/federal-register.mjs`:
@@ -49,7 +75,7 @@ One Owner-only key, `policy-news.json` (`lib/premium-keys.mjs`,
 `OPTIONAL_BAKE_KEYS`), read before the wipe and written after it:
 `{ version, updatedAt, fr: { lastRunDate, lastOkDate, stale, docs, health },
 gdelt: { date, done, lastOkDate, stale, days: { SYM: [{ d, vol24, base,
-ratio, tone24?, toneBase? }] }, health } }`. A failed read keeps the prior
+ratio, baseDays, normShift?, tone24?, toneBase? }] }, health, coverage } }`. A failed read keeps the prior
 block marked `stale`. Source health rows `federal-register` and `gdelt-news`.
 MCP: `get_feature quant` dataset `policy-news`.
 
@@ -70,7 +96,16 @@ public inspection list) or a news spike (2x usual volume, 10+ articles),
 two documents per name at most, from fresh reads only. The bake passes it to
 the Owner Market Brief as `desk.policy`, which shows one finding, "News or a
 federal rule on a name you hold" (priority 1 when a document is marked
-significant or the spike is 4x or more). Context only: no trade rule reads it.
+significant or the spike is 4x or more). Context only: no Top Picks rule reads it.
+
+## Strategy engines (since 2026-11-19)
+
+The engines read the same fresh rows (`policyNewsShadow` rows, today's or
+yesterday's read): the news gate on the signal engines and Downside
+(`newsBlock` in `lib/engines/config.mjs`, switch `ENGINES_NEWS_GATE`),
+Downside's souring-news points and the Reversion news tag. A stock with no
+fresh read is never blocked or scored; the engines page's news data check
+shows how many had one.
 
 ## Switches
 

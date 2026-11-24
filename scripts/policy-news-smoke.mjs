@@ -35,15 +35,28 @@ ok("GDELT URL quotes the query, asks for English and JSON", gdeltUrl('"Netflix"'
 ok("plain-text rate-limit answers are not timelines", parseTimeline("Please limit requests to one every 5 seconds") === null);
 ok("an empty timeline is an empty list, not a failure", Array.isArray(parseTimeline({ timeline: [] })) && parseTimeline({ timeline: [] }).length === 0);
 // six quiet days at 2 articles an hour, then a busy last day at 10 an hour
+// (hourly points dated at the start of each hour, as GDELT sends them, with
+// `norm`, every article GDELT saw that hour)
 const pts = [];
-for (let t = NOW - 7 * 24 * H + H; t <= NOW; t += H) pts.push({ date: stamp(t), value: t > NOW - 24 * H ? 10 : 2 });
+const hour0 = Math.floor(NOW / H) * H;
+for (let k = 168; k >= 0; k--) { const t = hour0 - k * H; pts.push({ date: stamp(t), value: t >= NOW - 24 * H ? 10 : 2, norm: 1000 }); }
 const tl = parseTimeline(JSON.stringify({ timeline: [{ series: "Article Count", data: pts }] }));
-ok("timeline points parse and sort", tl.length === pts.length && tl[0].ms < tl[tl.length - 1].ms);
+ok("timeline points parse and sort, keeping norm", tl.length === pts.length && tl[0].ms < tl[tl.length - 1].ms && tl[0].norm === 1000);
 const vr = volumeRead(tl, NOW);
-ok("volume: last 24 h vs the six-day daily average", vr.vol24 === 240 && vr.base === 48 && vr.ratio === 5);
+ok("volume: last 24 h vs the six-day daily average", vr.vol24 === 240 && vr.base === 48 && vr.ratio === 5 && vr.baseDays === 6 && vr.normShift === 1);
 const quiet = volumeRead([{ ms: NOW - 2 * H, value: 0.4 }], NOW);
 ok("volume: under one article a day gives no ratio", quiet.ratio === null);
-const tr = toneRead(tl.map((p) => ({ ms: p.ms, value: p.ms > NOW - 24 * H ? -4 : 1 })), NOW);
+// The Nov 20 case: GDELT held almost nothing for the days before, so every
+// stock read ~20x. Only two of the six base days hold points -> no ratio.
+const gap = volumeRead(tl.filter((p) => p.ms >= NOW - 24 * H || p.ms >= NOW - 3 * 24 * H), NOW);
+ok("volume: a base with data on only 2 of 6 days gives no ratio (GDELT gap, not a spike)", gap.baseDays === 2 && gap.ratio === null && gap.vol24 === 240);
+const gap4 = volumeRead(tl.filter((p) => p.ms >= NOW - 5 * 24 * H), NOW);
+ok("volume: four days of base data is enough, averaged over those four days", gap4.baseDays === 4 && gap4.base === 48 && gap4.ratio === 5);
+const shifted = volumeRead(tl.map((p) => ({ ...p, norm: p.ms >= NOW - 24 * H ? 5000 : 1000 })), NOW);
+ok("volume: GDELT's own volume 5x its base gives no ratio (normShift)", shifted.normShift === 5 && shifted.ratio === null);
+const lag = volumeRead(tl.filter((p) => p.ms <= NOW - 30 * 60000), NOW);
+ok("volume: a feed an hour behind is not read as a quiet day", lag.vol24 >= 230 && lag.ratio > 4.5);
+const tr = toneRead(tl.map((p) => ({ ms: p.ms, value: p.ms >= NOW - 24 * H ? -4 : 1 })), NOW);
 ok("tone: 24 h and base averages", tr.tone24 === -4 && tr.toneBase === 1);
 ok("every covered non-fund stock has a GDELT query; funds have none", TICKERS_FOR_TEST.stocks.every((s) => GDELT_QUERIES[s]) && TICKERS_FOR_TEST.funds.every((s) => !GDELT_QUERIES[s]));
 
@@ -89,6 +102,21 @@ const toneBody = { timeline: [{ series: "Average Tone", data: pts.map((p) => ({ 
 {
   const r = await readGdelt({ symbols: ["NFLX", "MSFT"], nowMs: NOW, fetchImpl: fakeFetch([[() => true, { body: flatBody }]], []), gapMs: 10, budgetMs: 5 });
   ok("GDELT: an exhausted time budget stops before calling", r.stopped === "time budget" && r.calls === 0);
+}
+{
+  // No HTTP answer: Node's fetch throws "fetch failed" with the cause inside.
+  const netErr = () => { const e = new TypeError("fetch failed"); e.cause = { code: "ECONNRESET" }; return e; };
+  let n1 = 0;
+  const flaky = async (url) => { if (url.includes(encodeURIComponent('"Netflix"')) && n1++ === 0) throw netErr(); return { ok: true, status: 200, text: async () => JSON.stringify(flatBody) }; };
+  const r = await readGdelt({ symbols: ["NFLX", "MSFT"], nowMs: NOW, fetchImpl: flaky, gapMs: 0, retryMs: 0 });
+  ok("GDELT: a network failure is retried once and the read lands", r.done.join(",") === "NFLX,MSFT" && r.calls === 3 && r.network === 0);
+  const dead = async () => { throw netErr(); };
+  const r2 = await readGdelt({ symbols: ["NFLX", "MSFT", "WMT", "COST", "AAPL"], nowMs: NOW, fetchImpl: dead, gapMs: 0, retryMs: 0 });
+  ok("GDELT: three stocks in a row with no answer stop the pass as unreachable", r2.stopped === "unreachable" && r2.network === 3 && r2.calls === 6 && r2.done.length === 0);
+  ok("GDELT: the error names the network cause, not just 'fetch failed'", r2.errors[0] === "NFLX: network: ECONNRESET");
+  const mixed = async (url) => (url.includes(encodeURIComponent('"Microsoft"')) ? { ok: false, status: 500, text: async () => "x" } : dead());
+  const r3 = await readGdelt({ symbols: ["NFLX", "MSFT", "WMT", "COST"], nowMs: NOW, fetchImpl: mixed, gapMs: 0, retryMs: 0 });
+  ok("GDELT: an HTTP error breaks the no-answer run", r3.stopped === null && r3.network === 3);
 }
 
 // ---- Federal Register tagging
@@ -148,21 +176,22 @@ const goodFetch = (calls) => fakeFetch([
   [(u) => u.includes("timelinevolraw"), { body: flatBody }],
 ], calls);
 const syms = ["NFLX", "MSFT", "UNH", "NVDA", "SPY"];
-const run1 = await updatePolicyNews({ prior: null, nowMs: NOW, symbols: syms, fetchImpl: goodFetch([]), env: {}, log: () => {} });
+const FAST = { gapMs: 0, retryMs: 0 };
+const run1 = await updatePolicyNews({ prior: null, nowMs: NOW, symbols: syms, fetchImpl: goodFetch([]), env: {}, gdeltOpts: FAST, log: () => {} });
 ok("first run reads both sources", run1.ran.fr && run1.ran.gdelt && run1.state.fr.lastOkDate === "2026-11-19" && run1.state.gdelt.done.join(",") === "MSFT,NFLX,NVDA,UNH");
 const calls2 = [];
-const run2 = await updatePolicyNews({ prior: run1.state, nowMs: NOW + 3 * H, symbols: syms, fetchImpl: goodFetch(calls2), env: {}, log: () => {} });
+const run2 = await updatePolicyNews({ prior: run1.state, nowMs: NOW + 3 * H, symbols: syms, fetchImpl: goodFetch(calls2), env: {}, gdeltOpts: FAST, log: () => {} });
 ok("a second bake the same day reads nothing", !run2.ran.fr && !run2.ran.gdelt && calls2.length === 0);
-const run3 = await updatePolicyNews({ prior: run1.state, nowMs: NOW + 24 * H, symbols: syms, fetchImpl: fakeFetch([[() => true, { status: 503, body: "down" }]], []), env: {}, log: () => {} });
+const run3 = await updatePolicyNews({ prior: run1.state, nowMs: NOW + 24 * H, symbols: syms, fetchImpl: fakeFetch([[() => true, { status: 503, body: "down" }]], []), env: {}, gdeltOpts: FAST, log: () => {} });
 ok("a failed next-day read keeps the prior blocks, marked stale", run3.state.fr.stale && run3.state.gdelt.stale && run3.state.fr.docs.length === run1.state.fr.docs.length && run3.state.gdelt.days.NFLX.length === 1);
 const calls4 = [];
-const run4 = await updatePolicyNews({ prior: run1.state, nowMs: NOW + 24 * H, symbols: syms, fetchImpl: goodFetch(calls4), env: { FEDERAL_REGISTER: "0", GDELT_NEWS: "0" }, log: () => {} });
+const run4 = await updatePolicyNews({ prior: run1.state, nowMs: NOW + 24 * H, symbols: syms, fetchImpl: goodFetch(calls4), env: { FEDERAL_REGISTER: "0", GDELT_NEWS: "0" }, gdeltOpts: FAST, log: () => {} });
 ok("both switches off: no request, prior kept", calls4.length === 0 && !run4.ran.fr && !run4.ran.gdelt && run4.state.fr.docs.length === run1.state.fr.docs.length && run4.why === "both switched off");
 {
   const partial = cleanPolicyNews(run1.state);
   partial.gdelt.done = ["NFLX"];
   const calls5 = [];
-  const run5 = await updatePolicyNews({ prior: partial, nowMs: NOW + H, symbols: syms, fetchImpl: goodFetch(calls5), env: { FEDERAL_REGISTER: "0" }, log: () => {} });
+  const run5 = await updatePolicyNews({ prior: partial, nowMs: NOW + H, symbols: syms, fetchImpl: goodFetch(calls5), env: { FEDERAL_REGISTER: "0" }, gdeltOpts: FAST, log: () => {} });
   ok("a part-done day reads only the stocks left", run5.ran.gdelt && !calls5.some((u) => u.includes(encodeURIComponent('"Netflix"'))) && run5.state.gdelt.done.length === 4);
 }
 const sh = policyNewsShadow(run1.state, { nowMs: NOW, symbols: syms });
@@ -176,6 +205,14 @@ ok("held names: the spike first, Register docs per name, quiet names left out", 
 ok("held names: at most two docs each, no abstracts", heldNews.every((r) => r.docs.length <= 2 && r.docs.every((d) => !("abstract" in d))));
 ok("held names: an old read says nothing", heldPolicyNews(run1.state, ["NFLX", "UNH"], { nowMs: NOW + 4 * 24 * H }).length === 0);
 ok("held names: nothing held, nothing shown", heldPolicyNews(run1.state, [], { nowMs: NOW }).length === 0);
+ok("coverage: all four covered stocks read, the fund not counted", run1.state.gdelt.coverage.fresh === 4 && run1.state.gdelt.coverage.of === 4 && run1.state.gdelt.coverage.status === "ok" && run1.state.gdelt.coverage.withRatio === 4);
+ok("coverage: four days later nothing is fresh", run4.state.gdelt.coverage.status === "none" || policyNewsSummary(run1.state, { nowMs: NOW + 4 * 24 * H }).gdelt.coverage.status === "none");
+ok("health: the run time is ranAt, not an observation date", run1.state.gdelt.health.ranAt && !("at" in run1.state.gdelt.health) && run1.state.gdelt.health.network === 0);
+{
+  const dead = async () => { const e = new TypeError("fetch failed"); e.cause = { code: "UND_ERR_CONNECT_TIMEOUT" }; throw e; };
+  const runDead = await updatePolicyNews({ prior: null, nowMs: NOW, symbols: syms, fetchImpl: async (u) => (u.includes("gdeltproject") ? dead() : goodFetch([])(u)), env: {}, gdeltOpts: FAST, log: () => {} });
+  ok("an unreachable GDELT: stale, the cause kept, coverage none", runDead.state.gdelt.stale && runDead.state.gdelt.health.stopped === "unreachable" && /UND_ERR_CONNECT_TIMEOUT/.test(runDead.state.gdelt.health.errors[0]) && runDead.state.gdelt.coverage.status === "none");
+}
 const sum = policyNewsSummary(run1.state, { nowMs: NOW });
 ok("summary: recent docs and the spike list", sum.federalRegister.recent.length === 5 && sum.gdelt.spikes[0].symbol === "NFLX" && /GDELT/.test(sum.credit));
 const folded = foldGdelt({ NFLX: [{ d: "2026-07-01", vol24: 1 }, { d: "2026-11-18", vol24: 2 }] }, { NFLX: { vol24: 3 } }, "2026-11-19");
