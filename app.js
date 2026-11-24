@@ -803,13 +803,18 @@ function recoveryEvidence(row, data, now = Date.now()) {
         }
         if (listBox && tipList.length){
           listBox.innerHTML = tipList.map(tipRowHtml).join('');
-          el.addEventListener('click', function(ev){
+          // One key handler per element: a chart mounted again into the same
+          // element drops the earlier one, which points at a removed chart.
+          if (el._ckMarkClick) el.removeEventListener('click', el._ckMarkClick);
+          el._ckMarkClick = function(ev){
+            if (handle.destroyed) return;
             var key = ev.target && ev.target.closest ? ev.target.closest('.ck-mark-key') : null;
             if (!key || !el.contains(key)) return;
             listOpen = !listOpen;
             listBox.hidden = !listOpen;
             paintLegend(null);
-          });
+          };
+          el.addEventListener('click', el._ckMarkClick);
         }
         function paintTip(param){
           if (!tipBox) return;
