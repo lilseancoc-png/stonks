@@ -704,7 +704,8 @@ no new download. The rules part is one dated step on every signal engine
   as $0 for the other; a pair waits while either side is open). A variant
   that changes how a trade is made, not which trades are made (options or
   shares, the contract window, the stop; `match: "same"` on `TEC-stop2.5`,
-  `REV-bounce-shares`, `MAC-fall60`, `FUN-top-shares`, `ERN-runin-shares`),
+  `REV-bounce-shares`, `MAC-fall60`, `FUN-top-shares`, `ERN-runin-shares`,
+  `FLO-fade-puts`),
   is read only on signals both books took, so a free slot in the variant's
   younger book or an expiry the run did not load is not read as the change;
   `side: "call"` keeps a shares variant's comparison to calls (its puts stay
@@ -731,6 +732,29 @@ no new download. The rules part is one dated step on every signal engine
 | `FUN-top-shares` | Fundamentals | Top-of-rank calls bought as shares, 60 sessions |
 | `ERN-runin-shares` | Earnings & events | Earnings run-in bought as shares |
 | `DWN-budget75` | Downside puts | 0.75x the risk budget |
+
+The shadow pack (from 2026-11-25; the Owner asked for shadow tests of each
+engine on 2026-11-24, and the ideas were audited before they were built,
+which dropped an undo of the bounce skip (its skipped bounces are already
+shadow trades), an undo of the news gate (it blocks almost nothing) and a
+longer Flow hold (Flow's calls are shares, already held 20 sessions)). Each
+setting is read by the engine code only when a variant sets it, so the live
+engines trade exactly as before:
+
+| Variant | Engine | Change | Setting |
+|---|---|---|---|
+| `MAC-timeonly` | Macro | No premium target or stop on option trades (12 sessions; event drift 5); stock levels and thesis exits kept | `exits` `tp`/`stop` null, `sizeStop` |
+| `DWN-timeonly` | Downside puts | No premium target or stop (20 sessions); the 200-day stock stop kept | `exits` `tp`/`stop` null, `sizeStop` |
+| `FLO-loose` | Flow | Aggressive flow from 3 flagged trades and $100k (was 5 and $250k); score bar unchanged | `minPrints`, `minPrem` |
+| `FLO-fade-puts` | Flow | Bearish aggressive flow on a stock above its 200-day buys the stock for up to 7 sessions (the put's own limit) instead of a put (only those signals) | `fadeBear: "only"` |
+| `FUN-put-downtrend` | Fundamentals | Bottom-of-rank puts only in a confirmed downtrend (under a falling 50-day under the 200-day) | `needDowntrend` |
+| `ERN-gap-drift` | Earnings & events | Drift on any 5%+ gap that held, whatever the EPS number (a gap against the number scores with no EPS points) | `gapOnly` |
+
+`sizeStop` sizes an option with no premium stop as if it had that stop
+(`sizeOption`), so a time-only variant buys the same count as its parent and
+only the exits differ. The pullback's 2-day RSI line is also a setting
+(`rsiMax`, default 20) for a later Technicals variant; the RSI 5 to 30 sweep
+on the bench decides whether one is added.
 
 Tests: `node scripts/engines-smoke.mjs` (brake math and prior, brake in
 `stepBook`, Technicals conviction, scorecard, variants registry, paired books
