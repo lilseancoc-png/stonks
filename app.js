@@ -633,8 +633,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
     //   opts.ranges: ['1M','3M','6M','YTD','1Y'], opts.range: default range key
     //   opts.height, opts.intraday, opts.percent, opts.signed, opts.decimals, opts.prefix
     //   opts.source: text for the bottom-left corner
-    //   opts.markers: [{ time, text, color, position }] on the first series;
-    //   series[i].markers on that series. opts.extendRange keeps a series
+    //   opts.markers: [{ time, text, color, position, tip }] on the first series;
+    //   series[i].markers on that series. A marker with a tip explains itself:
+    //   tipped markers on one bar merge into one dot (with a count), hovering
+    //   or tapping that day shows their tips, and opts.markerLegend
+    //   ({ one, many }) adds a legend key that opens the full list.
+    //   opts.extendRange keeps a series
     //   that runs past the first one in view when a range button is pressed.
     //   opts.bands: [{ value, color, title }] horizontal price lines on the first series
     //   series[i].axis = 'left' puts that line on a left axis; series[i].pane =
@@ -669,7 +673,8 @@ function recoveryEvidence(row, data, now = Date.now()) {
           }
           html += '</div>';
         }
-        html += '<div class="ck-canvas" style="height:' + height + 'px"></div>';
+        html += '<div class="ck-canvas" style="height:' + height + 'px"><div class="ck-mark-tip" role="tooltip" hidden></div></div>';
+        html += '<ul class="ck-mark-list" hidden></ul>';
         if (opts.source) html += '<p class="ck-source">' + escapeHtml(opts.source) + '</p>';
         el.innerHTML = html;
         var canvas = el.querySelector('.ck-canvas');
@@ -710,7 +715,11 @@ function recoveryEvidence(row, data, now = Date.now()) {
         }
         // A marker dated between two points moves to the next point, so a
         // rule change on a day with no close still shows. opts.markers go on
-        // the first series; series[i].markers on that series.
+        // the first series; series[i].markers on that series. Markers with a
+        // tip that land on one bar become one dot with a count (they used to
+        // stack up the chart), and their tips are kept by bar for the hover
+        // tooltip and the list.
+        var markTips = {}, tipList = [];
         function placeMarkers(api, list){
           var times = api.data().map(function(d){ return d.time; });
           var snap = function(t){
@@ -719,9 +728,22 @@ function recoveryEvidence(row, data, now = Date.now()) {
             for (var ti = 0; ti < times.length; ti++) if (timeKey(times[ti]) >= k) return times[ti];
             return null;
           };
-          var mk = list.map(function(m){ return { time: snap(toTime(m.time)), position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 }; })
-            .filter(function(m){ return m.time != null; })
-            .sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
+          var mk = [], merged = {};
+          list.forEach(function(m){
+            var raw = toTime(m.time), t = snap(raw);
+            if (t == null) return;
+            var row = { time: t, position: m.position || 'aboveBar', color: m.color || c.accent, shape: m.shape || 'circle', text: m.text || '', size: m.size || 1 };
+            if (m.tip){
+              var k = timeKey(t), item = { time: raw, tip: String(m.tip), color: row.color };
+              (markTips[k] = markTips[k] || []).push(item);
+              tipList.push(item);
+              var mkey = k + '|' + row.position;
+              if (merged[mkey]){ merged[mkey].n++; merged[mkey].row.text = String(merged[mkey].n); return; }
+              merged[mkey] = { n: 1, row: row };
+            }
+            mk.push(row);
+          });
+          mk.sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
           try { api.setMarkers(mk); } catch (_) {}
         }
         made.forEach(function(m, mi){
@@ -758,9 +780,66 @@ function recoveryEvidence(row, data, now = Date.now()) {
             if (!hovered && t == null && data.length) t = data[data.length - 1].time;
             parts.push('<span class="ck-leg-item"><i style="background:' + m.color + '"></i>' + (made.length > 1 || m.def.name ? '<span>' + escapeHtml(m.def.name || '') + '</span> ' : '') + '<b>' + escapeHtml(valueText(v, m.def)) + '</b></span>');
           });
-          legend.innerHTML = '<span class="ck-leg-time">' + escapeHtml(timeText(t)) + '</span>' + parts.join('');
+          legend.innerHTML = '<span class="ck-leg-time">' + escapeHtml(timeText(t)) + '</span>' + parts.join('') + markKeyHtml();
         }
-        chart.subscribeCrosshairMove(function(param){ paintLegend(param && param.time != null ? param : null); });
+        // Tipped markers: a legend key (a button that opens the list under
+        // the chart) and a tooltip on the hovered or tapped day.
+        var tipBox = el.querySelector('.ck-mark-tip');
+        var listBox = el.querySelector('.ck-mark-list');
+        var listOpen = false;
+        tipList.sort(function(a, b){ return timeKey(a.time) - timeKey(b.time); });
+        function markWord(n){
+          var ml = opts.markerLegend || {};
+          return n === 1 ? (ml.one || 'note') : (ml.many || ml.one || 'notes');
+        }
+        function markKeyHtml(){
+          if (!tipList.length) return '';
+          var n = tipList.length;
+          return '<button type="button" class="ck-leg-item ck-mark-key" aria-expanded="' + (listOpen ? 'true' : 'false') + '" title="' + (listOpen ? 'Hide' : 'Show') + ' the list">' +
+            '<i style="background:' + tipList[0].color + '"></i><span>' + n + ' ' + escapeHtml(markWord(n)) + '</span><span class="ck-mark-caret" aria-hidden="true">' + (listOpen ? '▴' : '▾') + '</span></button>';
+        }
+        function tipRowHtml(item){
+          return '<li><b>' + escapeHtml(timeText(item.time)) + '</b> <span>' + escapeHtml(item.tip) + '</span></li>';
+        }
+        if (listBox && tipList.length){
+          listBox.innerHTML = tipList.map(tipRowHtml).join('');
+          // One key handler per element: a chart mounted again into the same
+          // element drops the earlier one, which points at a removed chart.
+          if (el._ckMarkClick) el.removeEventListener('click', el._ckMarkClick);
+          el._ckMarkClick = function(ev){
+            if (handle.destroyed) return;
+            var key = ev.target && ev.target.closest ? ev.target.closest('.ck-mark-key') : null;
+            if (!key || !el.contains(key)) return;
+            listOpen = !listOpen;
+            listBox.hidden = !listOpen;
+            paintLegend(null);
+          };
+          el.addEventListener('click', el._ckMarkClick);
+        }
+        function paintTip(param){
+          if (!tipBox) return;
+          var items = param && param.time != null && param.point ? markTips[timeKey(param.time)] : null;
+          if (!items || !items.length){ tipBox.hidden = true; return; }
+          var ml = opts.markerLegend || {};
+          tipBox.innerHTML = '<p class="ck-mark-tip-head">' + items.length + ' ' + escapeHtml(markWord(items.length)) + (ml.where ? ' ' + escapeHtml(ml.where) : '') + '</p><ul>' + items.map(tipRowHtml).join('') + '</ul>';
+          tipBox.hidden = false;
+          var w = canvas.clientWidth || 0, tw = tipBox.offsetWidth || 0;
+          // Beside the hovered day, not on it, so the dot stays in view.
+          var x = param.point.x + 14;
+          if (x + tw > w - 4) x = param.point.x - 14 - tw;
+          x = Math.max(4, Math.min(w - tw - 4, x));
+          tipBox.style.left = Math.round(x) + 'px';
+        }
+        chart.subscribeCrosshairMove(function(param){
+          paintLegend(param && param.time != null ? param : null);
+          paintTip(param);
+        });
+        // A tap on a phone does not move the crosshair (only a long press
+        // does), so a tap or click on a day also opens that day's tooltip.
+        if (tipList.length) chart.subscribeClick(function(param){
+          if (param && param.time != null && param.seriesData) paintLegend(param);
+          paintTip(param);
+        });
         paintLegend(null);
         // Ranges
         var firstData = made[0].api.data();
@@ -62651,20 +62730,33 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function accEquityChartHtml(points, opts){
     opts = opts || {};
     if (!points || points.length < 2) return '<p class="muted acc-an-note">Need at least 2 resolved trades to plot an equity curve.</p>';
-    var changes = accRuleChangesIn(points);
+    var changes = accRuleChangesIn(points, opts.trades);
     return '<div class="acc-eq-chart" data-acc-eq-chart="' + escapeHtml(opts.key || 'eq') + '"></div>' +
       (opts.note === false ? '' : '<p class="acc-eq-chart-note">Top: running total. Bottom: how far it sits below its last high.' +
-        (changes.length ? ' Dots mark rule changes (the record was kept, not reset): ' + changes.map(function(c){ return '<span class="acc-eq-change"><b>' + escapeHtml(fmtDayUtc(c.date).replace(/, \d{4}$/, '')) + '</b> ' + escapeHtml(c.notes.join('; ')) + '</span>'; }).join(' · ') : '') + '</p>');
+        (changes.length ? ' Gold dots mark Top Picks rule changes (the record was kept, not reset); a number on a dot counts the changes that day. Hover or tap a dot to read them, or open the list from the chart key.' : '') + '</p>');
   }
   // Rule changes (ACC_RULE_NOTES) dated inside a curve's span, one per day.
-  function accRuleChangesIn(points){
+  // Versions that share a dimension and a start date are alternatives (one
+  // per Owner setting); with trades given, only the ones a trade ran under
+  // are kept, so a dot never names a rule that was not live.
+  function accRuleChangesIn(points, trades){
     var days = (points || []).map(function(p){ return String(p.date || '').slice(0, 10); }).filter(function(d){ return /^\d{4}-\d{2}-\d{2}$/.test(d); }).sort();
     if (days.length < 2) return [];
+    var seen = null;
+    if (trades && trades.length){
+      seen = {};
+      trades.forEach(function(e){ ACC_RULE_DIMS.forEach(function(dim){ var v = dim.get(e); if (v) seen[dim.key + '|' + v] = true; }); });
+    }
     var byDay = {};
     Object.keys(ACC_RULE_NOTES).forEach(function(dim){
-      Object.keys(ACC_RULE_NOTES[dim]).forEach(function(v){
+      var vs = Object.keys(ACC_RULE_NOTES[dim]);
+      vs.forEach(function(v){
         var n = ACC_RULE_NOTES[dim][v];
         if (!n || !n.since || n.since <= days[0] || n.since > days[days.length - 1]) return;
+        if (seen && !seen[dim + '|' + v]){
+          var rivalLive = vs.some(function(o){ return o !== v && ACC_RULE_NOTES[dim][o] && ACC_RULE_NOTES[dim][o].since === n.since && seen[dim + '|' + o]; });
+          if (rivalLive) return;
+        }
         (byDay[n.since] = byDay[n.since] || []).push(n.note || 'Rule change');
       });
     });
@@ -62687,7 +62779,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       dd.push({ time: day, value: ddPct });
     });
     if (eq.length < 2) { host.innerHTML = '<p class="muted acc-an-note">Not enough dated closes to draw the curve.</p>'; return; }
-    var marks = accRuleChangesIn(points).map(function(ch){ return { time: ch.date, text: '', position: 'aboveBar', shape: 'circle', size: 0.6 }; });
+    // One marker per rule change, with its note: the chart kit merges the
+    // ones that fall on one close day into a single numbered dot and shows
+    // the notes on hover or tap.
+    var marks = [];
+    accRuleChangesIn(points, opts.trades).forEach(function(ch){
+      ch.notes.forEach(function(note){ marks.push({ time: ch.date, text: '', position: 'aboveBar', shape: 'circle', size: 0.6, tip: note }); });
+    });
     var money = opts.formatValue || function(v){ return accMoney(v, false); };
     var c = CHART_KIT.colors();
     var up = eq[eq.length - 1].value >= eq[0].value;
@@ -62697,7 +62795,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         { name: 'Below high', type: 'baseline', pane: 'lower', data: dd, color: c.down, lastValue: false,
           format: function(v){ return v == null ? '—' : (opts.dollars || !(peak > 0)) ? (v < 0 ? '-' + money(-v) : money(0)) : (v < 0 ? v.toFixed(1) + '%' : '0%'); } }
       ],
-      markers: marks, height: opts.height || 320, priceLine: false,
+      markers: marks, markerLegend: { one: 'rule change', many: 'rule changes', where: 'took effect by this close' }, height: opts.height || 320, priceLine: false,
       ranges: ['1M', '3M', '6M', 'All'], range: 'All',
       source: opts.source || 'Closed trades, by close day · modeled results'
     });
@@ -63234,10 +63332,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var eqBlock = sumCurve.points.length >= 2
       ? '<section class="acc-sum-equity"><div class="chart-head"><h3>Running total, $' + ACC_NOTIONAL.toLocaleString() + ' per trade</h3><span class="chart-foot">' +
           escapeHtml(accMoney(sumCurve.finalEquity - sumCurve.base, true)) + ' after ' + (sumCurve.points.length - 1) + ' closes · max drawdown ' + (sumCurve.maxDDpct > 0 ? '-' + Math.round(sumCurve.maxDDpct * 100) + '%' : 'none') + '</span></div>' +
-          accEquityChartHtml(sumCurve.points, { key: 'summary' }) + '</section>'
+          accEquityChartHtml(sumCurve.points, { key: 'summary', trades: closed }) + '</section>'
       : '';
     box.innerHTML = lead + eqBlock + banner + accountabilityBlock + lossBlock + winBlock + colsBlock + diagBlock + whyBlock;
-    if (eqBlock) accMountEquityChart(box, sumCurve.points, { key: 'summary' });
+    if (eqBlock) accMountEquityChart(box, sumCurve.points, { key: 'summary', trades: closed });
     bindBriefChips(box);
     var accOpen = box.querySelectorAll('[data-acc-open]');
     for (var ai = 0; ai < accOpen.length; ai++) accOpen[ai].addEventListener('click', function(){
@@ -63614,10 +63712,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var decAll = accDecided(trades);
     box.innerHTML = toggles +
       '<p class="hint acc-an-lead">' + lead + '</p>' + accountNote +
-      tiles + accEquityChartHtml(ec.points, { key: paper ? 'paper' : 'equity' }) +
+      tiles + accEquityChartHtml(ec.points, { key: paper ? 'paper' : 'equity', trades: paper ? null : trades }) +
       (paper ? '' : accRollingWinHtml(decAll)) +
       accSplitCurvesHtml(decAll, splitLens) + accPnlHistogramHtml(decAll, paper ? { title: 'How big each paper trade was (P&amp;L %)' } : null) + accPnlCalendarHtml(decAll, paper ? basis : undefined);
-    accMountEquityChart(box, ec.points, { key: paper ? 'paper' : 'equity', dollars: account, label: account ? 'Paper P&L' : 'Equity',
+    accMountEquityChart(box, ec.points, { key: paper ? 'paper' : 'equity', trades: paper ? null : trades, dollars: account, label: account ? 'Paper P&L' : 'Equity',
       source: paper ? 'Webull paper fills, by close day' : 'Closed trades, by close day · ' + basisLbl });
     if (!paper) accMountRollingWin(box, decAll);
   }

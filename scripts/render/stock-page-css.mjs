@@ -18,6 +18,16 @@ export function renderStockPageCss() {
 .ck-range:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .ck-canvas { position: relative; width: 100%; }
 .ck-source { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.ck-mark-key { appearance: none; border: 0; background: transparent; padding: 2px 4px; margin: -2px -4px; border-radius: 6px; font: inherit; cursor: pointer; }
+.ck-mark-key:hover, .ck-mark-key[aria-expanded="true"] { color: var(--text-strong); }
+.ck-mark-key:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.ck-mark-caret { font-size: 10px; }
+.ck-mark-tip { position: absolute; top: 6px; left: 0; z-index: 3; max-width: min(340px, calc(100% - 8px)); padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,0.25); font-size: 12px; line-height: 1.4; color: var(--text); pointer-events: none; }
+.ck-mark-tip[hidden], .ck-mark-list[hidden] { display: none; }
+.ck-mark-tip-head { margin: 0 0 4px; font-weight: 600; color: var(--text-strong); }
+.ck-mark-tip ul, .ck-mark-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.ck-mark-tip b, .ck-mark-list b { color: var(--text-strong); font-weight: 600; white-space: nowrap; margin-right: 4px; }
+.ck-mark-list { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; color: var(--text); }
 .ck-empty { margin: 0; padding: 40px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
 .ck-skeleton { width: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface) 50%, var(--surface-2) 100%); background-size: 200% 100%; animation: ck-shimmer 1.4s ease-in-out infinite; }
 @keyframes ck-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
