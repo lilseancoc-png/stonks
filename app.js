@@ -65496,7 +65496,126 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return { key: preset && preset.key, label: preset && preset.label, total: total, viaBeta: viaBeta, ivAdd: ivAdd, rows: rows };
   }
 
-  return { analyze: analyze, replay: replay, whatIf: whatIf, greeksOf: greeksOf, valueAt: valueAt, pnlOf: pnlOf, seriesFrom: seriesFrom, lwShrink: lwShrink, crisisCov: crisisCov, betaOf: betaOf, NON_EQUITY: NON_EQUITY, MIN_DAYS: MIN_DAYS };
+  // A missing implied volatility: the stock's own realized volatility over
+  // the year (x 1.1), else 45%. Flagged on the position (ivEst). data:
+  // seriesFrom(market-days.json) or null. Shared by the panel and the MCP.
+  function fillIv(positions, data){
+    var n = 0;
+    (positions || []).forEach(function(p){
+      var est = false;
+      p.legs.forEach(function(l){
+        if (l.iv > 0) return;
+        var x = data && data.bySym ? data.bySym[p.symbol] : null, v = null;
+        if (x){ var s = 0, s2 = 0, k = 0; x.forEach(function(r){ if (r != null){ s += r; s2 += r * r; k++; } }); if (k > 30){ var m = s / k; v = Math.sqrt(Math.max(0, s2 / k - m * m) * 252) * 1.1; } }
+        l.iv = v > 0.05 ? v : 0.45; est = true;
+      });
+      if (est){ p.ivEst = true; n++; }
+    });
+    return n;
+  }
+  // Time decay over a number of calendar days, repriced (prices and implied
+  // volatility held): an option expiring inside the window loses at most what
+  // it is worth, where days x daily theta would overstate it.
+  function decayOver(p, days){
+    if (p.kind !== 'option') return 0;
+    return valueAt(p, p.S, Math.max(0, p.T - days * DAY_YRS), 0) - valueAt(p, p.S, p.T, 0);
+  }
+
+  // What the paper account holds of a record trade (moved here from the Open
+  // picks panel on 2026-11-25 so the MCP's get_book_exposure sizes trades the
+  // same way): the Webull ledger's open quantity once it has filled, the size
+  // asked for while an order works, the record's own size when the ledger has
+  // no row ('not-sent') or could not be read ('record'), and nothing for a
+  // trade Webull missed, did not buy, closed, or holds under another trade on
+  // the same contract. w: the ledger trade row (ledgerToTestTrades) or null.
+  function sizeOf(w, planned, ledgerKnown){
+    if (!w) return { n: planned, basis: ledgerKnown ? 'not-sent' : 'record' };
+    if (w.fillOutcome === 'shared') return { n: 0, basis: 'shared' };
+    var held = Number(w.openQty);
+    if (!(w.openQty != null && isFinite(held))) held = Math.max(0, (Number(w.filledQty) || 0) - (Number(w.closedQty) || 0));
+    if (held > 0) return { n: held, basis: 'held' };
+    if (w.state === 'entering') return { n: Number(w.requestedQty) > 0 ? Number(w.requestedQty) : planned, basis: 'pending' };
+    return { n: 0, basis: w.fillOutcome === 'missed' || w.fillOutcome === 'not-bought' ? w.fillOutcome : 'closed' };
+  }
+  // One record trade (Top Picks open row or engine open trade) -> the position
+  // the math prices, or { skip: reason }. env: { ledger: tradeId -> ledger row
+  // (null when the ledger is not read), spot(symbol, lastSpot, entrySpot),
+  // yrs(expirySec) years to the expiry close, tradeId(topPicksRow) }.
+  function positionOf(o, src, isEngine, env){
+    var c = o && o.contract; if (!c) return { skip: 'no-contract' };
+    var L = env.ledger || null;
+    var id = isEngine ? o.tradeId : env.tradeId(o);
+    var S = Number(env.spot(o.symbol, o.lastSpot, o.entrySpot)) || 0;
+    if (!(S > 0)) return { skip: 'no-price' };
+    var w = L ? L[id] || null : null;
+    if (c.structure === 'shares'){
+      var sz0 = sizeOf(w, Number(c.shares) || 0, !!L);
+      if (!(sz0.n > 0)) return { skip: sz0.basis };
+      return { id: id, symbol: o.symbol, src: src, side: 'shares', kind: 'shares', S: S, T: 0, legs: [], shares: sz0.n, basis: sz0.basis, trade: o };
+    }
+    var exp = Number(c.exp || c.expiry);
+    if (!(exp > 0)) return { skip: 'no-expiry' };
+    if (isEngine && o.shared && o.shared.role === 'follower' && !w) return { skip: 'shared' };
+    var side = o.side === 'put' ? 'put' : 'call';
+    var planned = isEngine ? (Number(c.qty) > 0 ? Number(c.qty) : 1) : 1;
+    var sz = sizeOf(w, planned, !!L);
+    if (!(sz.n > 0)) return { skip: sz.basis };
+    var legs = [];
+    if ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && Object.prototype.toString.call(c.legs) === '[object Array]' && c.legs.length > 1){
+      c.legs.forEach(function(l){ var K = Number(l.strike), q = Number(l.qty) || 0; if (K > 0 && q) legs.push({ type: l.type || c.optionType || side, K: K, q: q * sz.n, iv: Number(l.iv) > 0 ? Number(l.iv) : null }); });
+    } else if (Number(c.strike) > 0) legs.push({ type: c.optionType || side, K: Number(c.strike), q: sz.n, iv: Number(c.iv) > 0 ? Number(c.iv) : null });
+    if (!legs.length) return { skip: 'no-contract' };
+    return { id: id, symbol: o.symbol, src: src, side: side, kind: 'option', S: S, T: env.yrs(exp), exp: exp, legs: legs, shares: 0, basis: sz.basis, trade: o };
+  }
+
+  // Exposure by stock (2026-11-25): every trade on one stock netted (delta $,
+  // S&P 500 $ when a beta is known, daily decay, volatility exposure), and an
+  // "opposite bets" tag when trades on the same stock point opposite ways (one
+  // long the stock, one short it), with the side that wins and how much of the
+  // smaller side the larger one cancels. G: greeksOf for each position.
+  // betas: analyze().betas, or null while the year of moves is loading.
+  // A trade under $1 of delta $ (an option at its last day, far out of the
+  // money) does not count as a side, and a stock is tagged only when the
+  // smaller side is a real bet: at least $250 of delta $ and a tenth of the
+  // larger side (a far out-of-the-money put beside a big share lot is not).
+  var CLASH_MIN_USD = 1, CLASH_FLAT = 0.1, CLASH_SIDE_USD = 250, CLASH_SIDE_SHARE = 0.1;
+  function bySymbol(positions, G, betas){
+    var m = {}, list = [];
+    (positions || []).forEach(function(p, i){
+      var g = G && G[i]; if (!p || !g) return;
+      var r = m[p.symbol];
+      if (!r){
+        r = m[p.symbol] = { symbol: p.symbol, n: 0, deltaUsd: 0, betaUsd: null, beta: null, thetaUsd: 0, vegaUsd: 0, valueUsd: 0, longUsd: 0, shortUsd: 0, longBy: [], shortBy: [], trades: [], clash: null };
+        list.push(r);
+      }
+      var qty = p.kind === 'shares' ? p.shares : (p.legs && p.legs.length ? Math.abs(p.legs[0].q) : 0);
+      r.n++; r.deltaUsd += g.deltaUsd; r.thetaUsd += g.thetaUsd; r.vegaUsd += g.vegaUsd; r.valueUsd += g.valueUsd;
+      if (g.deltaUsd >= CLASH_MIN_USD){ r.longUsd += g.deltaUsd; if (r.longBy.indexOf(p.src) < 0) r.longBy.push(p.src); }
+      else if (g.deltaUsd <= -CLASH_MIN_USD){ r.shortUsd -= g.deltaUsd; if (r.shortBy.indexOf(p.src) < 0) r.shortBy.push(p.src); }
+      r.trades.push({ id: p.id, src: p.src, side: p.side, kind: p.kind, qty: qty, basis: p.basis || null, spread: !!(p.legs && p.legs.length > 1), deltaUsd: g.deltaUsd, thetaUsd: g.thetaUsd });
+    });
+    var clashes = 0;
+    list.forEach(function(r){
+      var b = betas ? num(betas[r.symbol]) : null;
+      if (b != null){ r.beta = b; r.betaUsd = r.deltaUsd * b; }
+      r.trades.sort(function(a, c){ return Math.abs(c.deltaUsd) - Math.abs(a.deltaUsd); });
+      var small = Math.min(r.longUsd, r.shortUsd), big = Math.max(r.longUsd, r.shortUsd);
+      if (small >= CLASH_SIDE_USD && small >= CLASH_SIDE_SHARE * big){
+        var gross = r.longUsd + r.shortUsd;
+        clashes++;
+        r.clash = {
+          nets: Math.abs(r.deltaUsd) < CLASH_FLAT * gross ? 'flat' : r.deltaUsd > 0 ? 'long' : 'short',
+          longBy: r.longBy.slice(), shortBy: r.shortBy.slice(),
+          cancelledUsd: small,
+          cancelledPct: small / big
+        };
+      }
+    });
+    list.sort(function(a, c){ return Math.abs(c.deltaUsd) - Math.abs(a.deltaUsd); });
+    return { rows: list, clashes: clashes };
+  }
+
+  return { analyze: analyze, replay: replay, whatIf: whatIf, greeksOf: greeksOf, bySymbol: bySymbol, sizeOf: sizeOf, positionOf: positionOf, fillIv: fillIv, decayOver: decayOver, valueAt: valueAt, pnlOf: pnlOf, seriesFrom: seriesFrom, lwShrink: lwShrink, crisisCov: crisisCov, betaOf: betaOf, NON_EQUITY: NON_EQUITY, MIN_DAYS: MIN_DAYS };
 })({ price: stratBsPrice, greeks: greeks, r: RFR });
   var BOOK_CRASHES = {"version":1,"builtFrom":"2026-11-20/bars.json.gz","windows":[{"id":"covid-2020","label":"Covid crash, 2020","from":"2020-02-19","to":"2020-03-23","note":"The S&P 500's close from its February 19 peak to its March 23 low.","sessions":23,"spy":-0.3372,"vix":{"from":14.38,"to":61.59},"corr":0.72,"corrStocks":59,"moves":{"AAPL":-0.3067,"ACN":-0.3345,"ADBE":-0.1983,"AMAT":-0.4041,"AMD":-0.293,"AMZN":-0.1232,"ANET":-0.2806,"ASML":-0.2654,"AVGO":-0.3767,"AXP":-0.4964,"BABA":-0.2062,"BAC":-0.4759,"BE":-0.7239,"C":-0.5466,"COST":-0.1161,"CRM":-0.2714,"CRWD":-0.2208,"DELL":-0.3637,"EWY":-0.3619,"FTNT":-0.2794,"GLD":-0.0362,"GOOGL":-0.3087,"GS":-0.4278,"HD":-0.329,"IBM":-0.3718,"INTC":-0.2612,"INTU":-0.3628,"IWM":-0.4068,"JPM":-0.4252,"KWEB":-0.2033,"LLY":-0.1547,"MA":-0.41,"META":-0.319,"MRK":-0.1836,"MRNA":0.4043,"MRVL":-0.2479,"MS":-0.5061,"MSFT":-0.2739,"MU":-0.3624,"NFLX":-0.0671,"NKE":-0.3854,"NOW":-0.2863,"NVDA":-0.3237,"NVO":-0.2141,"OKTA":-0.1513,"ORCL":-0.2029,"PANW":-0.4123,"QCOM":-0.304,"QQQ":-0.2792,"SBUX":-0.3726,"SCHW":-0.3992,"SHOP":-0.3089,"SLV":-0.2855,"SMH":-0.3116,"SPY":-0.3372,"TEAM":-0.1576,"TGT":-0.1763,"TLT":0.1423,"TSLA":-0.5266,"TSM":-0.2073,"TXN":-0.2606,"UBER":-0.4543,"UNH":-0.359,"USO":-0.5635,"UVXY":5.5233,"V":-0.3636,"VRT":-0.4978,"VST":-0.4256,"WDC":-0.5059,"WMT":-0.0246,"XLB":-0.3621,"XLE":-0.5607,"XLF":-0.4279,"XLI":-0.4158,"XLP":-0.2416,"XLRE":-0.3782,"XLU":-0.3537,"XLV":-0.2793,"XLY":-0.335}},{"id":"bear-2022","label":"Rate-hike bear market, 2022","from":"2022-01-03","to":"2022-10-12","note":"The S&P 500's close from its January 3 peak to its October 12 low, as the Fed raised rates.","sessions":195,"spy":-0.245,"vix":{"from":16.6,"to":33.57},"corr":0.5,"corrStocks":62,"moves":{"AAPL":-0.2368,"ACN":-0.3775,"ADBE":-0.493,"AMAT":-0.5215,"AMD":-0.6149,"AMZN":-0.3375,"ANET":-0.2713,"ASML":-0.4959,"AVGO":-0.3356,"AXP":-0.1797,"BABA":-0.3709,"BAC":-0.3422,"BE":-0.2475,"C":-0.3345,"COST":-0.173,"CRM":-0.443,"CRWD":-0.2286,"DELL":-0.3986,"EWY":-0.3691,"FTNT":-0.2764,"GLD":-0.0733,"GOOGL":-0.3271,"GS":-0.2383,"HD":-0.3005,"HOOD":-0.4219,"IBM":-0.1036,"INTC":-0.5117,"INTU":-0.3817,"IWM":-0.2504,"JPM":-0.339,"KWEB":-0.3778,"LLY":0.2074,"MA":-0.2316,"META":-0.6234,"MRK":0.2061,"MRNA":-0.4439,"MRVL":-0.5735,"MS":-0.2162,"MSFT":-0.3212,"MU":-0.4461,"NFLX":-0.6303,"NKE":-0.4584,"NOW":-0.4142,"NVDA":-0.6179,"NVO":-0.0298,"OKTA":-0.772,"ORCL":-0.2618,"PANW":-0.1438,"PLTR":-0.5645,"QCOM":-0.4078,"QQQ":-0.3429,"SBUX":-0.2421,"SCHW":-0.1547,"SHOP":-0.8093,"SLV":-0.1695,"SMH":-0.4439,"SNOW":-0.5225,"SPY":-0.245,"TEAM":-0.4196,"TGT":-0.3255,"TLT":-0.2933,"TSLA":-0.4568,"TSM":-0.4944,"TXN":-0.1889,"UBER":-0.4089,"UNH":0.005,"USO":0.2936,"UVXY":0.1219,"V":-0.1908,"VRT":-0.5525,"VST":-0.0355,"WDC":-0.4801,"WMT":-0.0824,"XLB":-0.2209,"XLE":0.445,"XLF":-0.2226,"XLI":-0.1821,"XLP":-0.1062,"XLRE":-0.3224,"XLU":-0.1132,"XLV":-0.1159,"XLY":-0.3351}},{"id":"unwind-2024","label":"August 2024 carry unwind","from":"2024-07-16","to":"2024-08-05","note":"The S&P 500's close from its July 16 peak to the August 5 yen carry-trade unwind.","sessions":14,"spy":-0.0841,"vix":{"from":13.19,"to":38.57},"corr":0.4,"corrStocks":63,"moves":{"AAPL":-0.1088,"ACN":-0.0346,"ADBE":-0.101,"AMAT":-0.2601,"AMD":-0.2407,"AMZN":-0.1658,"ANET":-0.1209,"ARM":-0.3822,"ASML":-0.2306,"AVGO":-0.1612,"AXP":-0.095,"BABA":-0.0179,"BAC":-0.1695,"BE":-0.2772,"C":-0.1564,"COST":-0.0562,"CRM":-0.0665,"CRWD":-0.3983,"DELL":-0.2662,"EWY":-0.119,"FTNT":-0.0688,"GLD":-0.0255,"GOOGL":-0.1341,"GS":-0.0875,"HD":-0.0518,"HOOD":-0.3333,"IBM":-0.0135,"INTC":-0.4144,"INTU":-0.0948,"IWM":-0.0997,"JPM":-0.0876,"KWEB":-0.0714,"LLY":-0.1767,"MA":-0.0034,"META":-0.0287,"MRK":-0.1047,"MRNA":-0.3307,"MRVL":-0.2372,"MS":-0.1254,"MSFT":-0.121,"MU":-0.2908,"NFLX":-0.088,"NKE":-0.0191,"NOW":0.0269,"NVDA":-0.205,"NVO":-0.1056,"OKTA":-0.1747,"ORCL":-0.1034,"PANW":-0.1309,"PLTR":-0.1597,"QCOM":-0.2466,"QQQ":-0.1228,"SBUX":-0.0219,"SCHW":-0.0762,"SHOP":-0.2504,"SLV":-0.1311,"SMH":-0.2207,"SNOW":-0.1731,"SPY":-0.0841,"TEAM":-0.2201,"TGT":-0.1364,"TLT":0.0527,"TSLA":-0.2248,"TSM":-0.2047,"TXN":-0.1174,"UBER":-0.2129,"UNH":0.0384,"USO":-0.0739,"UVXY":1.8348,"V":-0.0476,"VRT":-0.2451,"VST":-0.1825,"WDC":-0.2604,"WMT":-0.0343,"XLB":-0.0434,"XLE":-0.0634,"XLF":-0.0609,"XLI":-0.0592,"XLP":-0.0005,"XLRE":0.0027,"XLU":0.0313,"XLV":-0.0202,"XLY":-0.1208}},{"id":"tariff-2025","label":"April 2025 tariff shock","from":"2025-04-02","to":"2025-04-08","note":"The S&P 500's close from the April 2 tariff announcement to the April 8 low.","sessions":4,"spy":-0.1205,"vix":{"from":21.51,"to":52.33},"corr":0.65,"corrStocks":65,"moves":{"AAPL":-0.2299,"ACN":-0.1105,"ADBE":-0.1187,"AMAT":-0.1272,"AMD":-0.2404,"AMZN":-0.1293,"ANET":-0.133,"ARM":-0.2064,"ASML":-0.1101,"AVGO":-0.0933,"AXP":-0.1566,"BABA":-0.2344,"BAC":-0.163,"BE":-0.1941,"C":-0.181,"COST":-0.0584,"CRM":-0.1015,"CRWD":-0.125,"CRWV":-0.2893,"DELL":-0.2385,"EWY":-0.1045,"FTNT":-0.1012,"GLD":-0.045,"GOOGL":-0.0786,"GS":-0.1792,"HD":-0.0961,"HOOD":-0.1994,"IBM":-0.1158,"INTC":-0.1752,"INTU":-0.1238,"IWM":-0.1374,"JPM":-0.1123,"KWEB":-0.1911,"LLY":-0.1124,"MA":-0.1232,"META":-0.1258,"MRK":-0.0883,"MRNA":-0.1111,"MRVL":-0.2088,"MS":-0.159,"MSFT":-0.0722,"MU":-0.2603,"NFLX":-0.0696,"NKE":-0.18,"NOW":-0.117,"NVDA":-0.1279,"NVO":-0.0973,"OKTA":-0.1328,"ORCL":-0.1464,"PANW":-0.1192,"PLTR":-0.1158,"QCOM":-0.1909,"QQQ":-0.1262,"SBUX":-0.1984,"SCHW":-0.1102,"SHOP":-0.2341,"SLV":-0.1177,"SMH":-0.1595,"SNDK":-0.3214,"SNOW":-0.1325,"SPY":-0.1205,"TEAM":-0.1791,"TGT":-0.1608,"TLT":-0.0337,"TSLA":-0.2154,"TSM":-0.1703,"TXN":-0.1806,"UBER":-0.1266,"UNH":0.0571,"USO":-0.1852,"UVXY":1.1149,"V":-0.1099,"VRT":-0.1843,"VST":-0.1966,"WDC":-0.2449,"WMT":-0.0888,"XLB":-0.1464,"XLE":-0.1879,"XLF":-0.1244,"XLI":-0.125,"XLP":-0.0638,"XLRE":-0.1188,"XLU":-0.0797,"XLV":-0.0784,"XLY":-0.1327}}]};
   var bookData = { days: null, daysAt: null, daysLoading: false, daysError: null, sens: null, sensLoading: false, sensTried: false, memo: null, memoKey: '' };
@@ -65522,60 +65641,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     return null;
   }
-  // What the paper account holds of a record trade: the Webull ledger's open
-  // quantity once it has filled, the size asked for while an order works, the
-  // record's own size when the ledger has no row (or cannot be read), and
-  // nothing for a trade Webull missed, did not buy, closed, or holds under
-  // another trade on the same contract.
-  function bookSize(id, planned){
-    var wb = typeof opWb !== 'undefined' ? opWb : null;
-    var w = wb && wb.by ? wb.by[id] : null;
-    if (!w) return { n: planned, basis: wb && wb.by ? 'not-sent' : 'record' };
-    if (w.fillOutcome === 'shared') return { n: 0, basis: 'shared' };
-    var held = Number(w.openQty);
-    if (!(w.openQty != null && isFinite(held))) held = Math.max(0, (Number(w.filledQty) || 0) - (Number(w.closedQty) || 0));
-    if (held > 0) return { n: held, basis: 'held' };
-    if (w.state === 'entering') return { n: Number(w.requestedQty) > 0 ? Number(w.requestedQty) : planned, basis: 'pending' };
-    return { n: 0, basis: w.fillOutcome === 'missed' || w.fillOutcome === 'not-bought' ? w.fillOutcome : 'closed' };
-  }
   function bookSpot(sym, last, entry){ return Number(last) || Number(SPOTS && SPOTS[sym]) || Number(entry) || 0; }
-  // One record trade -> the position lib/book-risk.mjs prices.
+  // One record trade -> the position lib/book-risk.mjs prices, sized by what
+  // the Webull paper account holds (BOOK_RISK.positionOf / sizeOf, shared with
+  // the MCP's get_book_exposure).
   function bookPosition(o, src, isEngine){
-    var c = o && o.contract; if (!c) return { skip: 'no-contract' };
-    var id = isEngine ? o.tradeId : tlTradeId(o);
-    var S = bookSpot(o.symbol, o.lastSpot, o.entrySpot);
-    if (!(S > 0)) return { skip: 'no-price' };
-    if (c.structure === 'shares'){
-      var sz0 = bookSize(id, Number(c.shares) || 0);
-      if (!(sz0.n > 0)) return { skip: sz0.basis };
-      return { id: id, symbol: o.symbol, src: src, side: 'shares', kind: 'shares', S: S, T: 0, legs: [], shares: sz0.n, basis: sz0.basis, trade: o };
-    }
-    var exp = Number(c.exp || c.expiry);
-    if (!(exp > 0)) return { skip: 'no-expiry' };
-    if (isEngine && o.shared && o.shared.role === 'follower' && !(typeof opWb !== 'undefined' && opWb.by && opWb.by[id])) return { skip: 'shared' };
-    var side = o.side === 'put' ? 'put' : 'call';
-    var planned = isEngine ? (Number(c.qty) > 0 ? Number(c.qty) : 1) : 1;
-    var sz = bookSize(id, planned);
-    if (!(sz.n > 0)) return { skip: sz.basis };
-    var legs = [];
-    if ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && Array.isArray(c.legs) && c.legs.length > 1){
-      c.legs.forEach(function(l){ var K = Number(l.strike), q = Number(l.qty) || 0; if (K > 0 && q) legs.push({ type: l.type || c.optionType || side, K: K, q: q * sz.n, iv: Number(l.iv) > 0 ? Number(l.iv) : null }); });
-    } else if (Number(c.strike) > 0) legs.push({ type: c.optionType || side, K: Number(c.strike), q: sz.n, iv: Number(c.iv) > 0 ? Number(c.iv) : null });
-    if (!legs.length) return { skip: 'no-contract' };
-    return { id: id, symbol: o.symbol, src: src, side: side, kind: 'option', S: S, T: posYrs(exp), exp: exp, legs: legs, shares: 0, basis: sz.basis, trade: o };
+    var wb = typeof opWb !== 'undefined' ? opWb : null;
+    return BOOK_RISK.positionOf(o, src, isEngine, { ledger: wb && wb.by ? wb.by : null, spot: bookSpot, yrs: posYrs, tradeId: tlTradeId });
   }
   // A missing implied volatility: the stock's own realized volatility over the
   // year (x 1.1), else 45%. Flagged on the position.
-  function bookFillIv(pos, days){
-    pos.forEach(function(p){
-      p.legs.forEach(function(l){
-        if (l.iv > 0) return;
-        var x = days && days.bySym[p.symbol], v = null;
-        if (x){ var s = 0, s2 = 0, n = 0; x.forEach(function(r){ if (r != null){ s += r; s2 += r * r; n++; } }); if (n > 30){ var m = s / n; v = Math.sqrt(Math.max(0, s2 / n - m * m) * 252) * 1.1; } }
-        l.iv = v > 0.05 ? v : 0.45; p.ivEst = true;
-      });
-    });
-  }
+  function bookFillIv(pos, days){ return BOOK_RISK.fillIv(pos, days); }
   function bookUsd(v){ var a = Math.abs(v); return (v < 0 ? '−' : '') + '$' + (a >= 1e6 ? (a / 1e6).toFixed(2) + 'M' : a >= 1e4 ? Math.round(a / 1e3) + 'K' : Math.round(a).toLocaleString()); }
   function bookPct(v, d){ var n = Number(v); if (!isFinite(n)) return '—'; return (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n * 100).toFixed(d == null ? 0 : d) + '%'; }
   function bookDay(s){ var d = new Date(String(s).slice(0, 10) + 'T12:00:00Z'); return isFinite(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : String(s || ''); }
@@ -65592,10 +65668,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var sens = isOpen ? bookSens() : null;
     bookFillIv(pos, bookData.days);
     var G = pos.map(BOOK_RISK.greeksOf);
-    var netDelta = 0, grossDelta = 0, theta = 0, vega = 0, value = 0, groups = {};
+    var netDelta = 0, grossDelta = 0, theta = 0, week = 0, vega = 0, value = 0, groups = {};
     pos.forEach(function(p, i){
       var g = G[i];
-      netDelta += g.deltaUsd; grossDelta += Math.abs(g.deltaUsd); theta += g.thetaUsd; vega += g.vegaUsd; value += g.valueUsd;
+      netDelta += g.deltaUsd; grossDelta += Math.abs(g.deltaUsd); theta += g.thetaUsd; week += BOOK_RISK.decayOver(p, 7); vega += g.vegaUsd; value += g.valueUsd;
       var grp = sectorGroupOf(p.symbol) || 'Other';
       var b = groups[grp] = groups[grp] || { delta: 0, n: 0, calls: 0, puts: 0, shares: 0, longUsd: 0, shortUsd: 0 };
       b.delta += g.deltaUsd; b.n++; if (p.side === 'put') b.puts++; else if (p.side === 'shares') b.shares++; else b.calls++;
@@ -65615,6 +65691,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       bookData.memo = A; bookData.memoKey = key;
     }
+    var BS = BOOK_RISK.bySymbol(pos, G, A && A.ok ? A.betas : null);
+    var clashRows = BS.rows.filter(function(r){ return r.clash; });
     var spy = Number(SPOTS && SPOTS.SPY);
     var maxAbs = 0;
     Object.keys(groups).forEach(function(k){ if (Math.abs(groups[k].delta) > maxAbs) maxAbs = Math.abs(groups[k].delta); });
@@ -65623,14 +65701,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var mix = [b.calls ? b.calls + 'C' : '', b.puts ? b.puts + 'P' : '', b.shares ? b.shares + 'S' : ''].filter(Boolean).join(' · ');
       return '<tr><td>' + escapeHtml(k) + '</td><td class="num">' + b.n + ' <small>(' + mix + ')</small></td><td class="num">' + vtCbarHtml(b.delta / (maxAbs || 1) * 10, 10, bookUsd(b.delta)) + '</td><td class="num">' + (grossDelta ? Math.round(Math.abs(b.delta) / grossDelta * 100) + '%' : '—') + '</td></tr>';
     }).join('');
-    var top = pos.map(function(p, i){ return { p: p, g: G[i] }; }).sort(function(a, b){ return Math.abs(b.g.deltaUsd) - Math.abs(a.g.deltaUsd); })[0];
+    var topRow = BS.rows[0];
     var betaKpi = A && A.ok ? '<div class="mm-kpi"><span title="Each trade’s delta $ times its stock’s beta to SPY over the last year: the same exposure in S&amp;P 500 dollars.">In S&amp;P 500 dollars</span><b class="' + (A.betaDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(A.betaDelta) + '</b>' + (spy > 0 ? '<small>≈ ' + Math.round(A.betaDelta / spy).toLocaleString() + ' SPY shares</small>' : '') + '</div>' : '';
     var kpis = '<div class="mm-kpis">' +
       '<div class="mm-kpi"><span>Net stock exposure (delta $)</span><b class="' + (netDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(netDelta) + '</b></div>' + betaKpi +
       '<div class="mm-kpi"><span>Gross exposure</span><b>' + bookUsd(grossDelta) + '</b></div>' +
-      '<div class="mm-kpi"><span>Daily time decay</span><b class="' + (theta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(theta) + '/day</b></div>' +
+      '<div class="mm-kpi"><span title="What the options lose to time if prices and implied volatility stay where they are (calendar days; shares have none).">Daily time decay</span><b class="' + (theta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(theta) + '/day</b><small title="The next seven days repriced at today’s prices and volatility, so an option that expires inside the week loses at most what it is worth.">' + bookUsd(week) + ' over a week</small></div>' +
       '<div class="mm-kpi"><span title="What the book gains (or loses) if every option’s implied volatility rises one point; falls the same if it drops a point.">Per point of volatility</span><b class="' + (vega >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(vega) + '</b></div>' +
-      '<div class="mm-kpi"><span>Largest single name</span><b>' + escapeHtml(top.p.symbol) + ' ' + (grossDelta ? Math.round(Math.abs(top.g.deltaUsd) / grossDelta * 100) + '%' : '') + '</b></div>' +
+      '<div class="mm-kpi"><span title="The stock with the most net exposure (all its trades together), as a share of the book’s gross exposure.">Largest single stock</span><b>' + escapeHtml(topRow.symbol) + ' ' + (grossDelta ? Math.round(Math.abs(topRow.deltaUsd) / grossDelta * 100) + '%' : '') + '</b><small>' + bookUsd(topRow.deltaUsd) + ' net</small></div>' +
+      '<div class="mm-kpi"><span title="Stocks where one open trade is long the stock and another is short it, so part of each cancels the other.">Opposite bets</span><b' + (clashRows.length ? ' class="sig-neg"' : '') + '>' + (clashRows.length ? clashRows.length + ' stock' + (clashRows.length === 1 ? '' : 's') : 'None') + '</b>' + (clashRows.length ? '<small>' + escapeHtml(clashRows.map(function(r){ return r.symbol; }).join(', ')) + '</small>' : '') + '</div>' +
     '</div>';
     var riskHtml;
     if (!A){
@@ -65654,12 +65733,39 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (A && A.ok && A.gaps.length) notes.push(A.gaps.join(', ') + ' missed more than five days of the year; ' + (A.gaps.length === 1 ? 'its' : 'their') + ' missing days move by beta times the S&P 500.');
     notes.push('Delta $ is the stock-equivalent position: if every stock rose 1%, the book would gain about 1% of it. Options are priced with Black-Scholes at each trade’s implied volatility at entry and the latest price.');
     return '<details class="accuracy-advanced book-risk"' + (isOpen ? ' open' : ' data-book-lazy') + ' data-book-risk><summary class="accuracy-advanced-summary">Book risk: the paper account <span class="mm-owner-tag">Owner</span> <small class="book-sum-n">' + pos.length + ' trade' + (pos.length === 1 ? '' : 's') + '</small></summary><div class="accuracy-advanced-body">' +
-      kpis + riskHtml +
+      kpis + bookByStockHtml(BS, !!A || !!bookData.daysError) + riskHtml +
       '<h4 class="pd-h4">Exposure by sector group</h4>' +
       '<div class="acc-tscroll"><table class="acc-qtable book-table" data-nosort><thead><tr><th>Sector group</th><th class="num">Trades</th><th class="num">Net delta $</th><th class="num">Share of gross</th></tr></thead><tbody>' + groupRows + '</tbody></table></div>' +
       bookExposureBarsHtml(groups, bookUsd) + ladder +
       '<p class="hint acc-research-note">' + notes.map(escapeHtml).join(' ') + '</p>' +
     '</div></details>';
+  }
+  // Exposure by stock (2026-11-25): each stock's trades netted, opposite bets
+  // (one trade long the stock, another short it) first, then by size.
+  function bookTradeChip(t){
+    var unit = t.kind === 'shares' ? ' sh' : ' ' + (t.side === 'put' ? 'put' : 'call') + (t.spread ? ' spread' : '') + (t.qty === 1 ? '' : 's');
+    var how = t.basis === 'pending' ? '; order still working at Webull (size asked for)' : t.basis === 'not-sent' || t.basis === 'record' ? '; no Webull row, the record’s own size' : '';
+    return '<span class="book-pos ' + (t.deltaUsd >= 0 ? 'is-call' : 'is-put') + (how ? ' is-unfilled' : '') + '" title="' + escapeHtml(t.src) + ': ' + escapeHtml(bookUsd(t.deltaUsd)) + ' delta $ (green = long the stock, red = short it)' + escapeHtml(how) + '">' + escapeHtml(t.src) + ' <small>' + escapeHtml(String(Math.round(t.qty * 100) / 100) + unit) + (t.basis === 'pending' ? ' · working' : '') + '</small></span>';
+  }
+  function bookByStockHtml(BS, settled){
+    if (!BS || !BS.rows.length) return '';
+    var rows = BS.rows.filter(function(r){ return r.clash; }).concat(BS.rows.filter(function(r){ return !r.clash; }));
+    var maxAbs = 0;
+    rows.forEach(function(r){ if (Math.abs(r.deltaUsd) > maxAbs) maxAbs = Math.abs(r.deltaUsd); });
+    var NETS = { long: 'nets long', short: 'nets short', flat: 'nets about flat' };
+    var body = rows.map(function(r){
+      var c = r.clash;
+      var tag = c ? '<div class="book-sub"><span class="book-clash">Opposite bets</span> long: ' + escapeHtml(c.longBy.join(', ')) + ' · short: ' + escapeHtml(c.shortBy.join(', ')) + ' · ' + bookUsd(c.cancelledUsd) + ' cancels out · ' + NETS[c.nets] + '</div>' : '';
+      var chips = r.trades.map(bookTradeChip).join(' ');
+      return '<tr' + (c ? ' class="book-clash-row"' : '') + '><td><b>' + escapeHtml(r.symbol) + '</b>' + tag + '<div class="book-chips-m">' + chips + '</div></td>' +
+        '<td class="num">' + vtCbarHtml(r.deltaUsd / (maxAbs || 1) * 10, 10, bookUsd(r.deltaUsd)) + '</td>' +
+        '<td class="num">' + (r.betaUsd != null ? '<span class="' + (r.betaUsd >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(r.betaUsd) + '</span>' : '<span class="crd-dim">' + (settled ? '—' : '…') + '</span>') + '</td>' +
+        '<td class="num">' + (r.thetaUsd ? bookUsd(r.thetaUsd) : '<span class="crd-dim">—</span>') + '</td>' +
+        '<td>' + chips + '</td></tr>';
+    }).join('');
+    return '<h4 class="pd-h4">Exposure by stock</h4>' +
+      '<div class="acc-tscroll"><table class="acc-qtable book-table book-by-stock" data-nosort><thead><tr><th>Stock</th><th class="num">Net delta $</th><th class="num" title="Net delta $ times the stock’s beta to SPY over the last year">S&amp;P 500 $</th><th class="num">Decay a day</th><th title="Green = long the stock, red = short it">Trades (made by, size)</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+      (BS.clashes ? '<p class="hint">Opposite bets: one open trade is long the stock and another is short it (shares or a call against a put), so the part that cancels earns nothing on a move but still pays the options’ decay. Each engine trades on its own; this only flags it.</p>' : '');
   }
   function bookBadDayHtml(A, value){
     function row(label, tip, v, c, extra){

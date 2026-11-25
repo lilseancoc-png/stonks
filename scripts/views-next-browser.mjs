@@ -342,6 +342,7 @@ try {
       ok(/In S&P 500 dollars/i.test(book) && /Who carries the risk/i.test(book), 'beta-weighted exposure and risk shares show');
       ok(/Covid crash, 2020/.test(book) && /April 2025 tariff shock/.test(book), 'crash replays show');
       ok(/Growth scare/.test(book) && /without a sensitivity, moved by beta/.test(book), 'What-if presets run on the book');
+      ok(/Exposure by stock/i.test(book) && /a week/i.test(book) && /Opposite bets/i.test(book), 'exposure by stock, weekly decay and the opposite-bets count show');
       ok(!/NaN|undefined|Infinity/.test(book), 'no broken numbers in the book');
       ok(await bookRedraws(s.page) <= 1, 'book risk panel settles (no redraw loop)');
       await finish(s, 'open-picks-book-' + tag, '.book-risk');
