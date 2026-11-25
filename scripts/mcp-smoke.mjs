@@ -859,7 +859,7 @@ async function tool(name, args, opts) {
   const list = await rpc("tools/list", {}, pub);
   assert.equal(list.statusCode, 200);
   const names = list.body.result.tools.map((t) => t.name);
-  for (const owner of ["get_stock", "get_stock_grades", "get_top_picks", "get_near_misses", "get_track_record", "get_trade_instructions"]) assert.ok(!names.includes(owner), owner + " hidden");
+  for (const owner of ["get_stock", "get_stock_grades", "get_top_picks", "get_near_misses", "get_track_record", "get_trade_instructions", "get_book_exposure"]) assert.ok(!names.includes(owner), owner + " hidden");
   assert.ok(!JSON.stringify(list.body).includes("track record"), "owner descriptions hidden");
   const lf = await tool("list_features", {}, pub);
   assert.ok(lf.structuredContent.results.features.every((f) => f.access === "public"));
@@ -1107,12 +1107,17 @@ async function tool(name, args, opts) {
   assert.equal(spy.trades.find((t) => t.kind === "put").size, 2);
   assert.equal(r.by_stock.find((x) => x.symbol === "NVDA").trades[0].size, 3, "the Top Pick at its Webull size");
   assert.deepEqual(r.book.opposite_bet_symbols, ["SPY"]);
-  assert.ok(Number.isFinite(r.book.sp500_usd) && Number.isFinite(r.book.bad_day_1_in_20_usd) && r.book.decay_per_week_usd === Math.round(r.book.decay_per_day_usd * 7) || Math.abs(r.book.decay_per_week_usd - r.book.decay_per_day_usd * 7) <= 7, "S&P 500 $, bad day and weekly decay present");
+  assert.ok(Number.isFinite(r.book.sp500_usd), "S&P 500 $ present");
+  assert.ok(Number.isFinite(r.book.bad_day_1_in_20_usd) && r.book.bad_day_1_in_20_usd <= 0, "bad day present");
+  assert.ok(Number.isFinite(r.book.decay_per_day_usd) && r.book.decay_per_day_usd < 0 && Math.abs(r.book.decay_per_week_usd - r.book.decay_per_day_usd * 7) <= 4, "weekly decay is seven calendar days");
+  assert.ok(Number.isFinite(r.book.sp500_shares_equiv), "SPY-share equivalent present");
   assert.ok(r.by_engine.some((e) => e.made_by === "Macro") && r.by_engine.some((e) => e.made_by === "Top Picks"));
   const text = JSON.stringify(res);
   assert.ok(!text.includes(secretOrder) && !/598\.77|7\.31|9\.42/.test(text) && !/clientOrderId|fillPrice|orderPrefix|attempts/.test(text), "no order ID, fill price or attempt leaves the ledger");
   const only = (await tool("get_book_exposure", { opposite_bets_only: true }, bo)).structuredContent.results;
   assert.deepEqual(only.by_stock.map((x) => x.symbol), ["SPY"]);
+  const nvClash = (await tool("get_book_exposure", { symbol: "NVDA", opposite_bets_only: true }, bo)).structuredContent;
+  assert.ok(!nvClash.results.by_stock.length && !nvClash.warnings.some((w) => w.startsWith("NOT_HELD")), "a held stock with no clash is not called not held");
   const one = (await tool("get_book_exposure", { symbol: "$nvda" }, bo)).structuredContent.results;
   assert.ok(one.by_stock.length === 1 && one.book.trades === 3, "symbol filters the rows, not the totals");
   const off = { headers: bo.headers, extra: { MCP_OWNER_KEY: bkKey, MCP_BOOK_EXPOSURE: "0" } };

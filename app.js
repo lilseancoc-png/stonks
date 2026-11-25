@@ -65536,7 +65536,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var sz = sizeOf(w, planned, !!L);
     if (!(sz.n > 0)) return { skip: sz.basis };
     var legs = [];
-    if ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && c.legs && c.legs.length > 1){
+    if ((c.structure === 'debit_vertical' || c.structure === 'credit_vertical') && Object.prototype.toString.call(c.legs) === '[object Array]' && c.legs.length > 1){
       c.legs.forEach(function(l){ var K = Number(l.strike), q = Number(l.qty) || 0; if (K > 0 && q) legs.push({ type: l.type || c.optionType || side, K: K, q: q * sz.n, iv: Number(l.iv) > 0 ? Number(l.iv) : null }); });
     } else if (Number(c.strike) > 0) legs.push({ type: c.optionType || side, K: Number(c.strike), q: sz.n, iv: Number(c.iv) > 0 ? Number(c.iv) : null });
     if (!legs.length) return { skip: 'no-contract' };
@@ -65550,8 +65550,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // smaller side the larger one cancels. G: greeksOf for each position.
   // betas: analyze().betas, or null while the year of moves is loading.
   // A trade under $1 of delta $ (an option at its last day, far out of the
-  // money) does not count as a side.
-  var CLASH_MIN_USD = 1, CLASH_FLAT = 0.1;
+  // money) does not count as a side, and a stock is tagged only when the
+  // smaller side is a real bet: at least $250 of delta $ and a tenth of the
+  // larger side (a far out-of-the-money put beside a big share lot is not).
+  var CLASH_MIN_USD = 1, CLASH_FLAT = 0.1, CLASH_SIDE_USD = 250, CLASH_SIDE_SHARE = 0.1;
   function bySymbol(positions, G, betas){
     var m = {}, list = [];
     (positions || []).forEach(function(p, i){
@@ -65572,14 +65574,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var b = betas ? num(betas[r.symbol]) : null;
       if (b != null){ r.beta = b; r.betaUsd = r.deltaUsd * b; }
       r.trades.sort(function(a, c){ return Math.abs(c.deltaUsd) - Math.abs(a.deltaUsd); });
-      if (r.longUsd > 0 && r.shortUsd > 0){
+      var small = Math.min(r.longUsd, r.shortUsd), big = Math.max(r.longUsd, r.shortUsd);
+      if (small >= CLASH_SIDE_USD && small >= CLASH_SIDE_SHARE * big){
         var gross = r.longUsd + r.shortUsd;
         clashes++;
         r.clash = {
           nets: Math.abs(r.deltaUsd) < CLASH_FLAT * gross ? 'flat' : r.deltaUsd > 0 ? 'long' : 'short',
           longBy: r.longBy.slice(), shortBy: r.shortBy.slice(),
-          cancelledUsd: Math.min(r.longUsd, r.shortUsd),
-          cancelledPct: Math.min(r.longUsd, r.shortUsd) / Math.max(r.longUsd, r.shortUsd)
+          cancelledUsd: small,
+          cancelledPct: small / big
         };
       }
     });
@@ -65682,14 +65685,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var mix = [b.calls ? b.calls + 'C' : '', b.puts ? b.puts + 'P' : '', b.shares ? b.shares + 'S' : ''].filter(Boolean).join(' · ');
       return '<tr><td>' + escapeHtml(k) + '</td><td class="num">' + b.n + ' <small>(' + mix + ')</small></td><td class="num">' + vtCbarHtml(b.delta / (maxAbs || 1) * 10, 10, bookUsd(b.delta)) + '</td><td class="num">' + (grossDelta ? Math.round(Math.abs(b.delta) / grossDelta * 100) + '%' : '—') + '</td></tr>';
     }).join('');
-    var top = pos.map(function(p, i){ return { p: p, g: G[i] }; }).sort(function(a, b){ return Math.abs(b.g.deltaUsd) - Math.abs(a.g.deltaUsd); })[0];
+    var topRow = BS.rows[0];
     var betaKpi = A && A.ok ? '<div class="mm-kpi"><span title="Each trade’s delta $ times its stock’s beta to SPY over the last year: the same exposure in S&amp;P 500 dollars.">In S&amp;P 500 dollars</span><b class="' + (A.betaDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(A.betaDelta) + '</b>' + (spy > 0 ? '<small>≈ ' + Math.round(A.betaDelta / spy).toLocaleString() + ' SPY shares</small>' : '') + '</div>' : '';
     var kpis = '<div class="mm-kpis">' +
       '<div class="mm-kpi"><span>Net stock exposure (delta $)</span><b class="' + (netDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(netDelta) + '</b></div>' + betaKpi +
       '<div class="mm-kpi"><span>Gross exposure</span><b>' + bookUsd(grossDelta) + '</b></div>' +
       '<div class="mm-kpi"><span title="What the options lose to time if prices and implied volatility stay where they are (calendar days; shares have none).">Daily time decay</span><b class="' + (theta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(theta) + '/day</b><small>≈ ' + bookUsd(theta * 7) + ' a week</small></div>' +
       '<div class="mm-kpi"><span title="What the book gains (or loses) if every option’s implied volatility rises one point; falls the same if it drops a point.">Per point of volatility</span><b class="' + (vega >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(vega) + '</b></div>' +
-      '<div class="mm-kpi"><span>Largest single name</span><b>' + escapeHtml(top.p.symbol) + ' ' + (grossDelta ? Math.round(Math.abs(top.g.deltaUsd) / grossDelta * 100) + '%' : '') + '</b></div>' +
+      '<div class="mm-kpi"><span title="The stock with the most net exposure (all its trades together), as a share of the book’s gross exposure.">Largest single stock</span><b>' + escapeHtml(topRow.symbol) + ' ' + (grossDelta ? Math.round(Math.abs(topRow.deltaUsd) / grossDelta * 100) + '%' : '') + '</b><small>' + bookUsd(topRow.deltaUsd) + ' net</small></div>' +
       '<div class="mm-kpi"><span title="Stocks where one open trade is long the stock and another is short it, so part of each cancels the other.">Opposite bets</span><b' + (clashRows.length ? ' class="sig-neg"' : '') + '>' + (clashRows.length ? clashRows.length + ' stock' + (clashRows.length === 1 ? '' : 's') : 'None') + '</b>' + (clashRows.length ? '<small>' + escapeHtml(clashRows.map(function(r){ return r.symbol; }).join(', ')) + '</small>' : '') + '</div>' +
     '</div>';
     var riskHtml;
@@ -65724,8 +65727,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Exposure by stock (2026-11-25): each stock's trades netted, opposite bets
   // (one trade long the stock, another short it) first, then by size.
   function bookTradeChip(t){
-    var unit = t.kind === 'shares' ? ' sh' : ' ' + (t.side === 'put' ? 'put' : 'call') + (t.qty === 1 ? '' : 's') + (t.spread ? ' spread' : '');
-    return '<span class="book-pos ' + (t.deltaUsd >= 0 ? 'is-call' : 'is-put') + '" title="' + escapeHtml(t.src) + ': ' + escapeHtml(bookUsd(t.deltaUsd)) + ' delta $">' + escapeHtml(t.src) + ' <small>' + escapeHtml(String(Math.round(t.qty * 100) / 100) + unit) + '</small></span>';
+    var unit = t.kind === 'shares' ? ' sh' : ' ' + (t.side === 'put' ? 'put' : 'call') + (t.spread ? ' spread' : '') + (t.qty === 1 ? '' : 's');
+    return '<span class="book-pos ' + (t.deltaUsd >= 0 ? 'is-call' : 'is-put') + '" title="' + escapeHtml(t.src) + ': ' + escapeHtml(bookUsd(t.deltaUsd)) + ' delta $ (green = long the stock, red = short it)">' + escapeHtml(t.src) + ' <small>' + escapeHtml(String(Math.round(t.qty * 100) / 100) + unit) + '</small></span>';
   }
   function bookByStockHtml(BS, hasBeta){
     if (!BS || !BS.rows.length) return '';
@@ -65736,13 +65739,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var body = rows.map(function(r){
       var c = r.clash;
       var tag = c ? '<div class="book-sub"><span class="book-clash">Opposite bets</span> long: ' + escapeHtml(c.longBy.join(', ')) + ' · short: ' + escapeHtml(c.shortBy.join(', ')) + ' · ' + bookUsd(c.cancelledUsd) + ' cancels out · ' + NETS[c.nets] + '</div>' : '';
-      return '<tr' + (c ? ' class="book-clash-row"' : '') + '><td><b>' + escapeHtml(r.symbol) + '</b>' + tag + '</td><td>' + r.trades.map(bookTradeChip).join(' ') + '</td>' +
+      return '<tr' + (c ? ' class="book-clash-row"' : '') + '><td><b>' + escapeHtml(r.symbol) + '</b>' + tag + '</td>' +
         '<td class="num">' + vtCbarHtml(r.deltaUsd / (maxAbs || 1) * 10, 10, bookUsd(r.deltaUsd)) + '</td>' +
         '<td class="num">' + (r.betaUsd != null ? '<span class="' + (r.betaUsd >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(r.betaUsd) + '</span>' : '<span class="crd-dim">' + (hasBeta ? '—' : '…') + '</span>') + '</td>' +
-        '<td class="num">' + (r.thetaUsd ? bookUsd(r.thetaUsd) : '<span class="crd-dim">—</span>') + '</td></tr>';
+        '<td class="num">' + (r.thetaUsd ? bookUsd(r.thetaUsd) : '<span class="crd-dim">—</span>') + '</td>' +
+        '<td>' + r.trades.map(bookTradeChip).join(' ') + '</td></tr>';
     }).join('');
     return '<h4 class="pd-h4">Exposure by stock</h4>' +
-      '<div class="acc-tscroll"><table class="acc-qtable book-table book-by-stock" data-nosort><thead><tr><th>Stock</th><th>Trades (made by, size)</th><th class="num">Net delta $</th><th class="num" title="Net delta $ times the stock’s beta to SPY over the last year">S&amp;P 500 $</th><th class="num">Decay a day</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+      '<div class="acc-tscroll"><table class="acc-qtable book-table book-by-stock" data-nosort><thead><tr><th>Stock</th><th class="num">Net delta $</th><th class="num" title="Net delta $ times the stock’s beta to SPY over the last year">S&amp;P 500 $</th><th class="num">Decay a day</th><th title="Green = long the stock, red = short it">Trades (made by, size)</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
       (BS.clashes ? '<p class="hint">Opposite bets: one open trade is long the stock and another is short it (shares or a call against a put), so the part that cancels earns nothing on a move but still pays the options’ decay. Each engine trades on its own; this only flags it.</p>' : '');
   }
   function bookBadDayHtml(A, value){

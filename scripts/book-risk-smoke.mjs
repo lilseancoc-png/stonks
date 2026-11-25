@@ -182,6 +182,12 @@ const putPos = (id, symbol, K, q, iv, years, src = "Top Picks") => ({ id, symbol
   const flat = BR.bySymbol([sharesPos("a", "X", 1000, "A"), sharesPos("b", "X", 1000, "B")], [{ deltaUsd: 1000, thetaUsd: 0, vegaUsd: 0, valueUsd: 1000 }, { deltaUsd: -950, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }], null);
   ok(flat.rows[0].clash.nets === "flat" && flat.rows[0].betaUsd === null, "a near-even clash nets about flat; no betas while loading");
   ok(BR.bySymbol([], [], null).rows.length === 0, "an empty book has no rows");
+  const tiny = BR.bySymbol([sharesPos("a", "Y", 100000, "Trend"), sharesPos("b", "Y", 1000, "Macro")], [{ deltaUsd: 100000, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }, { deltaUsd: -2000, thetaUsd: -5, vegaUsd: 0, valueUsd: 0 }], null);
+  ok(!tiny.rows[0].clash && tiny.clashes === 0, "a small put beside a big share lot (under a tenth) is not an opposite bet");
+  const small = BR.bySymbol([sharesPos("a", "Z", 1000, "A"), sharesPos("b", "Z", 1000, "B")], [{ deltaUsd: 1000, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }, { deltaUsd: -200, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }], null);
+  ok(!small.rows[0].clash, "a side under $250 is not an opposite bet");
+  const odd = BR.positionOf({ symbol: "Q", side: "call", lastSpot: 100, contract: { structure: "debit_vertical", strike: 100, expiry: 1900000000, legs: "xx", iv: 0.3 } }, "T", true, { ledger: null, spot: (s, l) => l, yrs: () => 0.1, tradeId: () => "x" });
+  ok(odd.kind === "option" && odd.legs.length === 1, "legs that are not a list fall back to the single strike");
 }
 
 // --- the crash table ---
