@@ -29669,6 +29669,12 @@ button[data-refresh-checking] { opacity: .55; cursor: progress; }
 .book-by-stock td:first-child { min-width: 96px; white-space: normal; }
 .book-by-stock td:last-child { white-space: normal; min-width: 160px; }
 .book-clash { display: inline-block; padding: 0 6px; border-radius: 999px; font: 650 var(--t-11)/1.6 var(--font-sans); text-transform: uppercase; letter-spacing: .03em; color: var(--warn, var(--accent)); border: 1px solid color-mix(in srgb, var(--warn, var(--accent)) 45%, transparent); background: color-mix(in srgb, var(--warn, var(--accent)) 10%, transparent); }
+.book-chips-m { display: none; }
+.book-pos.is-unfilled { border-style: dashed; opacity: .8; }
+@media (max-width: 640px) {
+  .book-by-stock .book-chips-m { display: block; margin-top: 4px; }
+  .book-by-stock th:last-child, .book-by-stock td:last-child { display: none; }
+}
 .book-clash-row td { background: color-mix(in srgb, var(--warn, var(--accent)) 5%, transparent); }
 
 /* Owner trade journal. */

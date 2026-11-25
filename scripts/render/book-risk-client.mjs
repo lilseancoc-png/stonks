@@ -65,16 +65,7 @@ export function renderBookRiskJs() {
   }
   // A missing implied volatility: the stock's own realized volatility over the
   // year (x 1.1), else 45%. Flagged on the position.
-  function bookFillIv(pos, days){
-    pos.forEach(function(p){
-      p.legs.forEach(function(l){
-        if (l.iv > 0) return;
-        var x = days && days.bySym[p.symbol], v = null;
-        if (x){ var s = 0, s2 = 0, n = 0; x.forEach(function(r){ if (r != null){ s += r; s2 += r * r; n++; } }); if (n > 30){ var m = s / n; v = Math.sqrt(Math.max(0, s2 / n - m * m) * 252) * 1.1; } }
-        l.iv = v > 0.05 ? v : 0.45; p.ivEst = true;
-      });
-    });
-  }
+  function bookFillIv(pos, days){ return BOOK_RISK.fillIv(pos, days); }
   function bookUsd(v){ var a = Math.abs(v); return (v < 0 ? '−' : '') + '$' + (a >= 1e6 ? (a / 1e6).toFixed(2) + 'M' : a >= 1e4 ? Math.round(a / 1e3) + 'K' : Math.round(a).toLocaleString()); }
   function bookPct(v, d){ var n = Number(v); if (!isFinite(n)) return '—'; return (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n * 100).toFixed(d == null ? 0 : d) + '%'; }
   function bookDay(s){ var d = new Date(String(s).slice(0, 10) + 'T12:00:00Z'); return isFinite(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : String(s || ''); }
@@ -91,10 +82,10 @@ export function renderBookRiskJs() {
     var sens = isOpen ? bookSens() : null;
     bookFillIv(pos, bookData.days);
     var G = pos.map(BOOK_RISK.greeksOf);
-    var netDelta = 0, grossDelta = 0, theta = 0, vega = 0, value = 0, groups = {};
+    var netDelta = 0, grossDelta = 0, theta = 0, week = 0, vega = 0, value = 0, groups = {};
     pos.forEach(function(p, i){
       var g = G[i];
-      netDelta += g.deltaUsd; grossDelta += Math.abs(g.deltaUsd); theta += g.thetaUsd; vega += g.vegaUsd; value += g.valueUsd;
+      netDelta += g.deltaUsd; grossDelta += Math.abs(g.deltaUsd); theta += g.thetaUsd; week += BOOK_RISK.decayOver(p, 7); vega += g.vegaUsd; value += g.valueUsd;
       var grp = sectorGroupOf(p.symbol) || 'Other';
       var b = groups[grp] = groups[grp] || { delta: 0, n: 0, calls: 0, puts: 0, shares: 0, longUsd: 0, shortUsd: 0 };
       b.delta += g.deltaUsd; b.n++; if (p.side === 'put') b.puts++; else if (p.side === 'shares') b.shares++; else b.calls++;
@@ -129,7 +120,7 @@ export function renderBookRiskJs() {
     var kpis = '<div class="mm-kpis">' +
       '<div class="mm-kpi"><span>Net stock exposure (delta $)</span><b class="' + (netDelta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(netDelta) + '</b></div>' + betaKpi +
       '<div class="mm-kpi"><span>Gross exposure</span><b>' + bookUsd(grossDelta) + '</b></div>' +
-      '<div class="mm-kpi"><span title="What the options lose to time if prices and implied volatility stay where they are (calendar days; shares have none).">Daily time decay</span><b class="' + (theta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(theta) + '/day</b><small>≈ ' + bookUsd(theta * 7) + ' a week</small></div>' +
+      '<div class="mm-kpi"><span title="What the options lose to time if prices and implied volatility stay where they are (calendar days; shares have none).">Daily time decay</span><b class="' + (theta >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(theta) + '/day</b><small title="The next seven days repriced at today’s prices and volatility, so an option that expires inside the week loses at most what it is worth.">' + bookUsd(week) + ' over a week</small></div>' +
       '<div class="mm-kpi"><span title="What the book gains (or loses) if every option’s implied volatility rises one point; falls the same if it drops a point.">Per point of volatility</span><b class="' + (vega >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(vega) + '</b></div>' +
       '<div class="mm-kpi"><span title="The stock with the most net exposure (all its trades together), as a share of the book’s gross exposure.">Largest single stock</span><b>' + escapeHtml(topRow.symbol) + ' ' + (grossDelta ? Math.round(Math.abs(topRow.deltaUsd) / grossDelta * 100) + '%' : '') + '</b><small>' + bookUsd(topRow.deltaUsd) + ' net</small></div>' +
       '<div class="mm-kpi"><span title="Stocks where one open trade is long the stock and another is short it, so part of each cancels the other.">Opposite bets</span><b' + (clashRows.length ? ' class="sig-neg"' : '') + '>' + (clashRows.length ? clashRows.length + ' stock' + (clashRows.length === 1 ? '' : 's') : 'None') + '</b>' + (clashRows.length ? '<small>' + escapeHtml(clashRows.map(function(r){ return r.symbol; }).join(', ')) + '</small>' : '') + '</div>' +
@@ -156,7 +147,7 @@ export function renderBookRiskJs() {
     if (A && A.ok && A.gaps.length) notes.push(A.gaps.join(', ') + ' missed more than five days of the year; ' + (A.gaps.length === 1 ? 'its' : 'their') + ' missing days move by beta times the S&P 500.');
     notes.push('Delta $ is the stock-equivalent position: if every stock rose 1%, the book would gain about 1% of it. Options are priced with Black-Scholes at each trade’s implied volatility at entry and the latest price.');
     return '<details class="accuracy-advanced book-risk"' + (isOpen ? ' open' : ' data-book-lazy') + ' data-book-risk><summary class="accuracy-advanced-summary">Book risk: the paper account <span class="mm-owner-tag">Owner</span> <small class="book-sum-n">' + pos.length + ' trade' + (pos.length === 1 ? '' : 's') + '</small></summary><div class="accuracy-advanced-body">' +
-      kpis + bookByStockHtml(BS, !!(A && A.ok)) + riskHtml +
+      kpis + bookByStockHtml(BS, !!A || !!bookData.daysError) + riskHtml +
       '<h4 class="pd-h4">Exposure by sector group</h4>' +
       '<div class="acc-tscroll"><table class="acc-qtable book-table" data-nosort><thead><tr><th>Sector group</th><th class="num">Trades</th><th class="num">Net delta $</th><th class="num">Share of gross</th></tr></thead><tbody>' + groupRows + '</tbody></table></div>' +
       bookExposureBarsHtml(groups, bookUsd) + ladder +
@@ -167,9 +158,10 @@ export function renderBookRiskJs() {
   // (one trade long the stock, another short it) first, then by size.
   function bookTradeChip(t){
     var unit = t.kind === 'shares' ? ' sh' : ' ' + (t.side === 'put' ? 'put' : 'call') + (t.spread ? ' spread' : '') + (t.qty === 1 ? '' : 's');
-    return '<span class="book-pos ' + (t.deltaUsd >= 0 ? 'is-call' : 'is-put') + '" title="' + escapeHtml(t.src) + ': ' + escapeHtml(bookUsd(t.deltaUsd)) + ' delta $ (green = long the stock, red = short it)">' + escapeHtml(t.src) + ' <small>' + escapeHtml(String(Math.round(t.qty * 100) / 100) + unit) + '</small></span>';
+    var how = t.basis === 'pending' ? '; order still working at Webull (size asked for)' : t.basis === 'not-sent' || t.basis === 'record' ? '; no Webull row, the record’s own size' : '';
+    return '<span class="book-pos ' + (t.deltaUsd >= 0 ? 'is-call' : 'is-put') + (how ? ' is-unfilled' : '') + '" title="' + escapeHtml(t.src) + ': ' + escapeHtml(bookUsd(t.deltaUsd)) + ' delta $ (green = long the stock, red = short it)' + escapeHtml(how) + '">' + escapeHtml(t.src) + ' <small>' + escapeHtml(String(Math.round(t.qty * 100) / 100) + unit) + (t.basis === 'pending' ? ' · working' : '') + '</small></span>';
   }
-  function bookByStockHtml(BS, hasBeta){
+  function bookByStockHtml(BS, settled){
     if (!BS || !BS.rows.length) return '';
     var rows = BS.rows.filter(function(r){ return r.clash; }).concat(BS.rows.filter(function(r){ return !r.clash; }));
     var maxAbs = 0;
@@ -178,11 +170,12 @@ export function renderBookRiskJs() {
     var body = rows.map(function(r){
       var c = r.clash;
       var tag = c ? '<div class="book-sub"><span class="book-clash">Opposite bets</span> long: ' + escapeHtml(c.longBy.join(', ')) + ' · short: ' + escapeHtml(c.shortBy.join(', ')) + ' · ' + bookUsd(c.cancelledUsd) + ' cancels out · ' + NETS[c.nets] + '</div>' : '';
-      return '<tr' + (c ? ' class="book-clash-row"' : '') + '><td><b>' + escapeHtml(r.symbol) + '</b>' + tag + '</td>' +
+      var chips = r.trades.map(bookTradeChip).join(' ');
+      return '<tr' + (c ? ' class="book-clash-row"' : '') + '><td><b>' + escapeHtml(r.symbol) + '</b>' + tag + '<div class="book-chips-m">' + chips + '</div></td>' +
         '<td class="num">' + vtCbarHtml(r.deltaUsd / (maxAbs || 1) * 10, 10, bookUsd(r.deltaUsd)) + '</td>' +
-        '<td class="num">' + (r.betaUsd != null ? '<span class="' + (r.betaUsd >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(r.betaUsd) + '</span>' : '<span class="crd-dim">' + (hasBeta ? '—' : '…') + '</span>') + '</td>' +
+        '<td class="num">' + (r.betaUsd != null ? '<span class="' + (r.betaUsd >= 0 ? 'sig-pos' : 'sig-neg') + '">' + bookUsd(r.betaUsd) + '</span>' : '<span class="crd-dim">' + (settled ? '—' : '…') + '</span>') + '</td>' +
         '<td class="num">' + (r.thetaUsd ? bookUsd(r.thetaUsd) : '<span class="crd-dim">—</span>') + '</td>' +
-        '<td>' + r.trades.map(bookTradeChip).join(' ') + '</td></tr>';
+        '<td>' + chips + '</td></tr>';
     }).join('');
     return '<h4 class="pd-h4">Exposure by stock</h4>' +
       '<div class="acc-tscroll"><table class="acc-qtable book-table book-by-stock" data-nosort><thead><tr><th>Stock</th><th class="num">Net delta $</th><th class="num" title="Net delta $ times the stock’s beta to SPY over the last year">S&amp;P 500 $</th><th class="num">Decay a day</th><th title="Green = long the stock, red = short it">Trades (made by, size)</th></tr></thead><tbody>' + body + '</tbody></table></div>' +

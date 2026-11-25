@@ -188,6 +188,15 @@ const putPos = (id, symbol, K, q, iv, years, src = "Top Picks") => ({ id, symbol
   ok(!small.rows[0].clash, "a side under $250 is not an opposite bet");
   const odd = BR.positionOf({ symbol: "Q", side: "call", lastSpot: 100, contract: { structure: "debit_vertical", strike: 100, expiry: 1900000000, legs: "xx", iv: 0.3 } }, "T", true, { ledger: null, spot: (s, l) => l, yrs: () => 0.1, tradeId: () => "x" });
   ok(odd.kind === "option" && odd.legs.length === 1, "legs that are not a list fall back to the single strike");
+  const soon = { id: "z", symbol: "Z", src: "T", side: "call", kind: "option", S: 100, T: 1 / 365.25, legs: [{ type: "call", K: 100, q: 2, iv: 0.4 }], shares: 0 };
+  const worth = BR.valueAt(soon, 100, soon.T, 0), wk = BR.decayOver(soon, 7);
+  near(wk, -worth, 1e-6, "an option expiring inside the week loses at most its value over the week");
+  ok(BR.greeksOf(soon).thetaUsd * 7 < wk, "where seven days of theta would overstate it");
+  const month = { ...soon, T: 60 / 365.25 };
+  ok(Math.abs(BR.decayOver(month, 7) / (BR.greeksOf(month).thetaUsd * 7) - 1) < 0.1, "a two-month option's week is close to seven days of theta");
+  ok(BR.decayOver(sharesPos("s", "Z", 1000), 7) === 0, "shares have no decay");
+  const ivp = [{ symbol: "AAA", legs: [{ iv: null }] }, { symbol: "NOPE", legs: [{ iv: null }] }, { symbol: "AAA", legs: [{ iv: 0.3 }] }];
+  ok(BR.fillIv(ivp, BR.seriesFrom({ dates, moves })) === 2 && ivp[0].legs[0].iv > 0.05 && ivp[1].legs[0].iv === 0.45 && ivp[2].legs[0].iv === 0.3 && !ivp[2].ivEst, "missing IV: own swings, else 45%; a known IV is kept");
 }
 
 // --- the crash table ---

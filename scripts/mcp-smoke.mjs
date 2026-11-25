@@ -1109,7 +1109,7 @@ async function tool(name, args, opts) {
   assert.deepEqual(r.book.opposite_bet_symbols, ["SPY"]);
   assert.ok(Number.isFinite(r.book.sp500_usd), "S&P 500 $ present");
   assert.ok(Number.isFinite(r.book.bad_day_1_in_20_usd) && r.book.bad_day_1_in_20_usd <= 0, "bad day present");
-  assert.ok(Number.isFinite(r.book.decay_per_day_usd) && r.book.decay_per_day_usd < 0 && Math.abs(r.book.decay_per_week_usd - r.book.decay_per_day_usd * 7) <= 4, "weekly decay is seven calendar days");
+  assert.ok(Number.isFinite(r.book.decay_per_day_usd) && r.book.decay_per_day_usd < 0 && r.book.decay_per_week_usd < 0 && Math.abs(r.book.decay_per_week_usd / (r.book.decay_per_day_usd * 7) - 1) < 0.15, "weekly decay is the next seven days repriced");
   assert.ok(Number.isFinite(r.book.sp500_shares_equiv), "SPY-share equivalent present");
   assert.ok(r.by_engine.some((e) => e.made_by === "Macro") && r.by_engine.some((e) => e.made_by === "Top Picks"));
   const text = JSON.stringify(res);
