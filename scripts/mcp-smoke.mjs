@@ -1068,4 +1068,62 @@ async function tool(name, args, opts) {
   assert.deepEqual(kept.value.sectors[0].scenarios.up.p, [1, 2, 3], "depth survives when rows and text can shrink instead");
 }
 
+// ---- get_book_exposure (2026-11-25): the paper book at Webull-held sizes ----
+{
+  const { pickTradeId } = await import("../lib/pick-trade-text.mjs");
+  const nvdaId = pickTradeId(files["picks-accuracy.json"].open[0]);
+  const exp = Math.round(now / 1000) + 30 * 86400;
+  files["engines.json"] = { builtAtIso: "2026-11-02T14:00:00Z", engines: [
+    { id: "rotation", open: [{ tradeId: "ROT-SPY-1", engine: "rotation", symbol: "SPY", side: "call", lastSpot: 600, contract: { structure: "shares", shares: 14 } }] },
+    { id: "macro", open: [{ tradeId: "MAC-SPY-2", engine: "macro", symbol: "SPY", side: "put", lastSpot: 600, contract: { strike: 600, expiry: exp, qty: 2, iv: 0.2 } },
+      { tradeId: "MAC-QQQ-3", engine: "macro", symbol: "QQQ", side: "put", lastSpot: 500, contract: { strike: 500, expiry: exp, qty: 1, iv: 0.25 } }] },
+  ] };
+  const dates = Array.from({ length: 80 }, (_, i) => new Date(now - (80 - i) * 86_400_000).toISOString().slice(0, 10));
+  const wave = (k, amp) => dates.map((_, i) => Math.round(amp * Math.sin(i * k) + 10 * Math.cos(i * 0.7)));
+  files["market-days.json"] = { builtAtIso: "2026-11-02T14:00:00Z", dates, moves: { SPY: wave(0.9, 80), NVDA: wave(0.9, 200), QQQ: wave(0.9, 110) } };
+  const secretOrder = "msmac-secret-order-77";
+  files["webull-paper-ledger.json"] = { trades: {
+    "ROT-SPY-1": { tradeId: "ROT-SPY-1", engine: "rotation", symbol: "SPY", side: "call", structure: "shares", state: "open", requestedQty: 17, filledQty: 17, closedQty: 0, openQty: 17, fillPrice: 598.77, engineEntryIso: "2026-10-30T15:00:00Z",
+      entryAttempts: [{ phase: "entry", n: 1, clientOrderId: secretOrder, sentIso: "2026-10-30T15:01:00Z", status: "FILLED" }] },
+    "MAC-SPY-2": { tradeId: "MAC-SPY-2", engine: "macro", symbol: "SPY", side: "put", structure: "long", state: "open", requestedQty: 2, filledQty: 2, closedQty: 0, openQty: 2, fillPrice: 7.31, engineEntryIso: "2026-10-30T15:00:00Z" },
+    "MAC-QQQ-3": { tradeId: "MAC-QQQ-3", engine: "macro", symbol: "QQQ", side: "put", structure: "long", state: "missed", requestedQty: 1, filledQty: 0, closedQty: 0, automaticEntryOutcome: "missed", engineEntryIso: "2026-10-30T15:00:00Z" },
+    [nvdaId]: { tradeId: nvdaId, symbol: "NVDA", side: "call", structure: "long", state: "open", requestedQty: 3, filledQty: 3, closedQty: 0, openQty: 3, fillPrice: 9.42, engineEntryIso: "2026-10-28T15:05:00Z" },
+  } };
+  const bkKey = "b".repeat(20) + randomBytes(16).toString("hex");
+  const bo = { headers: { authorization: `Bearer ${bkKey}` }, extra: { MCP_OWNER_KEY: bkKey } };
+  const listed = (await rpc("tools/list", {}, bo)).body.result.tools.map((t) => t.name);
+  assert.ok(listed.includes("get_book_exposure"), "the Owner sees get_book_exposure");
+  const res = await tool("get_book_exposure", {}, bo);
+  assert.equal(res.isError, false, JSON.stringify(res).slice(0, 500));
+  const r = res.structuredContent.results;
+  assert.equal(res.structuredContent.access, "owner");
+  assert.equal(res.structuredContent.ai_calls, 0);
+  assert.equal(r.book.trades, 3, "NVDA call, SPY shares, SPY put; the missed QQQ put is left out");
+  assert.equal(r.left_out["missed at Webull"], 1);
+  const spy = r.by_stock.find((x) => x.symbol === "SPY");
+  assert.ok(spy.opposite_bets && spy.opposite_bets.long_by[0] === "Multi-asset rotation" && spy.opposite_bets.short_by[0] === "Macro", "SPY shares vs the Macro put is an opposite bet");
+  const shares = spy.trades.find((t) => t.kind === "shares");
+  assert.ok(shares.size === 17 && shares.size_from === "held", "shares at the Webull-held 17, not the record's 14");
+  assert.equal(spy.trades.find((t) => t.kind === "put").size, 2);
+  assert.equal(r.by_stock.find((x) => x.symbol === "NVDA").trades[0].size, 3, "the Top Pick at its Webull size");
+  assert.deepEqual(r.book.opposite_bet_symbols, ["SPY"]);
+  assert.ok(Number.isFinite(r.book.sp500_usd) && Number.isFinite(r.book.bad_day_1_in_20_usd) && r.book.decay_per_week_usd === Math.round(r.book.decay_per_day_usd * 7) || Math.abs(r.book.decay_per_week_usd - r.book.decay_per_day_usd * 7) <= 7, "S&P 500 $, bad day and weekly decay present");
+  assert.ok(r.by_engine.some((e) => e.made_by === "Macro") && r.by_engine.some((e) => e.made_by === "Top Picks"));
+  const text = JSON.stringify(res);
+  assert.ok(!text.includes(secretOrder) && !/598\.77|7\.31|9\.42/.test(text) && !/clientOrderId|fillPrice|orderPrefix|attempts/.test(text), "no order ID, fill price or attempt leaves the ledger");
+  const only = (await tool("get_book_exposure", { opposite_bets_only: true }, bo)).structuredContent.results;
+  assert.deepEqual(only.by_stock.map((x) => x.symbol), ["SPY"]);
+  const one = (await tool("get_book_exposure", { symbol: "$nvda" }, bo)).structuredContent.results;
+  assert.ok(one.by_stock.length === 1 && one.book.trades === 3, "symbol filters the rows, not the totals");
+  const off = { headers: bo.headers, extra: { MCP_OWNER_KEY: bkKey, MCP_BOOK_EXPOSURE: "0" } };
+  assert.ok(!(await rpc("tools/list", {}, off)).body.result.tools.some((t) => t.name === "get_book_exposure"), "the switch removes the tool");
+  assert.match(JSON.stringify(await tool("get_book_exposure", {}, off)), /Unknown tool/);
+  assert.equal((await tool("get_feature", { feature_id: "webull-paper-ledger" }, bo)).structuredContent.error.code, "NOT_FOUND", "the ledger itself stays unreadable");
+  // No ledger: record sizes, said so.
+  const saved = files["webull-paper-ledger.json"]; delete files["webull-paper-ledger.json"];
+  const noL = (await tool("get_book_exposure", {}, bo)).structuredContent;
+  assert.ok(noL.warnings.some((w) => w.startsWith("WEBULL_SIZES_UNAVAILABLE")) && noL.results.by_stock.find((x) => x.symbol === "SPY").trades.find((t) => t.kind === "shares").size === 14, "no ledger: the record's own size");
+  files["webull-paper-ledger.json"] = saved;
+}
+
 console.log("mcp-smoke: ok");

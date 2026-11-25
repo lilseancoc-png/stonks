@@ -156,6 +156,34 @@ const putPos = (id, symbol, K, q, iv, years, src = "Top Picks") => ({ id, symbol
   near(w.rows.find((x) => x.id === "b").move, scare.shocks.spyPct / 100, 1e-12, "a name without a sensitivity moves by beta");
 }
 
+// --- exposure by stock and opposite bets (2026-11-25) ---
+{
+  const put = (id, symbol, q, src) => ({ id, symbol, src, side: "put", kind: "option", S: 100, T: 30 / 365, legs: [{ type: "put", K: 100, q, iv: 0.3 }], shares: 0 });
+  const call = (id, symbol, q, src) => ({ id, symbol, src, side: "call", kind: "option", S: 100, T: 30 / 365, legs: [{ type: "call", K: 100, q, iv: 0.3 }], shares: 0 });
+  const far = { id: "f", symbol: "DDD", src: "Macro", side: "put", kind: "option", S: 100, T: 2 / 365, legs: [{ type: "put", K: 40, q: 1, iv: 0.3 }], shares: 0 };
+  const P = [sharesPos("s1", "SPY", 10000, "Rotation"), put("p1", "SPY", 5, "Macro"), sharesPos("s2", "SBUX", 9500, "Flow trial"), put("p2", "SBUX", 4, "Fundamentals"),
+    call("c1", "AAA", 2, "Top Picks"), sharesPos("s3", "AAA", 3000, "Technicals"), sharesPos("s4", "DDD", 2000, "Trend"), far];
+  const G = P.map(BR.greeksOf);
+  const B = BR.bySymbol(P, G, { SPY: 1, SBUX: 0.6, AAA: 1.4 });
+  const by = Object.fromEntries(B.rows.map((r) => [r.symbol, r]));
+  ok(B.rows.length === 4 && B.clashes === 2, "four stocks, two with opposite bets");
+  ok(by.SPY.clash && by.SPY.clash.longBy[0] === "Rotation" && by.SPY.clash.shortBy[0] === "Macro", "SPY: shares long, put short, by engine");
+  near(by.SPY.deltaUsd, G[0].deltaUsd + G[1].deltaUsd, 1e-9, "SPY nets both trades");
+  ok(by.SPY.clash.nets === (by.SPY.deltaUsd > 0 ? "long" : "short") || by.SPY.clash.nets === "flat", "SPY says which side wins");
+  near(by.SPY.clash.cancelledUsd, Math.min(G[0].deltaUsd, -G[1].deltaUsd), 1e-9, "cancelled $ is the smaller side");
+  ok(by.SBUX.clash, "SBUX shares vs puts flagged");
+  ok(!by.AAA.clash && by.AAA.n === 2, "a call and shares on one stock are the same side, not flagged");
+  ok(Math.abs(G[7].deltaUsd) < 1 && !by.DDD.clash, "a put under $1 of delta $ does not count as a side");
+  near(by.AAA.betaUsd, by.AAA.deltaUsd * 1.4, 1e-9, "S&P 500 $ is net delta times beta");
+  ok(by.DDD.betaUsd === null, "no beta, no S&P 500 $");
+  near(by.SPY.thetaUsd, G[1].thetaUsd, 1e-12, "decay comes from the options only");
+  ok(by.SPY.trades.length === 2 && by.SPY.trades[0].qty > 0 && by.SPY.trades.some((t) => t.kind === "shares" && t.qty === 100), "trades listed with their sizes");
+  for (let i = 1; i < B.rows.length; i++) ok(Math.abs(B.rows[i - 1].deltaUsd) >= Math.abs(B.rows[i].deltaUsd), "rows run largest first");
+  const flat = BR.bySymbol([sharesPos("a", "X", 1000, "A"), sharesPos("b", "X", 1000, "B")], [{ deltaUsd: 1000, thetaUsd: 0, vegaUsd: 0, valueUsd: 1000 }, { deltaUsd: -950, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }], null);
+  ok(flat.rows[0].clash.nets === "flat" && flat.rows[0].betaUsd === null, "a near-even clash nets about flat; no betas while loading");
+  ok(BR.bySymbol([], [], null).rows.length === 0, "an empty book has no rows");
+}
+
 // --- the crash table ---
 {
   const ids = BOOK_CRASHES.windows.map((w) => w.id);
@@ -215,6 +243,12 @@ function eqList(a, b, m) { assert.deepEqual(a, b, m); checks++; }
   ctx.bookData.days = ctx.BOOK_RISK.seriesFrom(days2); ctx.bookData.daysAt = "x"; ctx.bookData.sens = []; ctx.bookData.sensLoading = false;
   html = ctx.bookRiskHtml(open, eng);
   for (const t of ["A bad day", "Last year’s days replayed", "Smooth estimate", "like March 2020", "Who carries the risk", "Multi-asset rotation", "Covid crash, 2020", "April 2025 tariff shock", "Expiry ladder", "In S&amp;P 500 dollars"]) ok(html.includes(t), `panel shows ${t}`);
+  ok(html.includes("Exposure by stock") && html.includes("a week") && /Opposite bets<\/span><b>None/.test(html), "panel shows exposure by stock, weekly decay and no opposite bets");
+  const engClash = eng.concat([{ tradeId: "e5", engine: "rotation", symbol: "BBB", side: "put", lastSpot: 100, contract: { strike: 100, expiry: exp, qty: 6, iv: 0.35 } }]);
+  html = ctx.bookRiskHtml(open, engClash);
+  ok(/Opposite bets<\/span><b class="sig-neg">1 stock<\/b><small>BBB/.test(html), "a put against shares on one stock counts as an opposite bet");
+  ok(/book-clash-row"><td><b>BBB/.test(html) && /long: Technicals · short: Multi-asset rotation/.test(html), "the clash row comes first and names both engines");
+  ok(/Multi-asset rotation <small>6 puts<\/small>/.test(html) && /Technicals <small>50 sh<\/small>/.test(html), "trades show their size");
   // Webull sizes: a filled 3-lot replaces the record's 1, a missed trade drops out.
   ctx.opWb = { by: { tp1: { tradeId: "tp1", fillOutcome: "filled", state: "open", openQty: 3 }, e2: { tradeId: "e2", fillOutcome: "missed", state: "skipped", filledQty: 0 } } };
   html = ctx.bookRiskHtml(open, eng);

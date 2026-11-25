@@ -189,6 +189,10 @@ export function renderViewsNextCss() {
 .book-hit small { font-family: var(--font-sans); color: var(--muted); }
 .book-split th { padding-top: 10px; text-align: left; font: 650 11.5px/1.4 var(--font-sans); text-transform: uppercase; letter-spacing: .04em; color: var(--muted-strong); }
 .book-var td:first-child { min-width: 220px; }
+.book-by-stock td:first-child { min-width: 150px; }
+.book-by-stock td:nth-child(2) { white-space: normal; min-width: 180px; }
+.book-clash { display: inline-block; padding: 0 6px; border-radius: 999px; font: 650 10.5px/1.6 var(--font-sans); text-transform: uppercase; letter-spacing: .03em; color: var(--warn, var(--accent)); border: 1px solid color-mix(in srgb, var(--warn, var(--accent)) 45%, transparent); background: color-mix(in srgb, var(--warn, var(--accent)) 10%, transparent); }
+.book-clash-row td { background: color-mix(in srgb, var(--warn, var(--accent)) 5%, transparent); }
 
 /* Owner trade journal. */
 .acc-notes { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }

@@ -134,7 +134,9 @@ const SITE_SWITCH_KEYS = ["CONTACT_ENABLED", "SPORTS_ENABLED", "MCP_ENABLED", "M
   // W3 Webull data logs: order flow, market breadth, backups.
   "WEBULL_FLOW_LOG", "WEBULL_BREADTH_LOG", "WEBULL_BACKUPS",
   // The Owner intuition journal (2026-11-22, lib/intuition-journal.mjs).
-  "JOURNAL_ENABLED"];
+  "JOURNAL_ENABLED",
+  // The Owner MCP book exposure tool (2026-11-25, lib/mcp/book-tools.mjs).
+  "MCP_BOOK_EXPOSURE"];
 // Keys this module forced off, with the value they had before. The forced
 // values stay in place between requests and change only when the saved
 // settings change, so two requests running at once on one warm instance can
