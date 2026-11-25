@@ -2851,7 +2851,8 @@ ok("scorecard: per engine and per tape, worst drop, Sharpe after 20 weeks, corre
 ok("variants: the registry stays inside its limits, each changes one thing with a stated hypothesis", () => {
   assert.deepEqual(validateVariants(), []);
   assert.deepEqual({ ...VARIANT_LIMITS }, { perEngine: 3, total: 20, minPaired: 30, holmT: 2.4, months: 6, closedKept: 300 });
-  assert.deepEqual(VARIANTS.map((v) => v.id), ["TEC-bar65", "TEC-stop2.5", "REV-bounce-shares", "REV-rsi2-7500", "MAC-riskoff-aside", "MAC-fall60", "FUN-top-shares", "ERN-runin-shares", "DWN-budget75"]);
+  assert.deepEqual(VARIANTS.map((v) => v.id), ["TEC-bar65", "TEC-stop2.5", "REV-bounce-shares", "REV-rsi2-7500", "MAC-riskoff-aside", "MAC-fall60", "FUN-top-shares", "ERN-runin-shares", "DWN-budget75",
+    "MAC-timeonly", "DWN-timeonly", "FLO-loose", "FLO-fade-puts", "FUN-put-downtrend", "ERN-gap-drift"]);
   const four = [...VARIANTS, { ...VARIANTS[0], id: "TEC-x" }, { ...VARIANTS[1], id: "TEC-y" }];
   assert.ok(validateVariants(four).some((e) => /technicals: 4 variants/.test(e)));
   assert.ok(validateVariants([{ id: "A", engine: "trend", kind: "behavior", change: "x", hypothesis: "y", promoteIf: "z", patch: {} }]).some((e) => /not a signal engine/.test(e)));
@@ -2868,6 +2869,64 @@ ok("variants: the registry stays inside its limits, each changes one thing with 
   assert.equal(s4.setups["rank-top"].exits.maxSessions, 60); assert.equal(s4.setups["rank-bottom"], ENGINES.fundamentals.setups["rank-bottom"]);
   assert.equal(variantSpec(ENGINES.downside, VARIANTS.find((v) => v.id === "DWN-budget75")).budgetX, 0.75);
   assert.equal(variantEnds(VARIANTS[0]), "2027-05-23");
+});
+// The shadow pack (2026-11-25): each new variant changes one thing, and the
+// live engine reads exactly as before without the variant's setting.
+ok("variants: the shadow pack's changes (time-only exits sized as the parent, looser and faded flow, downtrend puts, gap-only drift, RSI line)", () => {
+  const find = (id) => VARIANTS.find((v) => v.id === id);
+  // Time-only exits: no premium target or stop, same session limit, same size.
+  const mac = variantSpec(ENGINES.macro, find("MAC-timeonly"));
+  assert.deepEqual(exitsFor("macro", "rates-fall", { macro: mac }), { tp: null, stop: null, sizeStop: -40, maxSessions: 12 });
+  assert.deepEqual(exitsFor("macro", "event-drift", { macro: mac }), { tp: null, stop: null, sizeStop: -35, maxSessions: 5 });
+  assert.deepEqual(exitsFor("macro", "fear-index", { macro: mac }).maxSessions, 20, "a trial keeps its own hold");
+  const dwn = variantSpec(ENGINES.downside, find("DWN-timeonly"));
+  assert.deepEqual(exitsFor("downside", "lost-200", { downside: dwn }), { tp: null, stop: null, sizeStop: -40, maxSessions: 20 });
+  const ct = { mid: 1, ask: 1.05, dte: 45 };
+  const par = sizeOption(ct, { sizing: { ...RISK, conviction: false }, exits: exitsFor("downside", "lost-200") });
+  const tim = sizeOption(ct, { sizing: { ...RISK, conviction: false }, exits: exitsFor("downside", "lost-200", { downside: dwn }) });
+  assert.equal(tim.qty, par.qty, "the same count as the parent"); assert.match(tim.size.basis, /the trade itself has none/);
+  assert.match(sizeOption(ct, { sizing: { ...RISK, conviction: false }, exits: {} }).size.basis, /whole premium/, "no stop and no sizeStop: the whole premium, as before");
+  // Flow: the looser line and the faded puts; the live engine unchanged.
+  const fl = (o) => ({ signed: true, nBull: 3, nBear: 0, bullUsd: 3e6, bearUsd: 2e5, bullPrem: 1.5e5, bearPrem: 0, persist: 0.4, rvol: 1.6, ...o });
+  const small = V("LLL", baseF({}), { spot: 100.6, live: { flow: fl() } });
+  assert.equal(evalFlow(small, CTX).length, 0, "the live engine needs 5 prints and $250k");
+  const loose = { ...CTX, setups: variantSpec(ENGINES.flow, find("FLO-loose")).setups };
+  const lc = evalFlow(small, loose);
+  assert.equal(lc.length, 1); assert.equal(lc[0].setup, "aggressive-flow"); assert.ok(lc[0].score < evalFlow(V("LLL", baseF({}), { spot: 100.6, live: { flow: fl({ bullPrem: 2.5e5 }) } }), loose)[0].score, "the smaller premium scores lower");
+  const bearFlow = fl({ nBull: 1, nBear: 7, bullUsd: 1e6, bearUsd: 9e6, bullPrem: 1e5, bearPrem: 1.2e6, persist: -0.4 });
+  const up = V("PUT", baseF({}), { spot: 99.4, live: { flow: bearFlow } }), down = V("PUT", baseF({ sma200: 105 }), { spot: 99.4, live: { flow: bearFlow } });
+  assert.equal(evalFlow(up, CTX)[0].side, "put", "live: bearish flow buys a put");
+  const fade = { ...CTX, setups: variantSpec(ENGINES.flow, find("FLO-fade-puts")).setups };
+  const fc = evalFlow(up, fade);
+  assert.equal(fc.length, 1); assert.equal(fc[0].side, "call"); assert.equal(fc[0].facts.faded, true); assert.equal(fc[0].signalKey, evalFlow(up, CTX)[0].signalKey, "paired on the same signal");
+  assert.equal(evalFlow(down, fade).length, 0, "under the 200-day the fade takes nothing");
+  assert.equal(evalFlow(V("GGG", baseF({}), { spot: 100.6, live: { flow: fl({ nBull: 7, bullPrem: 1.2e6 }) } }), fade).length, 0, "bullish flow is not its test");
+  const fadeSpec = variantSpec(ENGINES.flow, find("FLO-fade-puts"));
+  assert.equal(instrumentFor(fadeSpec, "aggressive-flow", "call"), "shares");
+  assert.equal(fadeSpec.setups["aggressive-flow"].exits.maxSessions, ENGINES.flow.exits.maxSessions, "held as long as the parent's put");
+  // Fundamentals: bottom-of-rank puts only in a confirmed downtrend.
+  const views = fundViews(); ranked(views);
+  const funV = { ...CTX, setups: variantSpec(ENGINES.fundamentals, find("FUN-put-downtrend")).setups };
+  assert.equal(evalFundamentals(views.F30, CTX)[0].side, "put");
+  assert.equal(evalFundamentals(views.F30, funV).length, 0, "under the 200-day but not in a downtrend");
+  const dt = { ...views.F30, spot: 95, f: baseF({ c: 95, sma50: 100, sma50Prev: 101, sma200: 110 }) };
+  assert.equal(evalFundamentals(dt, funV)[0]?.side, "put");
+  assert.equal(evalFundamentals(views.F01, funV)[0].side, "call", "calls untouched");
+  // Earnings: a gap that held against the EPS number trades only in the shadow, scored with no EPS points.
+  const last = { date: "2026-11-11", session: "PM", surprisePct: -4, guidance: null, gapPct: 6, movePct: 7, low: 104, high: 109, close: 107, prevClose: 100, volRatio: 1, sessionsSince: 1 };
+  const ev = V("DDD", baseF({ c: 108, pc: 107, sma50: 98 }), { earn: { last, hist: [], next: null } });
+  assert.equal(evalEarnings(ev, CTX).length, 0, "live: a miss that gapped up does not trade");
+  const gap = { ...CTX, setups: variantSpec(ENGINES.earnings, find("ERN-gap-drift")).setups };
+  const gc = evalEarnings(ev, gap);
+  assert.equal(gc.length, 1); assert.equal(gc[0].side, "call");
+  const noEps = evalEarnings(V("DDD", baseF({ c: 108, pc: 107, sma50: 98 }), { earn: { last: { ...last, surprisePct: null }, hist: [], next: null } }), CTX);
+  assert.equal(gc[0].score, noEps[0].score, "scored like a gap with no EPS number");
+  const beat = V("DDD", baseF({ c: 108, pc: 107, sma50: 98 }), { earn: { last: { ...last, surprisePct: 12 }, hist: [], next: null } });
+  assert.equal(evalEarnings(beat, gap)[0].score, evalEarnings(beat, CTX)[0].score, "a beat scores the same in both books");
+  // Technicals: the RSI line reads the setup's own value; the live one stays 20.
+  const pb = V("PBK", pullF({ rsi2Min3: 15 }));
+  assert.equal(evalTechnicals(pb, CTX).length, 1);
+  assert.equal(evalTechnicals(pb, { ...CTX, setups: { pullback: { rsiMax: 10 } } }).length, 0);
 });
 ok("variants: paired books on the same input, own trade IDs, never in the live record, no learning", () => {
   const views = { AAA: V("AAA", pullF()), BBB: V("BBB", pullF({ rsi2Min3: 9 })) };
@@ -2917,6 +2976,27 @@ ok("variants: paired books on the same input, own trade IDs, never in the live r
   const ms = emptyState(); ms.engines.macro = newEngineState(ENGINES.macro);
   runVariants(ms, honestInput({}, { engines: ["macro"], ctx: { ...CTX, macroState: "severe-risk-off" } }), { today: TODAY, nowIso: NOW_AM, list: [mac] });
   assert.equal(ms.variants.books["MAC-riskoff-aside"].record.open.length, 0);
+});
+ok("variants: a time-only book buys the parent's count and holds what the parent's target closes", () => {
+  const views = { DDD: V("DDD", lostF()) };
+  const state = emptyState(), record = emptyRecord();
+  const input = honestInput(views, { engines: ["downside"], ctx: { ...DCTX(), byId: views }, sizing: { ...RISK, maxQty: 25, putMaxQty: 10 } });
+  const seedFrom = { downside: { seen: {}, cooldown: {} } };
+  stepBook(state, record, input);
+  const v = { ...VARIANTS.find((x) => x.id === "DWN-timeonly"), started: TODAY };
+  assert.deepEqual(runVariants(state, input, { today: TODAY, nowIso: NOW_AM, list: [v], seedFrom }).errors, []);
+  const book = state.variants.books["DWN-timeonly"], p = record.open[0], q = book.record.open[0];
+  assert.ok(p && q, "both books opened the put");
+  assert.equal(q.signalKey, p.signalKey); assert.equal(q.contract.qty, p.contract.qty, "the same count as the parent");
+  assert.equal(q.exits.tp, null); assert.equal(q.exits.stop, null); assert.equal(q.exits.maxSessions, 20); assert.equal(q.stopLevel, p.stopLevel, "the stock stop is kept");
+  // The next day the put is up 80%: the parent's +50% target closes it, the variant holds.
+  const DAY2 = "2026-11-17", iso = DAY2 + "T16:00:00.000Z";
+  const up = (t) => ({ mid: t.contract.mid * 1.8, bid: t.contract.mid * 1.78, ask: t.contract.mid * 1.82, spot: 90, source: "chain" });
+  const in2 = { ...input, nowIso: iso, today: DAY2, quote: up };
+  stepBook(state, record, in2);
+  assert.deepEqual(runVariants(state, in2, { today: DAY2, nowIso: iso, list: [v] }).errors, []);
+  assert.equal(record.closed[0]?.status, "take-profit"); assert.equal(book.record.open.length, 1); assert.equal(book.record.closed.length, 0);
+  assert.ok(!record.open.concat(record.closed).some((t) => /~/.test(t.tradeId)), "no variant trade in the live record");
 });
 ok("variants: the paired read counts a signal one book skipped as $0, waits for open trades, and needs 30 pairs and t 2.4", () => {
   const v = { id: "T", engine: "technicals", scope: null, started: "2026-11-21", kind: "behavior" };
