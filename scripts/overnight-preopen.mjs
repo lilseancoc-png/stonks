@@ -12,6 +12,7 @@
 //            entry is marked forced and the bake never uses it as the day's call)
 
 import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import { isStaleTickerCopy } from "../lib/stale-ticker-copy.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
@@ -44,7 +45,7 @@ async function readChains() {
   for (const sym of TICKERS) {
     if (!names.includes(`${sym}.json`)) continue;
     const d = await readJson(`${sym}.json`);
-    if (d) out[sym] = d;
+    if (d && !isStaleTickerCopy(d)) out[sym] = d; // a kept stale copy is display only
   }
   return out;
 }

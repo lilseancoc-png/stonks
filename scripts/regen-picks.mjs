@@ -2,6 +2,7 @@
 // per-ticker data/*.json files + data/streaks.json + data/trends.json. Useful
 // when only the picks algorithm changed — no Yahoo or Gemini calls needed.
 import { readFile, writeFile, readdir } from "node:fs/promises";
+import { isStaleTickerCopy } from "../lib/stale-ticker-copy.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, overnightSnapshotOpts, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs, PICKS_MACRO_CONTEXT, buildMacroContextForBuild } from "./build.mjs";
@@ -150,7 +151,8 @@ for (const sym of symbols) {
   try {
     const raw = await readFile(resolve(DATA_DIR, sym + ".json"), "utf8");
     const j = JSON.parse(raw);
-    if (j && j.chains && j.spot > 0) chains[sym] = j;
+    // A kept last-good copy (lib/stale-ticker-copy.mjs) is display only.
+    if (j && j.chains && j.spot > 0 && !isStaleTickerCopy(j)) chains[sym] = j;
   } catch {}
 }
 

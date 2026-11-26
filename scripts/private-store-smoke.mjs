@@ -531,4 +531,96 @@ try {
   assert.match(syncSrc, /ai-rejections-latest\.json/);
 }
 
+// Pointer compare-and-swap (2026-11-26): a second publisher that flips the
+// pointer between this publish's read and its write (a laptop wipe-history
+// run outside the workflow queue) is not written over. The loser rebuilds on
+// the newer pointer once, so both sides' keys survive; a second conflict
+// fails loudly; a backend without versions keeps the plain write.
+{
+  function versionedRaw(initial = {}) {
+    const base = fakeRawStore(initial);
+    const tags = new Map();
+    let n = 0;
+    const bump = (key) => tags.set(key, `"v${++n}"`);
+    for (const key of Object.keys(initial)) bump(key);
+    let beforeCas = null;
+    return {
+      ...base,
+      tags,
+      setBeforeCas(fn) { beforeCas = fn; },
+      async put(key, body) { await base.put(key, body); bump(key); },
+      async del(key) { await base.del(key); tags.delete(key); },
+      async getVersioned(key) {
+        const body = await base.get(key);
+        return body == null ? null : { body, etag: tags.get(key) };
+      },
+      async putIfMatch(key, body, etag) {
+        if (beforeCas) { const fn = beforeCas; beforeCas = null; await fn(); }
+        const now = tags.get(key) || null;
+        if (etag ? now !== etag : now != null) return false;
+        await base.put(key, body); bump(key);
+        return true;
+      },
+    };
+  }
+  const vraw = versionedRaw({ "AAPL.json": JSON.stringify({ v: 1 }) });
+  const bake = withPublishedGenerations(vraw);
+  await bake.publishGeneration({ owner: "bake", updates: new Map([["AAPL.json", Buffer.from(JSON.stringify({ v: 2 }))]]) });
+  assert.equal(JSON.parse(String(await bake.get("AAPL.json"))).v, 2);
+  // A laptop wipe lands between the bake's read and its pointer write.
+  const laptop = withPublishedGenerations(vraw);
+  vraw.setBeforeCas(async () => {
+    await laptop.publishGeneration({ owner: "logical-put", updates: new Map([["picks-accuracy.json", Buffer.from(JSON.stringify({ wiped: true }))]]) });
+  });
+  const warn = console.warn; const warned = [];
+  console.warn = (...a) => warned.push(a.join(" "));
+  try {
+    await bake.publishGeneration({ owner: "bake", updates: new Map([["MSFT.json", Buffer.from(JSON.stringify({ v: 1 }))]]) });
+  } finally { console.warn = warn; }
+  assert.ok(warned.some((w) => /pointer moved/.test(w)), "the lost race is retried once");
+  const view = withPublishedGenerations(vraw);
+  assert.equal(JSON.parse(String(await view.get("MSFT.json"))).v, 1, "the retried publish keeps its own key");
+  assert.equal(JSON.parse(String(await view.get("picks-accuracy.json"))).wiped, true, "the other publisher's key survives");
+  assert.equal(JSON.parse(String(await view.get("AAPL.json"))).v, 2);
+  // Two conflicts in a row fail the push instead of writing over anyone.
+  let flips = 0;
+  const flipper = async () => {
+    flips++;
+    await laptop.publishGeneration({ owner: "logical-put", updates: new Map([[`k${flips}.json`, Buffer.from("{}")]]) });
+    if (flips < 2) vraw.setBeforeCas(flipper);
+  };
+  vraw.setBeforeCas(flipper);
+  console.warn = () => {};
+  try {
+    await assert.rejects(
+      bake.publishGeneration({ owner: "bake", updates: new Map([["NVDA.json", Buffer.from("{}")]]) }),
+      (err) => err.code === "PUBLICATION_CONFLICT",
+    );
+  } finally { console.warn = warn; }
+  assert.equal(await withPublishedGenerations(vraw).get("NVDA.json"), null, "a failed publish never flips the pointer");
+  assert.ok(await withPublishedGenerations(vraw).get("k2.json"), "the winner's keys stay");
+  // A first publish (no pointer yet) writes with If-None-Match.
+  const fresh = versionedRaw({});
+  await withPublishedGenerations(fresh).publishGeneration({ owner: "seed", updates: new Map([["AAPL.json", Buffer.from("{}")]]) });
+  assert.ok(fresh.tags.get(DATA_PUBLICATION_POINTER_KEY));
+  // A pointer read without a strong ETag falls back to the plain write.
+  const weak = versionedRaw({ "AAPL.json": "{}" });
+  await withPublishedGenerations(weak).publishGeneration({ owner: "seed", updates: new Map([["AAPL.json", Buffer.from("{}")]]) });
+  const weakGet = weak.getVersioned;
+  weak.getVersioned = async (key) => { const r = await weakGet(key); return r && { ...r, etag: null }; };
+  let casCalls = 0;
+  const weakPut = weak.putIfMatch;
+  weak.putIfMatch = async (...a) => { casCalls++; return weakPut(...a); };
+  console.warn = () => {};
+  try {
+    await withPublishedGenerations(weak).publishGeneration({ owner: "bake", updates: new Map([["MSFT.json", Buffer.from("{}")]]) });
+  } finally { console.warn = warn; }
+  assert.equal(casCalls, 0);
+  assert.ok(await withPublishedGenerations(weak).get("MSFT.json"));
+  // The R2 adapter itself asks for identity encoding and conditional headers.
+  const dsSrc = await readFile(new URL("../lib/datastore.mjs", import.meta.url), "utf8");
+  assert.match(dsSrc, /async function getVersioned[\s\S]{0,300}"Accept-Encoding": "identity"/);
+  assert.match(dsSrc, /async function putIfMatch[\s\S]{0,600}"If-Match": etag[\s\S]{0,40}"If-None-Match": "\*"/);
+}
+
 console.log("private-store smoke test passed");

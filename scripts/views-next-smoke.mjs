@@ -210,7 +210,8 @@ eq(applyTradeNote({}, { ticker: "AAA", text: "x".repeat(5000) }).notes.tickers.A
 ok(TRADE_NOTE_TAGS.length >= 6, "tag list");
 const api = await readFile(new URL("../api/auth/[action].js", import.meta.url), "utf8");
 ok(/\.\.\.\(prev\.notes \? \{ notes: prev\.notes \} : \{\}\)/.test(api), "a CSV upload keeps the notes");
-ok(/req\.body\.note\b/.test(api) && /isSameOriginRequest\(req\)\) return res\.status\(403\)[\s\S]{0,2500}req\.body\.note/.test(api), "note saves sit behind the same-origin check");
+// (2026-11-26: the POST body is read once as `body` and saved under a lease.)
+ok(/\bbody\.note\b/.test(api) && /isSameOriginRequest\(req\)\) return res\.status\(403\)[\s\S]{0,2500}\bbody\.note/.test(api), "note saves sit behind the same-origin check");
 
 // --- sports calibration -----------------------------------------------------------------------
 const summary = modelSummary({ model_version: "t", evaluation: { points: { status: "validated", test: { n: 400, ece: 0.02, reliability: [{ lo: 0.4, hi: 0.5, n: 120, mean_p: 0.45, hit_rate: 0.47 }, { lo: 0.5, hi: 0.6, n: 0, mean_p: 0, hit_rate: 0 }, { lo: 0.6, hi: 0.7, n: 80, mean_p: 0.64, hit_rate: 0.61 }] } } } });

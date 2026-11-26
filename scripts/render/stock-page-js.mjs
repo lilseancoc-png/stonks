@@ -478,6 +478,9 @@ export function renderStockPageJs() {
         '<span class="stp-price">' + money(price) + '</span>' +
         '<span class="stp-change">' + (change != null && isFinite(change) ? '<span class="stp-chg-abs ' + (change >= 0 ? 'is-up' : 'is-down') + '">' + (change >= 0 ? '+' : '−') + num(Math.abs(change)) + '</span> ' : '') + chg(changePct) + '</span>' +
         '<span class="stp-session' + (ms === 'REGULAR' ? ' is-live' : '') + '">' + escapeHtml(session) + (asOf ? ' · ' + escapeHtml(asOf) : '') + '</span>' +
+        // The latest build could not update this stock, so its numbers below
+        // are the last good copy (lib/stale-ticker-copy.mjs).
+        (d.staleCopy && d.staleCopy.since ? '<span class="stp-session stp-stale-copy" data-stale-copy>Not updated in the latest build · data from ' + dateLabel(d.staleCopy.since) + '</span>' : '') +
       '</div>';
     }
     function paintPrice(){

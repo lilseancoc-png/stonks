@@ -65,7 +65,8 @@ permissions:
   contents: write
   # The "AI health alert" step opens/updates/closes the ai-health incident
   # issue (issue creation is what emails the owner — the AI layer degrading
-  # never fails the build, so the issue IS the operator signal).
+  # never fails the build, so the issue IS the operator signal). The "Data
+  # health alert" step does the same for the data-health issue.
   issues: write
 
 concurrency:
@@ -703,6 +704,62 @@ jobs:
             if [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ]; then
               curl -sS -X POST -H 'Content-Type: application/json' \
                 -d '{"content":"✅ stonks AI layer recovered — fresh Gemini calls succeeding again."}' \
+                "$DISCORD_ALERT_WEBHOOK_URL" || true
+            fi
+          else
+            echo "nothing to do (status=$STATUS, open incident=${EXISTING:-none})"
+          fi
+
+      - name: Data health alert
+        # Source health (lib/source-health.mjs) and the engine data checks
+        # (lib/data-checks.mjs) were pull-only: GDELT read 2 of 64 stocks for
+        # days and was found by a manual audit. The build writes
+        # ./data-health.json (lib/data-health-alert.mjs); this step opens ONE
+        # data-health issue when a source or engine feed has been bad three
+        # build days running (never on one bad build), refreshes its body while
+        # open (no new notification) and closes it on the first clean run. The
+        # repo is public, so the text is source names, states and day counts
+        # only. Writes no files, pushes nothing, no AI. Optional Discord ping on
+        # open and recovery through DISCORD_ALERT_WEBHOOK_URL.
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ ! -f data-health.json ]; then
+            echo "no data-health.json (not a full build, or source health was skipped) — skipping"
+            exit 0
+          fi
+          STATUS=$(jq -r .status data-health.json)
+          FLAGGED=$(jq -r '.counts.flagged // 0' data-health.json)
+          echo "Data health: $STATUS ($FLAGGED flagged)"
+          EXISTING=$(gh issue list --label data-health --state open --json number --jq '.[0].number // empty' || true)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "$STATUS" = "alert" ]; then
+            TITLE=$(jq -r .title data-health.json)
+            BODY_FILE=$(mktemp)
+            { jq -r .md data-health.json; echo; echo "_Latest run: $RUN_URL ($(date -u +%Y-%m-%dT%H:%MZ))_"; } > "$BODY_FILE"
+            if [ -n "$EXISTING" ]; then
+              gh issue edit "$EXISTING" --title "$TITLE" --body-file "$BODY_FILE"
+              echo "refreshed open data-health issue #$EXISTING"
+            else
+              gh label create data-health --description "Automated data-feed health incident (daily.yml)" --color FBCA04 2>/dev/null || true
+              gh issue create --title "$TITLE" --label data-health --body-file "$BODY_FILE"
+              echo "opened data-health issue"
+              if [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ]; then
+                curl -sS -X POST -H 'Content-Type: application/json' \
+                  -d "$(jq -cn --arg c "⚠️ stonks data feeds need a look: $FLAGGED bad 3+ build days running ($RUN_URL)" '{content:$c}')" \
+                  "$DISCORD_ALERT_WEBHOOK_URL" || true
+              fi
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "Every data source and engine feed read ok or recovered this run. ($RUN_URL)"
+            echo "closed data-health issue #$EXISTING (recovered)"
+            if [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ]; then
+              curl -sS -X POST -H 'Content-Type: application/json' \
+                -d '{"content":"✅ stonks data feeds recovered."}' \
                 "$DISCORD_ALERT_WEBHOOK_URL" || true
             fi
           else

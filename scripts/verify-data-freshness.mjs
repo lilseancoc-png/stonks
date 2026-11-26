@@ -1,4 +1,5 @@
 import { publishedTickerError } from '../lib/published-ticker-contract.mjs';
+import { isStaleTickerCopy, STALE_COPY_MAX_DAYS } from '../lib/stale-ticker-copy.mjs';
 // Publish-time proof that the workflow's owned outputs were produced by THIS
 // run. This is ownership-aware: a full bake rebuilds pricing and decision
 // artifacts, while unusual flow, OI and search interest keep their own cadence.
@@ -434,7 +435,26 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
   const canonicalValue = stampOf(grades);
   const canonicalMs = requireRunStamp(report, "grades.json", canonicalValue, runStartedAt, now);
 
-  const symbols = expectedSymbols.filter((symbol) => existsSync(resolve(dataDir, `${symbol}.json`)));
+  const present = expectedSymbols.filter((symbol) => existsSync(resolve(dataDir, `${symbol}.json`)));
+  // A ticker that failed this run may keep its last-good page, marked
+  // staleCopy, for display only (lib/stale-ticker-copy.mjs). It counts toward
+  // neither coverage nor the grades match; it must be a valid published file,
+  // carry the mark, and be no older than the kept-copy limit.
+  const symbols = [];
+  const staleCopies = [];
+  for (const symbol of present) {
+    let payload = null;
+    try { payload = await readJson(dataDir, `${symbol}.json`); } catch { payload = null; }
+    if (payload && isStaleTickerCopy(payload)) staleCopies.push({ symbol, payload });
+    else symbols.push(symbol);
+  }
+  for (const { symbol, payload } of staleCopies) {
+    const err = publishedTickerError(payload);
+    const quoteMs = validMs(payload.quoteAsOf);
+    if (err) fail(report, `${symbol}.json: kept stale copy is not a valid ticker file (${err})`);
+    else if (quoteMs == null || now.getTime() - quoteMs > STALE_COPY_MAX_DAYS * 86400000) fail(report, `${symbol}.json: kept stale copy is older than ${STALE_COPY_MAX_DAYS} days`);
+  }
+  if (staleCopies.length) pass(report, `${staleCopies.length} ticker(s) kept their last-good page, marked stale: ${staleCopies.map((r) => r.symbol).join(", ")}`);
   const minimum = Math.ceil(expectedSymbols.length * MIN_TICKER_SUCCESS_RATE);
   if (symbols.length < minimum) fail(report, `ticker coverage ${symbols.length}/${expectedSymbols.length}; need at least ${minimum}`);
   else pass(report, `ticker coverage ${symbols.length}/${expectedSymbols.length}`);
@@ -1166,6 +1186,53 @@ async function selfTest() {
     if (!report.checks.some((message) => message === "fundamentals-history/TEST.json: rewritten by this run")) {
       throw new Error("self-test expected fundamentals history to be classified when present");
     }
+
+    // A failed ticker's kept last-good page (staleCopy, display only) is not
+    // a rewrite failure, not coverage and not in the grades match; an
+    // unmarked old file or a copy past the limit still fails.
+    const oldStamp = "2026-07-28T19:00:00.000Z";
+    await write("OLDCO.json", { ...ticker, quoteAsOf: oldStamp, staleCopy: { since: oldStamp, why: "fetch failed", keptAtIso: stamp } });
+    await utimes(resolve(dir, "OLDCO.json"), new Date(start.getTime() - 86400000), new Date(start.getTime() - 86400000));
+    const withStale = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST", "OLDCO"],
+    });
+    if (withStale.errors.some((message) => message.includes("OLDCO") || message.includes("grades.json covers"))) {
+      throw new Error("self-test expected a kept stale copy to pass the per-ticker checks: " + renderReport(withStale));
+    }
+    if (!withStale.checks.some((message) => message.includes("kept their last-good page, marked stale: OLDCO"))) {
+      throw new Error("self-test expected the kept stale copy to be reported");
+    }
+    if (!withStale.checks.some((message) => message === "grades.json coverage matches ticker files (1)")) {
+      throw new Error("self-test expected the stale copy to stay out of the grades match");
+    }
+    await write("OLDCO.json", { ...ticker, quoteAsOf: "2026-07-20T19:00:00.000Z", staleCopy: { since: "2026-07-20T19:00:00.000Z", why: "fetch failed" } });
+    const tooOld = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST", "OLDCO"],
+    });
+    if (!tooOld.errors.some((message) => message.includes("OLDCO.json: kept stale copy is older than"))) {
+      throw new Error("self-test expected a stale copy past the limit to fail");
+    }
+    await write("OLDCO.json", { ...ticker, quoteAsOf: oldStamp });
+    await utimes(resolve(dir, "OLDCO.json"), new Date(start.getTime() - 86400000), new Date(start.getTime() - 86400000));
+    const unmarked = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST", "OLDCO"],
+    });
+    if (!unmarked.errors.some((message) => message.includes("OLDCO.json: file was not rewritten this run"))) {
+      throw new Error("self-test expected an unmarked old ticker file to fail");
+    }
+    await rm(resolve(dir, "OLDCO.json"));
 
     await write("fundamentals-history/ROGUE.json", {
       symbol: "ROGUE",

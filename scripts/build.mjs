@@ -103,6 +103,8 @@ import { refreshFilingText } from "../lib/labs/filing-text.mjs";
 import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
 import { engineName as strategyEngineName, MACRO_ETFS as ENGINES_MACRO_ETFS } from "../lib/engines/config.mjs";
 import { buildSourceHealth, loadSourceHealth, readSourcePayloads, writeSourceHealth } from "../lib/source-health.mjs";
+import { collectStaleTickerCopies } from "../lib/stale-ticker-copy.mjs";
+import { buildDataHealthAlert, DATA_HEALTH_REPORT_FILE } from "../lib/data-health-alert.mjs";
 import { checkEngineFeeds, guardEngineInputs, dataChecksMode, compactChecks, feedsSwitchedOff } from "../lib/data-checks.mjs";
 import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // The Owner Settings report from scripts/owner-settings-env.mjs (null when the
@@ -4506,7 +4508,7 @@ export function publicChainFilePayload(data) {
   };
 }
 
-async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso = new Date().toISOString()) {
+async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso = new Date().toISOString(), { staleCopies = null } = {}) {
   // Wipe data/ first so tickers that fell out of the curated list (or
   // failed this run) don't leave stale files behind. The directory is
   // then recreated fresh.
@@ -4524,6 +4526,15 @@ async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso
       put: pickContractForPick("put", data, rfr),
     };
     const json = JSON.stringify(publicChainFilePayload(data));
+    await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
+    totalBytes += json.length;
+  }
+  // A ticker that failed this run keeps its last-good page, marked
+  // staleCopy, for display only (lib/stale-ticker-copy.mjs): never in
+  // `chains`, never in the auto-picks sidecar.
+  for (const [sym, copy] of staleCopies instanceof Map ? staleCopies : []) {
+    if (chains[sym]) continue;
+    const json = JSON.stringify(copy);
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
@@ -36638,11 +36649,22 @@ async function fetchTickerRssHeadlines(symbol) {
 // tag has the canonical publisher name. The <link> is a news.google.com
 // redirect to the actual article — body-fetch follows redirects so paywall
 // detection still works.
+// How many names this bake asked Google News for and how many answered (an
+// HTTP 200 RSS body), for the source-health row "google-news" (2026-11-26).
+// Counted on calls already made; no extra fetch.
+const GOOGLE_NEWS_READS = { asked: 0, answered: 0 };
+function googleNewsSourcePayload() {
+  const { asked, answered } = GOOGLE_NEWS_READS;
+  if (!asked) return { note: "not read this run" };
+  return { coverage: { fresh: answered, of: asked, status: answered * 2 < asked ? (answered ? "low" : "none") : "ok" } };
+}
 async function fetchGoogleNewsRssHeadlines(symbol) {
+  GOOGLE_NEWS_READS.asked++;
   try {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(symbol + " stock")}&hl=en-US&gl=US&ceid=US:en`;
     const res = await fetchWithTimeout(url, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/rss+xml, text/xml" } }, RSS_FETCH_TIMEOUT_MS);
     if (!res.ok) return [];
+    GOOGLE_NEWS_READS.answered++;
     return parseNewsRss(await res.text(), 100).filter(h => isReputablePublisher(h.publisher)).map(h => {
       const suffix = " - " + h.publisher;
       return { ...h, title: h.title.endsWith(suffix) ? h.title.slice(0,-suffix.length) : h.title };
@@ -41183,10 +41205,24 @@ async function main() {
   }
   // Each stock's people view rides its own per-ticker file (public).
   attachCorporateViews(chains, corporate);
+  // Read before the wipe: the last-good page of each ticker that failed or
+  // was left out this run, kept for display only (lib/stale-ticker-copy.mjs).
+  const prunedWhy = new Map(prunedTickers.dropped.map((row) => [row.symbol, row.reason]));
+  const staleTickerCopies = await collectStaleTickerCopies({
+    expectedSymbols: TICKERS,
+    chains,
+    builtAtIso,
+    readPrior: async (sym) => JSON.parse(await readFile(resolve(DATA_DIR, `${sym}.json`), "utf8")),
+    whyOf: (sym) => (prunedWhy.has(sym) ? "left out: input could not publish" : "fetch failed"),
+  });
+  if (staleTickerCopies.size) {
+    console.log(`Kept the last-good page (marked stale, display only) for ${staleTickerCopies.size} ticker(s): ${[...staleTickerCopies.keys()].join(", ")}`);
+  }
   const totalChainBytes = await writeChainFiles(
     chains,
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
     builtAtIso,
+    { staleCopies: staleTickerCopies },
   );
   await writeForcedLiquidation(DATA_DIR, forcedLiquidation);
   if (corporate) await writeFile(resolve(DATA_DIR, CORPORATE_STRUCTURE_KEY), JSON.stringify(corporate), "utf8");
@@ -43180,8 +43216,20 @@ async function main() {
       ["webull-breadth.json", w3Session(webullW3?.on?.WEBULL_BREADTH_LOG, webullW3?.breadth?.today?.date)]]) {
       if (entry && !sourcePayloads.has(key)) sourcePayloads.set(key, entry);
     }
+    // Google News RSS is not a file of its own: pass the bake's own count of
+    // names asked and answered (source row "google-news").
+    sourcePayloads.set("google-news-rss.synthetic", { payload: googleNewsSourcePayload() });
     const health = buildSourceHealth({ payloads: sourcePayloads, prior: priorSourceHealth, builtAtIso, feedChecks: compactChecks(engineDataChecks) });
     const healthInfo = await writeSourceHealth(DATA_DIR, health);
+    // The data-health alert's input (lib/data-health-alert.mjs): repo root,
+    // gitignored, read only by daily.yml's "Data health alert" step.
+    try {
+      const alert = buildDataHealthAlert(health);
+      await writeFile(resolve(ROOT, DATA_HEALTH_REPORT_FILE), JSON.stringify(alert), "utf8");
+      console.log(`Data health: ${alert.status}${alert.counts?.flagged ? ` (${alert.counts.flagged} bad ${alert.streak}+ days)` : ""}`);
+    } catch (err) {
+      console.warn(`[data-health] report skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
     const flagged = health.sources.filter((r) => r.review).map((r) => `${r.id}:${r.state}`);
     console.log(`wrote data/${healthInfo.key} — ${health.counts.ok}/${health.counts.sources} sources fresh${flagged.length ? `, review ${flagged.join(", ")}` : ""}, ${healthInfo.bytes} bytes`);
   } catch (err) {

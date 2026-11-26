@@ -34,6 +34,7 @@
 // Invoked by .github/workflows/unusual-flow.yml at the top of every hour
 // 14:00-21:00 UTC Mon-Fri.
 import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { isStaleTickerCopy } from "../lib/stale-ticker-copy.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import YahooFinance from "yahoo-finance2";
@@ -568,6 +569,7 @@ async function loadTickerTechnicals(symbol, todayKey) {
   try {
     const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
     const j = JSON.parse(raw);
+    if (isStaleTickerCopy(j)) return null; // a kept last-good copy is display only
     const t = j?.technicals;
     if (!t) return null;
     const ps = j?.priceSeries;
@@ -640,7 +642,7 @@ async function loadTickerGex(symbol, spot) {
   try {
     const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
     const j = JSON.parse(raw);
-    if (!j?.chains) return null;
+    if (!j?.chains || isStaleTickerCopy(j)) return null;
     return computeGexSummary(j.chains, spot);
   } catch {
     return null;
@@ -656,7 +658,9 @@ async function loadTickerGex(symbol, spot) {
 async function loadDailyVolume(symbol, date) {
   try {
     const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
-    const ps = JSON.parse(raw)?.priceSeries;
+    const parsed = JSON.parse(raw);
+    if (isStaleTickerCopy(parsed)) return null;
+    const ps = parsed?.priceSeries;
     if (!Array.isArray(ps?.t) || !Array.isArray(ps?.v)) return null;
     let newer = false;
     for (let i = ps.t.length - 1; i >= 0; i--) {

@@ -402,8 +402,23 @@ try {
 
 // Root output deployments must explicitly exclude local secrets/private data.
 const vercelIgnore = await readFile(new URL("../.vercelignore", import.meta.url), "utf8");
-for (const pattern of ["/data/", "/r2.env", "*.env", ".env*", "/ai-health.json", "/.codex/"]) {
+for (const pattern of ["/data/", "/r2.env", "*.env", ".env*", "/ai-health.json", "/data-health.json", "/.codex/"]) {
   assert.ok(vercelIgnore.split(/\r?\n/).includes(pattern), `.vercelignore missing ${pattern}`);
+}
+
+// Request-time files saved from the site are read, changed and written under
+// a store lease (2026-11-26): the trade log (marks, notes, uploads) and the
+// shared Top Picks watchlist, like every other Owner write.
+{
+  const authSrc = await readFile(new URL("../api/auth/[action].js", import.meta.url), "utf8");
+  const fillsFn = authSrc.slice(authSrc.indexOf("async function picksFills("), authSrc.indexOf("// --- Owner watchlist"));
+  assert.match(fillsFn, /store\.withLease\("picks-fills", save\)/);
+  assert.equal((fillsFn.match(/store\.put\(FILLS_KEY/g) || []).length, 1, "the trade log has one write, inside the lease");
+  assert.match(fillsFn, /const save = async \(guard\) => \{\s*const out = change\(await readPrev\(\)\);\s*if \(guard\) guard\(\);/);
+  const wlSrc = await readFile(new URL("../api/watchlist.js", import.meta.url), "utf8");
+  assert.match(wlSrc, /store\.withLease\("picks-watchlist", save\)/);
+  assert.equal((wlSrc.match(/store\.put\(KEY/g) || []).length, 1, "the watchlist has one write, inside the lease");
+  assert.match(wlSrc, /if \(guard\) guard\(\);\s*await store\.put\(KEY/);
 }
 
 const buildSource = await readFile(new URL("./build.mjs", import.meta.url), "utf8");

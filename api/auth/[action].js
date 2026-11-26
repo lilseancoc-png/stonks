@@ -603,38 +603,47 @@ async function picksFills(req, res) {
       const prevBuf = await store.get(FILLS_KEY);
       return prevBuf == null ? { rows: [], updatedAt: null, errors: [] } : JSON.parse(prevBuf.toString("utf8"));
     };
-    // One "took it / skipped it" mark (POST { mark: { trade_id, took, reason } }).
-    // Marks live beside the uploaded rows and survive the next CSV upload.
-    if (req.body && typeof req.body === "object" && req.body.mark) {
-      if (applyTradeMark({}, req.body.mark).error) return res.status(400).json({ error: applyTradeMark({}, req.body.mark).error });
-      const prev = await readPrev();
-      const applied = applyTradeMark(prev.marks, req.body.mark);
-      const out = { ...prev, marks: applied.marks };
-      await store.put(FILLS_KEY, JSON.stringify(out));
-      const mirrored = await webullFillRows(store);
-      return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
-    }
-    // One trade-journal note (POST { note: { trade_id | ticker, text, tags } }).
-    if (req.body && typeof req.body === "object" && req.body.note) {
-      const check = applyTradeNote({}, req.body.note);
+    // Each POST builds its change from the stored file; the read, change and
+    // save run under the store's lease (2026-11-26, as owner-watchlist does),
+    // so two saves at the same moment (a note on one device, a mark on
+    // another) can't drop each other's change.
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    let change;
+    if (body.mark) {
+      // One "took it / skipped it" mark (POST { mark: { trade_id, took, reason } }).
+      // Marks live beside the uploaded rows and survive the next CSV upload.
+      const check = applyTradeMark({}, body.mark);
       if (check.error) return res.status(400).json({ error: check.error });
-      const prev = await readPrev();
-      const applied = applyTradeNote(prev.notes, req.body.note);
-      const out = { ...prev, notes: applied.notes };
-      await store.put(FILLS_KEY, JSON.stringify(out));
-      const mirrored = await webullFillRows(store);
-      return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
+      change = (prev) => ({ ...prev, marks: applyTradeMark(prev.marks, body.mark).marks });
+    } else if (body.note) {
+      // One trade-journal note (POST { note: { trade_id | ticker, text, tags } }).
+      const check = applyTradeNote({}, body.note);
+      if (check.error) return res.status(400).json({ error: check.error });
+      change = (prev) => ({ ...prev, notes: applyTradeNote(prev.notes, body.note).notes });
+    } else {
+      const csv = body.csv;
+      if (typeof csv !== "string" || !csv.trim()) return res.status(400).json({ error: "no csv" });
+      if (csv.length > FILLS_MAX_BYTES) return res.status(413).json({ error: "file too large" });
+      const { rows, errors } = parseFillsCsv(csv);
+      if (!rows.length) return res.status(400).json({ error: "no usable rows", errors });
+      change = (prev) => ({ rows, errors, updatedAt: new Date().toISOString(), ...(prev.marks ? { marks: prev.marks } : {}), ...(prev.notes ? { notes: prev.notes } : {}) });
     }
-    const csv = req.body && typeof req.body === "object" ? req.body.csv : null;
-    if (typeof csv !== "string" || !csv.trim()) return res.status(400).json({ error: "no csv" });
-    if (csv.length > FILLS_MAX_BYTES) return res.status(413).json({ error: "file too large" });
-    const { rows, errors } = parseFillsCsv(csv);
-    if (!rows.length) return res.status(400).json({ error: "no usable rows", errors });
-    const prev = await readPrev();
-    const out = { rows, errors, updatedAt: new Date().toISOString(), ...(prev.marks ? { marks: prev.marks } : {}), ...(prev.notes ? { notes: prev.notes } : {}) };
-    await store.put(FILLS_KEY, JSON.stringify(out));
+    const save = async (guard) => {
+      const out = change(await readPrev());
+      if (guard) guard();
+      await store.put(FILLS_KEY, JSON.stringify(out));
+      return out;
+    };
+    let out;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("picks-fills", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      out = leased.result;
+    } else out = await save(null);
     const mirrored = await webullFillRows(store);
-    return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...rows] } : out);
+    return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])] } : out);
   } catch (err) {
     console.error("picks fills failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "fills unavailable" });
