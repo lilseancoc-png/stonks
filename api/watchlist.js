@@ -129,7 +129,10 @@ export default async function handler(req, res) {
   }
   const side = requestedSide;
 
-  try {
+  // Read, change and save under the store's lease (2026-11-26, as the Owner
+  // watchlist does), so two owners starring at the same moment can't drop
+  // each other's change.
+  const save = async (guard) => {
     const items = await readItems();
     // Current roster — the server-side source for snapshots + freshness.
     const picksJson = await readJson("picks.json");
@@ -149,7 +152,7 @@ export default async function handler(req, res) {
         // Only picks in the CURRENT roster can be added (that's where the
         // snapshot comes from) — matches the UI, where the star only renders
         // on a live pick card.
-        return res.status(404).json({ error: "not in the current picks" });
+        return { status: 404, body: { error: "not in the current picks" } };
       }
       // savedGrade/savedSpot freeze the add-time baseline ON THE ITEM (the
       // pick payload itself is adopted fresh each build), so the client can
@@ -184,8 +187,21 @@ export default async function handler(req, res) {
       if (it.savedDrivers == null) it.savedDrivers = savedDriversOf(it.pick);
     }
     const out = { items, updatedAt: new Date().toISOString() };
+    if (guard) guard();
     await store.put(KEY, JSON.stringify(out));
-    return res.status(200).json(out);
+    return { status: 200, body: out };
+  };
+
+  try {
+    let done;
+    if (store.backend === "r2" && typeof store.withLease === "function") {
+      let leased;
+      try { leased = await store.withLease("picks-watchlist", save); }
+      catch (err) { if (err?.code === "LEASE_CONFLICT") return res.status(409).json({ error: "busy, try again" }); throw err; }
+      if (leased?.busy) return res.status(409).json({ error: "busy, try again" });
+      done = leased.result;
+    } else done = await save(null);
+    return res.status(done.status).json(done.body);
   } catch (err) {
     console.error("watchlist write failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "watchlist unavailable" });

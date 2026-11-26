@@ -1,9 +1,9 @@
 {
   "note": "Fingerprints for scripts/owner-scope-smoke.mjs. Update with --update only for a deliberate change, and say why in the PR.",
   "files": {
-    "scripts/build.mjs": "dba0b2c674c7616941e9eef1951367b7b51120338871693f0b36db90e5931b6b",
+    "scripts/build.mjs": "16713f52529ea5813d277d257c9dac96d30df6b2359be4c405d36dcba9ae3877",
     "lib/top-picks-config.mjs": "05afab3689b868525f83a338193a7d104c4928b5ce59f5b6fac2d463a1c55e12",
-    "lib/datastore.mjs": "524634a5c6a9e041109b98a9637c70da1911106a20e08eb664c60aea05396fdd",
+    "lib/datastore.mjs": "28ebbbb63e301fe6a24721ba323ff8bf8f10c00bdb258fd4dd43999254462b7b",
     "lib/data-ownership.mjs": "d1b9643a72d54293910a99324cba5a12feae181d06a4cfba61dec9d1578b841d",
     "scripts/sync-data.mjs": "f1689806667ffa73a594b5b6a7565ded57d6db0db2551f7ac5438d0144d1b5bd",
     "lib/webull-mirror.mjs": "26fddc029deb005b0533e63d0d6ee26dd16371fd52be21d942bf58de5a159300",

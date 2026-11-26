@@ -10,6 +10,7 @@
 // Usage: node scripts/backfill-autopick.mjs
 
 import { readFile, writeFile } from "node:fs/promises";
+import { isStaleTickerCopy } from "../lib/stale-ticker-copy.mjs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +39,8 @@ async function main() {
       missing++;
       continue; // no committed data for this ticker — skip
     }
+    // A kept last-good copy (lib/stale-ticker-copy.mjs) is display only.
+    if (isStaleTickerCopy(data)) { missing++; continue; }
     // Isolate the per-ticker build + write so one bad file or write fault
     // doesn't abort the whole run mid-pass (graceful degradation, like the
     // rest of the pipeline) — leaving some files rewritten and others not.

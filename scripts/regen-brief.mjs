@@ -9,6 +9,7 @@
 // the same-hour idempotency gate, so a retry carries the already-minted brief.
 
 import { readFile } from "node:fs/promises";
+import { isStaleTickerCopy } from "../lib/stale-ticker-copy.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -104,7 +105,8 @@ async function main() {
   const chains = {};
   for (const symbol of TICKERS) {
     const payload = await readJson(`${symbol}.json`);
-    if (payload && typeof payload === "object") chains[symbol] = payload;
+    // A kept last-good copy (lib/stale-ticker-copy.mjs) is display only.
+    if (payload && typeof payload === "object" && !isStaleTickerCopy(payload)) chains[symbol] = payload;
   }
   console.log(`Loaded ${Object.keys(chains).length}/${TICKERS.length} last-verified ticker files.`);
 

@@ -9,6 +9,7 @@
 *.env
 .env*
 /ai-health.json
+/data-health.json
 /.codex/
 /AGENTS.md
 *.log
