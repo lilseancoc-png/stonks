@@ -186,12 +186,20 @@ assert.equal(res.statusCode, 200); assert.equal(res.body.sources, null);
   const before = numericProfile({ funds: rows("flowUsd", [5, 0, 3, 9, 1, 2]) });
   assert.ok(before.live.includes("flowUsd"));
   const after = numericProfile({ funds: rows("flowUsd", [0, 0, 0, 0, 0, 0]) });
-  const zeroed = applyValueChecks(okRow("crowd-short-volume"), d("crowd-short-volume"), { profile: after, priorRow: { fp: before.hash, fpSince: "2026-11-06", live: before.live }, today: "2026-11-09" });
-  assert.equal(zeroed.state, "partial"); assert.match(zeroed.detail, /flowUsd is zero in every row/);
+  // The first all-zero build only notes it (one quiet snapshot is not a
+  // broken feed); the second in a row reads partial.
+  const first = applyValueChecks(okRow("crowd-short-volume"), d("crowd-short-volume"), { profile: after, priorRow: { fp: before.hash, fpSince: "2026-11-06", live: before.live }, today: "2026-11-09" });
+  assert.equal(first.state, "ok"); assert.equal(first.zeroSince.flowUsd, "2026-11-09"); assert.ok(first.live.includes("flowUsd"));
+  const back = applyValueChecks(okRow("crowd-short-volume"), d("crowd-short-volume"), { profile: before, priorRow: first, today: "2026-11-09" });
+  assert.equal(back.state, "ok"); assert.equal(back.zeroSince, undefined, "values came back");
+  const zeroed = applyValueChecks(okRow("crowd-short-volume"), d("crowd-short-volume"), { profile: after, priorRow: first, today: "2026-11-09" });
+  assert.equal(zeroed.state, "partial"); assert.match(zeroed.detail, /flowUsd is zero in every row since 2026-11-09/);
   // It keeps reading partial on later days (so three days alert), until it
   // has been zero for a week.
   const day2 = applyValueChecks(okRow("crowd-short-volume"), d("crowd-short-volume"), { profile: after, priorRow: zeroed, today: "2026-11-10" });
   assert.equal(day2.state, "partial"); assert.equal(day2.zeroSince.flowUsd, "2026-11-09");
+  // A by-name map counts as rows.
+  assert.ok(numericProfile({ funds: { A: { flow: 1 }, B: { flow: 2 }, C: { flow: 0 }, D: { flow: 3 }, E: { flow: 4 } } }).live.includes("flow"));
   const after2 = numericProfile({ funds: rows("flowUsd", [0, 0, 0, 0, 0, 0]).map((r) => ({ ...r, price: r.price + 1 })) });
   const week = applyValueChecks(okRow("crowd-short-volume"), d("crowd-short-volume"), { profile: after2, priorRow: day2, today: "2026-11-17" });
   assert.equal(week.state, "ok"); assert.equal(week.live.includes("flowUsd"), false);
@@ -217,7 +225,8 @@ assert.equal(res.statusCode, 200); assert.equal(res.body.sources, null);
   assert.equal(listCount({ a: [1, 2], b: [1, 2, 3, 4] }), 4);
   assert.equal(listCount({ markets: { A: { x: 1 }, B: { x: 2 }, C: { x: 3 } } }), 3);
   assert.equal(listCount({ count: 503, sources: [1, 2] }, { countKey: "count" }), 503);
-  const shrunk = applyValueChecks(okRow("yahoo-global"), d("yahoo-global"), { profile: vals, count: 4, priorCounts: [30, 31, 30, 29, 30], today: "2026-11-09" });
+  assert.equal(applyValueChecks(okRow("yahoo-global"), d("yahoo-global"), { profile: vals, count: 4, priorRow: { n: 30 }, priorCounts: [30, 31, 30, 29, 30], today: "2026-11-09" }).state, "ok", "one short build is not flagged");
+  const shrunk = applyValueChecks(okRow("yahoo-global"), d("yahoo-global"), { profile: vals, count: 4, priorRow: { n: 5 }, priorCounts: [30, 31, 30, 29, 30], today: "2026-11-09" });
   assert.equal(shrunk.state, "partial"); assert.match(shrunk.detail, /Covered 4 items; usually about 30/);
   assert.equal(applyValueChecks(okRow("yahoo-global"), d("yahoo-global"), { profile: vals, count: 20, priorCounts: [30, 31, 30], today: "2026-11-09" }).state, "ok");
   assert.equal(applyValueChecks(okRow("unusual-flow"), d("unusual-flow"), { profile: vals, count: 2, priorCounts: [40, 40, 40], today: "2026-11-09" }).state, "ok", "an event list may shrink on a quiet day");

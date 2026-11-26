@@ -620,7 +620,7 @@ try {
   // The R2 adapter itself asks for identity encoding and conditional headers.
   const dsSrc = await readFile(new URL("../lib/datastore.mjs", import.meta.url), "utf8");
   assert.match(dsSrc, /async function getVersioned[\s\S]{0,300}"Accept-Encoding": "identity"/);
-  assert.match(dsSrc, /async function putIfMatch[\s\S]{0,400}"If-Match": etag[\s\S]{0,40}"If-None-Match": "\*"/);
+  assert.match(dsSrc, /async function putIfMatch[\s\S]{0,600}"If-Match": etag[\s\S]{0,40}"If-None-Match": "\*"/);
 }
 
 console.log("private-store smoke test passed");
