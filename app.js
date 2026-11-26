@@ -11629,15 +11629,17 @@ function validNewsFeedPayload(data) {
   function hm(h, m) { return h * 60 + (m || 0); }
   var JOBS = {
     brief: { label: 'Market brief', runs: [hm(8, 30), hm(11), hm(13, 30), hm(16, 10)] },
-    build: { label: 'Full market build', runs: [hm(10), hm(11), hm(13, 30), hm(15, 30), hm(16, 10)] },
+    // earlyCloseSkip: slots the daily.yml router skips on an early (13:00 ET)
+    // close (the 15:30 bake repeats the 13:30 one after the bell).
+    build: { label: 'Full market build', runs: [hm(10), hm(11), hm(13, 30), hm(15, 30), hm(16, 10)], earlyCloseSkip: [hm(15, 30)] },
     // beforeClose: no run at or after an early (13:00 ET) close, matching
     // the daily.yml router. onHolidays: the slot still runs on a weekday
-    // market holiday (the transcript, OI and weekly jobs do).
+    // market holiday (the transcript and weekly jobs do).
     picks: { label: 'Top Picks and swing desks', runs: [hm(11), hm(15, 30)], beforeClose: true },
     flow: { label: 'Flow, volume and heatmap', runs: [hm(9), hm(10), hm(11), hm(12), hm(13), hm(14), hm(15), hm(16)] },
-    // The OI scans are dispatched every weekday, holidays included (open
-    // interest still shows the last session's settled positions then).
-    oi: { label: 'Near-term open interest', runs: [hm(8, 30), hm(17)], approx: true, onHolidays: true },
+    // cron-job.org dispatches the OI scans every weekday; since 2026-11-26
+    // the workflow skips weekday market holidays (no new open interest).
+    oi: { label: 'Near-term open interest', runs: [hm(8, 30), hm(17)], approx: true },
     calls: { label: 'Earnings calls and pre-open call', runs: [hm(9), hm(19)], onHolidays: true },
     // A GitHub cron with no holiday check. lateNote: it is set for 11:30 ET,
     // but GitHub started it between about 14:30 and 17:00 ET every Friday
@@ -11695,6 +11697,7 @@ function validNewsFeedPayload(data) {
       for (var i = 0; i < job.runs.length; i++) {
         if (add === 0 && job.runs[i] <= et.minutes) continue;
         if (job.beforeClose && closeMin != null && job.runs[i] >= closeMin) continue;
+        if (job.earlyCloseSkip && closeMin != null && job.earlyCloseSkip.indexOf(job.runs[i]) >= 0) continue;
         return { dateKey: key, minutes: job.runs[i], clock: clock(job.runs[i]), dayOffset: add, approx: !!job.approx };
       }
     }

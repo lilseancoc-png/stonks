@@ -22,7 +22,10 @@ jobs:
   closing-window:
     if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # Up to a 45-minute wait for the window (WAIT_LIMIT_MIN in the trigger;
+    # the 12:00 ET flow scan starts it about 40 minutes early on a 13:00 ET
+    # close), then the 20-minute window and the after-close check.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

@@ -35,7 +35,8 @@ ok(T.holidays["2028-12-25"] === "Christmas" && T.halfDays["2028-07-03"], "the br
 eq(T.halfDays["2026-11-27"], "day after Thanksgiving", "early-close table names the day");
 eq(R.nextLabel("picks", { dateKey: "2026-11-27", minutes: 11 * 60 + 5 }, T.holidays, T.halfDays), "Mon 11:00 ET", "no 15:30 Top Picks run after a 13:00 early close");
 eq(R.nextLabel("picks", { dateKey: "2026-11-27", minutes: 10 * 60 }, T.holidays, T.halfDays), "11:00 ET", "the 11:00 run still goes on an early-close day");
-eq(R.nextLabel("build", { dateKey: "2026-11-27", minutes: 14 * 60 }, T.holidays, T.halfDays), "15:30 ET", "full builds keep their slots on an early-close day");
+eq(R.nextLabel("build", { dateKey: "2026-11-27", minutes: 14 * 60 }, T.holidays, T.halfDays), "16:10 ET", "an early-close day skips the 15:30 build (the 13:30 bake already ran after the bell)");
+eq(R.nextLabel("build", { dateKey: "2026-11-27", minutes: 12 * 60 }, T.holidays, T.halfDays), "13:30 ET", "the 13:30 build still goes on an early-close day");
 eq(R.nextLabel("calls", { dateKey: "2026-11-26", minutes: 8 * 60 }, T.holidays, T.halfDays), "09:00 ET", "earnings-call runs go ahead on a weekday holiday");
 eq(R.nextLabel("build", { dateKey: "2026-11-26", minutes: 8 * 60 }, T.holidays, T.halfDays), "tomorrow 10:00 ET", "full builds skip the holiday");
 eq(R.nextLabel("picks", { dateKey: "2026-11-27", minutes: 11 * 60 + 5 }, T.holidays), "15:30 ET", "without the early-close list the old behavior holds");

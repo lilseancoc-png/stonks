@@ -166,6 +166,14 @@ jobs:
             REFRESH_SWING_DESKS=false
             echo "Early close at $((CLOSE_MIN / 60)):$(printf '%02d' $((CLOSE_MIN % 60))) ET on $ET_DATE; no Top Picks run after the bell."
           fi
+          # Half day: the 13:30 bake is already the first build after the
+          # 13:00 bell and 16:10 stays the close bake (Brief, Webull data
+          # dispatch, close-bake checks), so the 15:30 bake would only repeat
+          # them (~90 Flash-Lite calls and a deploy for no new market data).
+          HALF_DAY_SKIP=false
+          if [ "$ET_MIN" -eq 930 ] && [ "$ET_MIN" -ge "$CLOSE_MIN" ]; then
+            HALF_DAY_SKIP=true
+          fi
           if [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 660 ] || [ "$ET_MIN" -eq 810 ] || [ "$ET_MIN" -eq 970 ]; }; then
             REFRESH_BRIEF=true
           fi
@@ -185,6 +193,9 @@ jobs:
             # run). force=true still runs a build on purpose.
             echo "mode=skip" >> "$GITHUB_OUTPUT"
             echo "Dispatch at $LABEL is on a market holiday (NYSE closed); no-op. Use force=true for an intentional build."
+          elif [ "$HALF_DAY_SKIP" = "true" ] && [ "$ET_DAY" -le 5 ]; then
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            echo "Dispatch at $LABEL is after today's early close; the 13:30 and 16:10 bakes cover it. No-op. Use force=true for an intentional build."
           elif [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 495 ] && [ "$ET_MIN" -le 525 ]; then
             echo "mode=brief" >> "$GITHUB_OUTPUT"
             echo "Dispatch at $LABEL routes to the pre-market Brief-only refresh."
