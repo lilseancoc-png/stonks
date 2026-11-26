@@ -9892,10 +9892,47 @@ function engEvidenceNote(t){
       slpSection('eng-all-market', 'What the market looks like to them', backdrop) +
       slpSection('eng-all-last', 'Latest run (' + escapeHtml(rglEt(d.runIso)) + ')', last + health) +
       slpSection('eng-all-shared', 'Same contract on more than one engine', '<p class="evb-note">When two engines (or an engine and Top Picks) pick the exact same ticker, strike and expiration, the paper account buys it once. Whoever held it first owns the position; the other records the trade on its own track record, labeled with who holds it.</p>' + shared) +
+      (d.opposites && d.opposites.enabled ? slpSection('eng-all-opposite', 'Opposite sides of one stock', engOppositeHtml(d.opposites)) : '') +
+      engRiskTagsHtml(d.marketRiskTags) +
       slpSection('eng-all-changes', 'Rule changes the engines made', changes) +
       (hist ? slpSection('eng-all-hist', 'History test, 2007 to 2026', hist) : '') +
       slpSection('eng-all-webull', 'Webull paper account', engMirrorHtml('all')) +
       slpSection('eng-all-runs', 'Run log', runs);
+  }
+
+  // ---- Opposite sides (2026-11-26, measure only) -----------------------------
+  // Pairs where a new engine trade took the other side of a stock another open
+  // trade held (an engine's or Top Picks'), tagged at entry, and which side won
+  // once both closed (lib/engines/opposite.mjs). The tags never change a trade.
+  function engOppSide(x){
+    var res = x.state === 'closed' ? engPnl(x.pct) + (x.usd != null ? '<div class="crd-dim ' + slpSign(x.usd) + '">' + engUsd(x.usd) + '</div>' : '') : x.state === 'open' ? '<span class="crd-dim">open</span>' + (x.pct != null ? ' ' + engPnl(x.pct) : '') : x.state === 'not-counted' ? '<span class="crd-dim">not counted</span>' : '<span class="crd-dim">not on hand</span>';
+    return '<td class="l"><b>' + escapeHtml(x.name || '') + '</b> <span class="crd-dim">' + escapeHtml(String(x.side || '')) + ' · ' + escapeHtml(x.tradeId || '') + '</span></td><td class="num">' + res + '</td>';
+  }
+  function engOppositeHtml(b){
+    var lead = '<p class="evb-note">When a new engine trade takes the other side of a stock that another open trade already holds (another engine’s, or a Top Pick’s), both are tagged when it opens. The Book risk panel on Open picks shows today’s opposite bets; this keeps their history. A pair is settled once both sides have closed; the winner is the side that made more dollars when both are engine trades (an option and a share trade move by very different percentages), else the side with the higher % return. Measure only: a tag never changes what an engine opens, closes or sizes, and nothing is written to the Top Picks record.</p>';
+    if (!b.pairs) return lead + '<p class="hint">No opposite pair tagged yet. Tags start with trades opened from 26 November 2026.</p>';
+    var kp = slpKpis([
+      ['Pairs tagged', String(b.pairs), 'Every pair since tagging started'],
+      ['Still open', String(b.open || 0), 'Pairs with at least one side still open'],
+      ['Settled', String(b.settled || 0)],
+      ['Newer side won', b.settled ? b.newerWon + ' of ' + b.settled : '—', 'The trade that opened against an existing one'],
+      ['Both sides together', b.settled ? engPnl(b.netSumPct) : '—', 'Sum of both sides’ % results over settled pairs' + (b.netUsd != null ? '; dollars where both are engine trades: ' + engUsd(b.netUsd) : '')]
+    ]);
+    var split = function(label, x){ return x && x.pairs ? '<tr><td>' + label + '</td><td class="num">' + x.pairs + '</td><td class="num">' + x.settled + '</td><td class="num">' + x.newerWon + '</td><td class="num">' + x.olderWon + '</td></tr>' : ''; };
+    var splits = slpTable([['Against'], ['Pairs', 1], ['Settled', 1], ['Newer won', 1], ['Older won', 1]], split('Another engine', b.engineVsEngine) + split('Top Picks', b.engineVsTopPicks));
+    var eng = (b.byEngine || []).length ? slpTable([['Engine'], ['Settled pairs', 1], ['Its side won', 1], ['Its side, % summed', 1]], b.byEngine.map(function(r){ return '<tr><td>' + escapeHtml(r.name || r.engine) + '</td><td class="num">' + r.settled + '</td><td class="num">' + r.won + '</td><td class="num">' + engPnl(r.sumPct) + '</td></tr>'; }).join('')) : '';
+    var rows = slpTable([['Opened'], ['Stock'], ['Newer trade', 'l'], ['Result', 1], ['Opposes', 'l'], ['Result', 1], ['Won']], (b.rows || []).map(function(p){
+      var w = p.winner === 'newer' ? 'Newer' : p.winner === 'older' ? 'Older' : p.winner === 'tie' ? 'Tie' : '<span class="crd-dim">not yet</span>';
+      return '<tr><td>' + escapeHtml(engDay(p.date)) + '</td><td><b>' + escapeHtml(p.symbol) + '</b></td>' + engOppSide(p.newer) + engOppSide(p.older) + '<td>' + w + '</td></tr>';
+    }).join(''));
+    return lead + kp + splits + (eng ? engDetails('By engine', eng) : '') + engDetails('Pairs, newest first', rows, true);
+  }
+  // Market-risk tags (2026-11-26, log only): how many engine trades carry the
+  // Bottom tracker verdict and the market-fall odds from their entry.
+  function engRiskTagsHtml(m){
+    if (!m || m.error || !m.tagged) return '';
+    var verdicts = Object.keys(m.byVerdict || {}).map(function(k){ return escapeHtml(k === 'none' ? 'no verdict' : k) + ' ' + m.byVerdict[k]; }).join(', ');
+    return '<p class="evb-note">Market-risk tags: ' + m.tagged + ' engine trades carry the Bottom tracker verdict and the market-fall odds from their entry (' + verdicts + '); ' + m.closed + ' have closed. ' + (m.ready ? 'Enough closes for a first read.' : 'A first read waits for ' + m.readAt + ' closes.') + ' Log only.</p>';
   }
 
   // ---- Scorecard pack (2026-11-21, docs/engines.md "Scorecard pack") --------

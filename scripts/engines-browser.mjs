@@ -106,6 +106,13 @@ try {
     check(/own pages and Track Record/.test(text) && /Flagship/.test(text), 'the flagship row points at its own pages');
     check((await s.page.locator('#eng-all-shared tbody tr').count()) === view.shared.length, 'one row per shared contract');
     check((await s.page.locator('#eng-all-shared').innerText()).includes('Top Picks'), 'the shared contract names its holder');
+    // Opposite-side tags and market-risk tags (2026-11-26, measure only).
+    if (view.opposites?.pairs) {
+      const opp = await s.page.locator('#eng-all-opposite').innerText();
+      check(/Opposite sides of one stock/.test(opp) && /Pairs tagged/.test(opp), 'the opposite-sides scoreboard renders');
+      check((await s.page.locator('#eng-all-opposite details:last-of-type tbody tr').count()) === Math.min(view.opposites.rows.length, 30), 'one row per tagged pair');
+    } else check((await s.page.locator('#eng-all-opposite').count()) <= 1, 'no opposite pair: the section is empty or absent');
+    if (view.marketRiskTags?.tagged) check(/Market-risk tags: \d+ engine trades/.test(text), 'the market-risk tag count shows');
     check(/Market type/.test(text) && /10-year yield/.test(text), 'the market backdrop rendered');
     check((await s.page.locator('#eng-all-hist tbody tr').count()) === ENGINE_IDS.length, 'the history test summary has every engine');
     check(/a year against SPY/.test(await s.page.locator('#eng-all-hist').innerText()), 'the core engines are summed up as a portfolio against SPY');
@@ -174,6 +181,7 @@ try {
     check(mirrorAsks.length >= 1 && mirrorAsks.every((q) => /scope=engines/.test(q)), 'the page asks the mirror for engine trades only');
     await clean(s, 'All engines, desktop');
     await s.page.screenshot({ path: resolve(output, 'all-engines-1440.png'), fullPage: true });
+    if (await s.page.locator('#eng-all-opposite').count()) await s.page.locator('#eng-all-opposite').screenshot({ path: resolve(output, 'opposite-sides-1440.png') });
     await s.page.locator('#eng-all-webull .eng-wb-head + .acc-tscroll').screenshot({ path: resolve(output, 'webull-by-engine-1440.png') });
 
     // Jump from the table into one engine.
@@ -558,6 +566,11 @@ try {
     await settle(s.page, 900);
     await clean(s, 'All engines, phone');
     await s.page.screenshot({ path: resolve(output, 'all-engines-390-dark.png'), fullPage: true });
+    if (await s.page.locator('#eng-all-opposite').count()) {
+      await s.page.locator('#eng-all-opposite').screenshot({ path: resolve(output, 'opposite-sides-390-dark.png') });
+      const wide = await s.page.locator('#eng-all-opposite').evaluate((el) => el.scrollWidth - el.clientWidth);
+      check(wide <= 1, 'phone: the opposite-sides section fits its width (' + wide + 'px)');
+    }
     await s.page.locator('#eng-all-webull .eng-wb-head + .acc-tscroll').screenshot({ path: resolve(output, 'webull-by-engine-390-dark.png') });
     for (const id of ['technicals', 'macro', 'flow', 'trend', 'momentum']) {
       await pick(s, id);

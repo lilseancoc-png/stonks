@@ -1630,6 +1630,45 @@ skipped this run and why). The bake log prints one `[data-checks]` line.
 No AI call, no new download, function or workflow. Test:
 `node scripts/data-checks-smoke.mjs` (no npm script).
 
+## Opposite-side tags and market-risk stamps (2026-11-26)
+
+Two measure-only stamps written by `runEngines` after the book step, so the
+book, learning, the Allocator, the brake, the history test and the Webull
+mirror never read them.
+
+**Opposite-side tags** (`lib/engines/opposite.mjs`). When a trade opened this
+run takes the other side of a stock that another open trade holds (another
+engine's, a core engine's fund or stock lot, or a Top Pick), the new trade gets
+`opposes: [{ tradeId, engine, side }]` and an opposed engine trade gets
+`opposedBy: [{ tradeId, engine, since }]` (at most six links each). A put bets
+down; calls, shares and core lots bet up. Shares twins are left out (their
+parent stands for the signal), and two new trades in one run make one pair.
+A Top Pick is named on the engine trade only; nothing is written to
+`picks-accuracy.json`. `oppositeScoreboard` builds `opposites` in
+`engines.json`: every tagged pair, settled once both sides have closed and
+count, the winner judged in dollars when both are engine trades (an option and
+a share trade move by very different percentages for the same stock move),
+else by % return; splits against another engine and against Top Picks, and
+by engine. Shown as "Opposite sides of one stock" on the All engines tab; the
+Owner brief adds a priority-3 desk finding (`desk:opposite`) while a pair is
+open. Book risk (`lib/book-risk.mjs`, `bySymbol`) keeps showing today's
+opposite bets. Owner Settings `ENGINES_OPPOSITE_TAG` (Research, on): off stops
+new tags and hides the scoreboard; stored tags stay.
+
+**Market-risk stamps** (`lib/market-risk-stamp.mjs`). Each new engine trade
+gets `marketRisk` and each new Top Picks trade gets `entrySnapshot.risk`:
+`{ v, bt, f10_3, f10_6, f10_12, f20_12, low6, hi12, oa, dec }`, the Bottom
+tracker verdict of this build and the Quant labs card's chances (a 10% fall
+within 3, 6 and 12 months, a 20% fall within 12, the low holding for 6 months,
+a new high within 12) from the prior `quant-labs.json` (the labs run after the
+engines). A stale card, or one more than 10 days old, is left out; a missing
+input is never written as zero. The engines page shows only how many trades
+carry it and how many closed. Read it after 30+ tagged closes before any hold
+or gate is considered. No switch: it changes nothing.
+
+Both: no AI call, no new download, no new file. Test:
+`node scripts/engine-trade-stamps-smoke.mjs`.
+
 ## Not in scope
 
 - No real money and no broker other than the Webull paper sandbox.

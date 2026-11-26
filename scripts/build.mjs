@@ -182,6 +182,7 @@ import { flowScanVersion } from "../lib/flow-scan-rules.mjs";
 import { volumeSwitches, volumeReadVersion } from "../lib/volume-flags.mjs";
 import { buildShadowResearch } from "../lib/shadow-research.mjs";
 import { buildEntrySnapshot } from "../lib/trade-snapshot.mjs";
+import { marketRiskStamp } from "../lib/market-risk-stamp.mjs";
 import { PICKS_MAX_PER_SECTOR, PICKS_MAX_NEW_PER_FACTOR_RUN, PICKS_CAPS_VERSION, factorOfSectorLabel, exposureCapBlock, countExposure } from "../lib/top-picks-caps.mjs";
 import { TOP_PICKS_MODE_KEY, readTopPicksModeDoc, marketModeForRun, marketModeBlocks, topPicksModeFactory } from "../lib/top-picks-mode.mjs";
 import { isNeverTrade, isSharesOnly } from "../lib/never-trade.mjs";
@@ -31592,7 +31593,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // Everything the engine saw at entry (lib/trade-snapshot.mjs): every
       // signal's vote, each pillar, the retired MACD / 52-week votes, the
       // unscored candidate inputs. The record is the log; no shadow file.
-      entrySnapshot: buildEntrySnapshot(p, chains?.[p.symbol] || null, { shadow: opts.shadow || null }),
+      entrySnapshot: buildEntrySnapshot(p, chains?.[p.symbol] || null, { shadow: opts.shadow || null, marketRisk: opts.marketRisk || null }),
       // Regime Lab (since 2026-11-09): the market label in force at entry and
       // the trade's 1-10 risk score (E1). Stamps only; the exits above are
       // unchanged. Absent on regen-picks runs and while REGIME_LAB=0.
@@ -42586,6 +42587,12 @@ async function main() {
   // just wrote; uses chains[sym].spot for the marks. Carries the prior tracker
   // state forward via picksAccuracyPrev (snapshotted before writeChainFiles
   // wiped data/). Degrades to a no-op on a first run / missing files.
+  // The market-risk read frozen on each new Top Picks and engine trade
+  // (lib/market-risk-stamp.mjs, log only): this build's Bottom tracker verdict
+  // and the Quant labs fall / low-holds odds from the prior quant-labs.json
+  // (the labs run after the engines). Nothing reads it into a decision.
+  let marketRiskNow = null;
+  try { marketRiskNow = marketRiskStamp({ bottom: macroBackdrop?.bottomTracker || null, quantCard: quantLabsLoaded?.prior?.card || null, today: etDateKey(new Date(builtAtIso)) }); } catch { marketRiskNow = null; }
   if (refreshTopPicks) {
     try {
       // The loop's estimate for each new trade (the expected-gain stamp, lib/trade-pop.mjs).
@@ -42593,7 +42600,7 @@ async function main() {
       const loopForecast = loopState?.ledger && loopState.lastRun?.date === loopDay
         ? (symbol, side) => loopForecastFor(loopState.ledger, { date: loopDay, symbol, side, modelRows: loopState.lastRun?.modelRows ?? null })
         : null;
-      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun, ownerControls: ownerControlsRun, rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, loopForecast });
+      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex, { shadow: shadowSignalsToday, lab: regimeLabRun, ownerControls: ownerControlsRun, rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, loopForecast, marketRisk: marketRiskNow });
       console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
     } catch (err) {
       console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
@@ -42741,6 +42748,7 @@ async function main() {
           rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
           research: await loadEnginesResearch(ROOT),
           controls: ownerControlsRun,
+          marketRisk: marketRiskNow,
         });
         if (enginesRun.skipped) {
           // Outside market hours (a forced build): nothing marked or opened.

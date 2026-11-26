@@ -82,6 +82,12 @@ jobs:
           node scripts/wide-tier-smoke.mjs
           node scripts/policy-news-smoke.mjs
           node scripts/trade-instructions-smoke.mjs
+      - name: Verify the 2026-11-26 builds
+        # Last-good stock pages (#936) and the measure-only trade stamps
+        # (opposite-side tags, market-risk read). Offline, a few seconds.
+        run: |
+          node scripts/stale-ticker-copy-smoke.mjs
+          node scripts/engine-trade-stamps-smoke.mjs
       - name: Verify browser behavior
         run: |
           npm install --prefix "$RUNNER_TEMP/checker-browser" --no-audit --no-fund playwright@1.64.1
