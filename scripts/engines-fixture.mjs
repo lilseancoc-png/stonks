@@ -114,6 +114,8 @@ export async function enginesFixture({ end = "2026-11-13", sessions = 70 } = {})
       macroEvents: [{ date: stepDays.at(-2) || end, kind: "cpi" }, { date: stepDays.at(-12) || end, kind: "fomc" }],
       regime: { cell: "up-calm", era: "normal" }, labelRows: DATES.map((date, i) => ({ date, cell: ["up-calm", "chop-calm", "up-calm", "down-stressed"][Math.floor(i / 60) % 4], era: "normal" })), macroState: "neutral",
       flagshipOpen: flagshipOpen || [], flagshipStats: { id: "flagship", name: "Top Picks", open: 2, n: 46, winRate: 0.63, avg: 3.4 }, env: {}, research,
+      // The market-risk read stamped on each new trade (lib/market-risk-stamp.mjs).
+      marketRisk: { v: 1, bt: "pullback", f10_3: 0.12, f10_6: 0.21, f10_12: 0.3, f20_12: 0.09, low6: 0.44, hi12: 0.58, oa: end, dec: 0 },
     };
   };
 
