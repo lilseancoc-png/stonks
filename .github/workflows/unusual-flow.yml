@@ -286,6 +286,37 @@ jobs:
           WATCHDOG_REF: ${{ github.event.repository.default_branch }}
         run: node scripts/top-picks-watchdog.mjs
 
+  # Webull end-of-day window on an early (13:00 ET) close. On a normal day the
+  # 15:30 ET Top Picks build starts webull-eod.yml on time; on a half day the
+  # last Top Picks build is 11:00 ET, two hours before the bell, so only
+  # GitHub's cron was left, and it starts hours late. The 12:00 ET scan
+  # (dispatched on time by cron-job.org) starts it instead; the workflow
+  # waits for the final 20 minutes itself. Regular days and holidays do
+  # nothing here. GitHub API only; no market data, no AI.
+  webull-eod-early-close:
+    needs: route
+    if: ${{ needs.route.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: lib/us-equity-calendar.mjs
+          sparse-checkout-cone-mode: false
+      - name: Start the end-of-day window before an early close
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if node --input-type=module -e 'import { marketSession } from "./lib/us-equity-calendar.mjs"; const s = marketSession(Date.now()); const left = s.closeMinute - s.minute; process.exit(s.trading && s.closeMinute < 960 && left > 20 && left <= 65 ? 0 : 1);'; then
+            gh workflow run webull-eod.yml --ref "${{ github.event.repository.default_branch }}"
+            echo "Webull end-of-day: dispatched for today's early close."
+          else
+            echo "Webull end-of-day: not the last scan before an early close; nothing to start."
+          fi
+
   # Owner Sports on-time check (lib/sports-on-time.mjs). GitHub's cron starts
   # the sports workflows hours late or not at all (2026-11-18 to 2026-11-20:
   # 2-3 props scans a day of 15 planned, the 13:20 UTC data refresh near

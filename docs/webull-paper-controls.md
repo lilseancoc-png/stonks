@@ -278,7 +278,9 @@ orders.
 of the session with one-minute checks, up to 23 calls. It continues through a
 quiet book or transient request failure, acts in the final ten minutes, and
 checks broker outcomes after close. The UTC schedules cover regular and early
-closes in both ET offsets. Most dispatches skip without contacting the endpoint.
+closes in both ET offsets. On an early (13:00 ET) close the 12:00 ET flow scan
+(`unusual-flow.yml`, on time from cron-job.org) starts the window, since the
+last Top Picks build is 11:00 ET; the workflow waits for the final 20 minutes. Most dispatches skip without contacting the endpoint.
 A second dispatch provides a catch-up. A queued dispatch after close performs
 an audit and fails if no in-session deadline check was recorded. Invalid or
 concurrent final responses get a bounded grace period; a skipped check cannot

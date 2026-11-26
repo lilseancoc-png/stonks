@@ -65,6 +65,37 @@ assert.match(daily, /MARKET_CLOSED" = "true" \] && \[ "\$ET_DAY" -le 5 \] && \[ 
   "a weekday market holiday skips the build and Brief but keeps the transcript slots");
 assert.match(daily, /ET_MIN" -ge "\$CLOSE_MIN" \] && \[ "\$REFRESH_TOP_PICKS" = "true" \][\s\S]*?REFRESH_TOP_PICKS=false[\s\S]*?REFRESH_SWING_DESKS=false/,
   "no Top Picks run after an early close");
+assert.match(daily, /ET_MIN" -eq 930 \] && \[ "\$ET_MIN" -ge "\$CLOSE_MIN" \][\s\S]*?HALF_DAY_SKIP=true/,
+  "a half day's 15:30 dispatch is marked for skipping");
+assert.match(daily, /HALF_DAY_SKIP" = "true" \] && \[ "\$ET_DAY" -le 5 \]; then\n\s*echo "mode=skip"/,
+  "the half-day 15:30 bake routes to a no-op");
+// The OI tracker and the flow scan skip NYSE holidays with the same probe.
+const oiWorkflow = workflow("oi-tracker.yml");
+assert.match(oiWorkflow, /sparse-checkout: lib\/us-equity-calendar\.mjs/);
+assert.match(oiWorkflow, /needs: route\n\s*if: \$\{\{ needs\.route\.outputs\.run == 'true' \}\}/, "the OI scan waits for the holiday route");
+const oiProbe = oiWorkflow.match(/SESSION=\$\(node --input-type=module -e '([^']*)' "\$ET_DATE"/)?.[1];
+assert.ok(oiProbe, "the OI route probes the NYSE session table");
+const oiSession = (date) => spawnSync(process.execPath, ["--input-type=module", "-e", oiProbe, date], { cwd: repoRoot, encoding: "utf8" }).stdout.trim();
+assert.equal(oiSession("2026-11-26"), "closed", "no OI scan on Thanksgiving");
+assert.equal(oiSession("2026-11-27"), "open", "OI scans run on the half day");
+// Early close: the 12:00 ET flow scan starts the Webull end-of-day window.
+const flowWorkflow = workflow("unusual-flow.yml");
+const eodEarly = flowWorkflow.match(/webull-eod-early-close:[\s\S]*?(?=\n  # Owner Sports)/)?.[0];
+assert.ok(eodEarly, "the flow scan has an early-close end-of-day starter");
+assert.match(eodEarly, /actions: write/);
+assert.match(eodEarly, /gh workflow run webull-eod\.yml/);
+const eodPredicate = eodEarly.match(/node --input-type=module -e '([^']*)'/)?.[1];
+assert.ok(eodPredicate);
+const eodDue = (iso) => {
+  const script = eodPredicate.replace("Date.now()", String(Date.parse(iso)));
+  return spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: repoRoot }).status === 0;
+};
+assert.equal(eodDue("2026-11-27T17:00:30Z"), true, "12:00 ET scan on a 13:00 close starts the window");
+assert.equal(eodDue("2026-11-27T16:00:30Z"), false, "11:00 ET is too early");
+assert.equal(eodDue("2026-11-27T18:00:30Z"), false, "after the bell is too late");
+assert.equal(eodDue("2026-11-25T20:00:30Z"), false, "a regular day leaves it to the 15:30 build");
+assert.equal(eodDue("2026-11-26T17:00:30Z"), false, "a holiday does nothing");
+assert.match(workflow("webull-eod.yml"), /timeout-minutes: 75/, "room for a 45-minute wait plus the window");
 const fallbackSession = sessionProbe(closeFallback, '"\\$\\(TZ=America/New_York date \\+%F\\)"');
 assert.equal(fallbackSession("2026-12-25"), "closed");
 assert.match(closeFallback, /sparse-checkout: lib\/us-equity-calendar\.mjs/);

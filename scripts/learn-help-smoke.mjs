@@ -14,10 +14,14 @@ let failures = 0, passes = 0;
 function ok(cond, msg) { if (cond) passes++; else { failures++; console.error("FAIL", msg); } }
 function eq(a, b, msg) { ok(a === b, `${msg} (got ${JSON.stringify(a)}, want ${JSON.stringify(b)})`); }
 
-// 1. Schedule: the OI scans and the weekly GitHub cron run on holidays.
+// 1. Schedule: the weekly GitHub cron runs on holidays; the OI scans skip them.
 const R = refreshScheduleFactory();
 const T = closureTables();
-eq(R.nextLabel("oi", { dateKey: "2026-11-25", minutes: 18 * 60 }, T.holidays, T.halfDays), "tomorrow ~08:30 ET", "OI scans run on Thanksgiving");
+eq(R.nextLabel("oi", { dateKey: "2026-11-25", minutes: 18 * 60 }, T.holidays, T.halfDays), "Fri ~08:30 ET", "OI scans skip Thanksgiving");
+const halfDayBuild = R.nextRun("build", { dateKey: "2026-11-27", minutes: 14 * 60 }, T.holidays, T.halfDays);
+eq(halfDayBuild && halfDayBuild.minutes, 16 * 60 + 10, "a half day skips the 15:30 build");
+const normalBuild = R.nextRun("build", { dateKey: "2026-11-25", minutes: 14 * 60 }, T.holidays, T.halfDays);
+eq(normalBuild && normalBuild.minutes, 15 * 60 + 30, "a normal day keeps the 15:30 build");
 eq(R.nextLabel("build", { dateKey: "2026-11-25", minutes: 18 * 60 }, T.holidays, T.halfDays), "Fri 10:00 ET", "full builds still skip Thanksgiving");
 const goodFriday = R.nextRun("weekly", { dateKey: "2026-04-02", minutes: 12 * 60 }, T.holidays, T.halfDays);
 eq(goodFriday && goodFriday.dateKey, "2026-04-03", "the weekly job runs on Good Friday (GitHub cron, no holiday check)");
@@ -30,7 +34,7 @@ ok(!/Fridays 11:30 ET/.test(app), "app.js no longer promises a Friday 11:30 ET u
 ok(/updated Friday afternoons ET/.test(app), "the weekly banner says Friday afternoons");
 ok(!/after the next Friday 11:30 ET refresh/.test(html), "empty states drop the 11:30 promise");
 ok(/GitHub&rsquo;s scheduler starts it late/.test(html), "the schedule card explains the late weekly start");
-ok(/two open-interest scans and a Friday&rsquo;s weekly job go ahead/.test(html), "the timeline caption lists what runs on a holiday");
+ok(/only the two earnings-call runs and a Friday&rsquo;s weekly job go ahead/.test(html), "the timeline caption lists what runs on a holiday");
 ok(/title="Weekly Alt Data \(Fridays\): Fri 11:30 ET \(set time; GitHub usually starts it/.test(html), "the weekly dot's tooltip carries the late note");
 
 // 3. Public reference pages: every link to an Owner-only page is marked, and
