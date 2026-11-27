@@ -30,6 +30,15 @@ assert.ok(fx.flagship && view.shared.length >= 1, 'the fixture has a contract sh
 // The Top Picks trade carries a stated chance, as a new enrollment would.
 fx.flagship.pop = picksTradePop(fx.flagship, { exitPolicy: { takeProfitPct: 25, stopPct: 50 }, rfr: 0.045, setupOdds: { winPct: 48, n: 31, level: 'side-band' } });
 assert.ok(fx.flagship.pop && fx.flagship.pop.p > 0, 'the fixture Top Picks trade has a stated chance');
+// The earnings straddle trial (2026-11-27): the fixture's walk never prices a
+// report's options cheap, so the page payload gets two hand-made pairs (one
+// sold, one waiting for its report) in the shape straddleRows() writes.
+assert.ok(view.straddles && !view.straddles.error && view.straddles.on === true, 'the page file carries the straddle block');
+const stExp = Math.floor(Date.parse('2026-12-18T00:00:00Z') / 1000);
+view.straddles = { ...view.straddles, open: 1, closed: 1, wins: 1, usd: 640, pct: 33.3, avgPct: 33.3, rows: [
+  { id: 'ERN:NVDA-C-11/12/26-15:30-ST', symbol: 'NVDA', reportDate: '2026-11-13', session: 'AM', sellOn: '2026-11-13', entryDate: '2026-11-12T20:30:00.000Z', exitDate: null, open: true, legs: 2, strike: 190, expiry: stExp, qty: 2, expectedPct: 7.4, impliedPct: 5.9, ratio: 1.25, costUsd: 2240, usd: -310, pct: -13.8, moveAtExitPct: null },
+  { id: 'ERN:AMD-C-11/03/26-15:30-ST', symbol: 'AMD', reportDate: '2026-11-03', session: 'PM', sellOn: '2026-11-04', entryDate: '2026-11-03T20:30:00.000Z', exitDate: '2026-11-04T16:00:00.000Z', open: false, legs: 2, strike: 250, expiry: stExp, qty: 1, expectedPct: 9.1, impliedPct: 6.8, ratio: 1.34, costUsd: 1920, usd: 640, pct: 33.3, moveAtExitPct: -10.2 },
+] };
 const acc = { builtAtIso: view.runIso, open: [fx.flagship], closed: [] };
 let owner = true, haveFile = true;
 const mirrorAsks = [];
@@ -235,6 +244,15 @@ try {
       // Paper trials (2026-11-19) are scored in their own section, never in the engine's numbers.
       check((await s.page.locator('#eng-trials').count()) === (e.trialStats ? 1 : 0), id + ': paper trials have their own section when there are any');
       if (e.trialStats) check(/scored here on their own/.test(await s.page.locator('#eng-trials').innerText()), id + ': the trial section says it is kept apart');
+      // The earnings straddle trial: its own table on the Earnings record only, one row per pair.
+      check((await s.page.locator('#eng-straddles').count()) === (id === 'earnings' ? 1 : 0), id + ': the straddle table is on the Earnings record only');
+      if (id === 'earnings') {
+        const stx = await s.page.locator('#eng-straddles').innerText();
+        check((await s.page.locator('#eng-straddles table tbody tr').count()) === 2, 'earnings: one row per straddle (both legs together)');
+        check(/open, sells 2026-11-13/.test(stx) && /before the open/.test(stx) && /after the close/.test(stx), 'earnings: an open straddle says when it sells, and each says the report time');
+        check(/1 closed \(1 made money\)/.test(stx) && /\+\$640/.test(stx) && /\$2,240/.test(stx), 'earnings: the pair totals and what each cost');
+        check(/one leg always loses/.test(stx), 'earnings: the note says to judge the pair');
+      }
       check((await s.page.locator('#eng-vs-hist').count()) === 1, id + ': live against the history test');
       // What Webull filled, beside the engine's own result (2026-11-19).
       if (e.closed.length) {

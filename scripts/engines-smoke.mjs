@@ -131,7 +131,11 @@ const preExit = (r) => {
   if (r.before && /^New rules \(exit pack\)/.test(r.note || "")) return r.before;
   return /\|exit:[^|]*$/.test(r.key || "") ? { ...r, key: r.key.replace(/\|exit:[^|]*$/, "") } : r;
 };
-const preRun = (r0) => { const r = preExit(r0); return r && r.before && /^New rules \(more trades a run\)/.test(r.note || "") && r.key === r.before.key ? r.before : r; };
+// The earnings straddle trial (2026-11-27, Earnings only) sits on top of
+// everything: `preEvent` steps under it (switched off it adds no step, only
+// `|trials4:` to the key, which is dropped).
+const preEvent = (r) => (!r || !/\|trials4:[^|]*$/.test(r.key || "") ? r : r.before && (r.n || 1) > (r.before.n || 1) ? r.before : { ...r, key: r.key.replace(/\|trials4:[^|]*$/, "") });
+const preRun = (r0) => { const r = preEvent(preExit(r0)); return r && r.before && /^New rules \(more trades a run\)/.test(r.note || "") && r.key === r.before.key ? r.before : r; };
 const preTrade = (r0) => { const r = preRun(r0); return r && r.before && /\|trade:[^|]*$/.test(r.key || "") && (r.n || 1) > (r.before.n || 1) ? r.before : r; };
 const noTrade = (k) => String(k ?? "").replace(/\|trade:[^|]*$/, "");
 const preSize = (r0) => { const r = preTrade(r0); return r && r.before && r.date === "2026-11-23" && noTrade(r.key) === r.before.key && (r.n || 1) > (r.before.n || 1) ? r.before : r; };
@@ -622,7 +626,7 @@ ok("book: the run limits of 2026-11-23 (each signal engine one more a run): Tech
   assert.equal(fr.open.filter((t) => t.side === "call").length, 3); assert.equal(fr.open.filter((t) => t.side === "put").length, 5);
   // A running engine on today's size rules logs the run-limit step once.
   for (const id of SIGNAL_IDS) {
-    const r = preExit(ENGINES[id].rules);
+    const r = preEvent(preExit(ENGINES[id].rules));
     assert.match(r.note, /^New rules \(more trades a run\): up to \d+ new trades a run from this engine/, id);
     assert.equal(r.date, "2026-11-23", id); assert.equal(r.key, r.before.key, id); assert.equal(r.n, r.before.n + 1, id);
     assert.ok(r.note.includes(`up to ${ENGINES[id].perRun} new trades a run from this engine (was ${RUN_LIMIT_BEFORE[id]})`), id);
@@ -963,8 +967,9 @@ ok("fixes: each one changes only its own setups, and off puts them back", () => 
   const allOff = engineSpecs(Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, false])));
   // (The Flow paper trials of 2026-11-20 are a rules step of their own on top.)
   // (More trades a run, 2026-11-23, is not a switch: it stays on top, one more rules number.)
-  for (const id of FIXED_IDS) assert.equal(allOff[id].rules.n, (hasTrial(id) ? 3 : 2) + (id === "flow" || id === "macro" ? 1 : 0) + 1, id);
-  for (const id of FIXED_IDS) assert.match(allOff[id].rules.note, /^New rules \(more trades a run\)/, id);
+  // (The earnings straddle trial, 2026-11-27, is a rules step of its own on top of Earnings.)
+  for (const id of FIXED_IDS) assert.equal(allOff[id].rules.n, (hasTrial(id) ? 3 : 2) + (id === "flow" || id === "macro" || id === "earnings" ? 1 : 0) + 1, id);
+  for (const id of FIXED_IDS) assert.match(preEvent(allOff[id].rules).note, /^New rules \(more trades a run\)/, id);
   assert.equal(preRun(allOff.downside.rules).n, 1, "Downside puts goes back to its own first rules"); assert.equal(preRun(allOff.downside.rules).note, ENGINES.downside.firstRules.note); assert.equal(preTrade(ENGINES.downside.rules).before, ENGINES.downside.firstRules, "the logic audit fixes sit on its first rules"); assert.equal(allOff.downside.newsGate, false, "but the news gate switch still reaches it");
 });
 ok("fixes: option trades buy about $2,000 of premium in the record; Webull still buys one", () => {
@@ -1077,7 +1082,7 @@ ok("fixes: the record splits where a rule changes, including a switch flipped in
 });
 ok("paper trial: the RSI(2) dip buys shares, sells back above the 5-day average, and has its own switch", () => {
   // Registry: the RSI(2) trial on Reversion, shares only, labeled unproven, rules 4 on top of the fixes.
-  assert.deepEqual(ENGINE_TRIAL_IDS, ["rsi2Dip", "fearIndex", "bigOrder", "optionSurge", "vixRollover"]);
+  assert.deepEqual(ENGINE_TRIAL_IDS, ["rsi2Dip", "fearIndex", "bigOrder", "optionSurge", "vixRollover", "straddle"]);
   const st = ENGINES.reversion.setups["rsi2-dip"];
   assert.equal(st.trial, true); assert.equal(st.calls, "shares"); assert.match(st.label, /paper trial/); assert.match(st.how, /unproven/i);
   // (The honest paper trades sit on top as rules 5: the trial is rules 4.)
@@ -1556,7 +1561,9 @@ ok("honest: rules 4 is adopted once on a running engine, and every new trade say
   assert.match(both.text, /^New rules: a paper trial is added.*New rules \(honest paper trades\)/); assert.equal(es3b.rules, 15);
   // Earnings (no trial): rules 3 to 4.
   const ee = newEngineState(ENGINES.earnings); ee.rules = 3; ee.rulesKey = "fixes:size";
-  assert.match(adoptRules(ee, ENGINES.earnings, TODAY).text, /^New rules \(honest paper trades\)/); assert.equal(ee.rules, 13);
+  // (The earnings straddle trial of 2026-11-27 is the newest step on Earnings.)
+  const eeMade = adoptRules(ee, ENGINES.earnings, TODAY);
+  assert.match(eeMade.text, /^New rules \(honest paper trades\)/); assert.match(eeMade.text, /New rules \(more trades a run\).*New rules: a paper trial is added, labeled unproven: the earnings straddle/); assert.equal(ee.rules, 14);
   // Shares on the conviction size with the flat size kept.
   const sh = stepBook(emptyState(), emptyRecord(), honestInput({ AAA: V("AAA", pullF()) }, { engines: ["technicals"], shares: true })).opened[0];
   assert.ok(isSharesTrade(sh)); assert.ok(Number.isInteger(sh.contract.flatShares)); assert.equal(sh.contract.size.mode, "risk"); assert.match(sh.contract.size.why, /a share/);
@@ -3092,6 +3099,9 @@ ok("variants: the paired read counts a signal one book skipped as $0, waits for 
   const { spawnSync } = await import("node:child_process");
   const r = spawnSync(process.execPath, [new URL("./engines-split-smoke.mjs", import.meta.url).pathname], { stdio: "inherit" });
   if (r.status !== 0) { console.log("FAIL engines split smoke"); process.exitCode = 1; }
+  // The earnings straddle trial (2026-11-27) the same way.
+  const st = spawnSync(process.execPath, [new URL("./engines-straddle-smoke.mjs", import.meta.url).pathname], { stdio: "inherit" });
+  if (st.status !== 0) { console.log("FAIL engines straddle smoke"); process.exitCode = 1; }
 }
 
 // --- The VIX and rates pack (2026-11-21) -----------------------------------
