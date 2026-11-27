@@ -354,7 +354,10 @@ ok("the plain-text feed is unchanged", () => {
 // A fake R2 bucket behind a mocked fetch, set up before the store is imported.
 {
   const objects = {
-    "picks-accuracy.json": JSON.stringify({ ...acc, builtAtIso: new Date(Date.now() - 60_000).toISOString() }),
+    // The endpoint reads the real clock, so the closes move with it (fixed
+    // dates fell out of the 7-day close window on 2026-11-26).
+    "picks-accuracy.json": JSON.stringify({ ...acc, builtAtIso: new Date(Date.now() - 60_000).toISOString(),
+      closed: acc.closed.map((t, i) => ({ ...t, exitDate: new Date(Date.now() - (i + 1) * 3_600_000).toISOString() })) }),
   };
   const seen = [];
   const realFetch = globalThis.fetch;
