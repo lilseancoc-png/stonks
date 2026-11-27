@@ -353,11 +353,14 @@ ok("the plain-text feed is unchanged", () => {
 // ---- the picks feed's ?format=json, end to end -------------------------------
 // A fake R2 bucket behind a mocked fetch, set up before the store is imported.
 {
+  // The handler reads the real clock and keeps 7 days of closes, so the
+  // fixture's closes move forward by whole days to stay inside that window
+  // (the check went red once the real date passed 2026-11-26).
+  const DAY = 86400000, shift = Math.max(0, Math.floor((Date.now() - NOW) / DAY)) * DAY;
+  const moved = (iso) => (iso ? new Date(Date.parse(iso) + shift).toISOString() : iso);
+  const liveAcc = { ...acc, closed: acc.closed.map((t) => ({ ...t, entryDate: moved(t.entryDate), exitDate: moved(t.exitDate) })) };
   const objects = {
-    // The endpoint reads the real clock, so the closes move with it (fixed
-    // dates fell out of the 7-day close window on 2026-11-26).
-    "picks-accuracy.json": JSON.stringify({ ...acc, builtAtIso: new Date(Date.now() - 60_000).toISOString(),
-      closed: acc.closed.map((t, i) => ({ ...t, exitDate: new Date(Date.now() - (i + 1) * 3_600_000).toISOString() })) }),
+    "picks-accuracy.json": JSON.stringify({ ...liveAcc, builtAtIso: new Date(Date.now() - 60_000).toISOString() }),
   };
   const seen = [];
   const realFetch = globalThis.fetch;

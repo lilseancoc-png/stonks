@@ -404,7 +404,18 @@ try {
     }
     await s.page.screenshot({ path: resolve(output, 'downside-now-1440.png'), fullPage: true });
     await pick(s, 'technicals'); await sub(s, 'now');
+    {
+      // The exit pack (2026-11-27): no share price target on Technicals; time-only options on Reversion.
+      const rules = await s.page.locator('.eng-rules').first().innerText();
+      check(/with no price target \(a paper test since 27 Nov 2026\)/.test(rules) && !/ATR over it/.test(rules), 'Technicals rules read no share price target');
+    }
     await s.page.screenshot({ path: resolve(output, 'technicals-now-1440.png'), fullPage: true });
+    await pick(s, 'reversion'); await sub(s, 'now');
+    {
+      const rules = await s.page.locator('.eng-rules').first().innerText();
+      check(/no take-profit, no premium stop, 5 sessions at most/.test(rules) && /held for their sessions with no premium target, no premium stop and no stock levels/.test(rules) && /sized on its whole premium/.test(rules), 'Reversion rules read time-only option exits');
+    }
+    await pick(s, 'technicals');
     await sub(s, 'history');
     await s.page.screenshot({ path: resolve(output, 'technicals-history-1440.png'), fullPage: true });
 
