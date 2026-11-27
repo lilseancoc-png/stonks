@@ -743,12 +743,15 @@ engines trade exactly as before:
 
 | Variant | Engine | Change | Setting |
 |---|---|---|---|
-| `MAC-timeonly` | Macro | No premium target or stop on option trades (12 sessions; event drift 5); stock levels and thesis exits kept | `exits` `tp`/`stop` null, `sizeStop` |
+| ~~`MAC-timeonly`~~ | Macro | Retired 2026-11-27: Macro went time-only live with the exit pack; `MAC-fixed-exits` shadows the old exits instead | |
 | `DWN-timeonly` | Downside puts | No premium target or stop (20 sessions); the 200-day stock stop kept | `exits` `tp`/`stop` null, `sizeStop` |
 | `FLO-loose` | Flow | Aggressive flow from 3 flagged trades and $100k (was 5 and $250k); score bar unchanged | `minPrints`, `minPrem` |
 | `FLO-fade-puts` | Flow | Bearish aggressive flow on a stock above its 200-day buys the stock for up to 7 sessions (the put's own limit) instead of a put (only those signals) | `fadeBear: "only"` |
 | `FUN-put-downtrend` | Fundamentals | Bottom-of-rank puts only in a confirmed downtrend (under a falling 50-day under the 200-day) | `needDowntrend` |
 | `ERN-gap-drift` | Earnings & events | Drift on any 5%+ gap that held, whatever the EPS number (a gap against the number scores with no EPS points) | `gapOnly` |
+| `MAC-fixed-exits` | Macro | From 2026-11-27: option trades with the old exits (+30% / -40%, the event drift +25% / -35%, stock levels) beside the live time-only ones | `optTimeExits: false` |
+| `REV-fixed-exits` | Reversion (washout bounce calls) | From 2026-11-27: the old -60% stop, +30% take-profit and 20-day close beside the live time-only bounce | `optTimeExits: false` |
+| `TEC-target` | Technicals | From 2026-11-27: share trades with the old 3 ATR price target | `noShareTarget: false` |
 
 `sizeStop` sizes an option with no premium stop as if it had that stop
 (`sizeOption`), so a time-only variant buys the same count as its parent and
@@ -1000,6 +1003,48 @@ first two go to `pickContract` as `prefs.fit` / `prefs.liquidAnd` (the `pick`
 wrapper in `index.mjs`), the third to `sizeShares` from `sharesLeg` in
 `book.mjs`, so the history test runs the same code. No AI call, no new
 download.
+
+### Exit pack (2026-11-27)
+
+Owner, 2026-11-27: "Implement what you suggested and we can test it out",
+after the 2026-11-26 bench test of dropping the take-profit. Two Owner
+Settings switches (on by default; off puts the fixed exits back for new
+trades) and one dated rules step on Reversion, Macro and Technicals
+(`EXIT_PACK`, step 12, key `|exit:`). New trades only; open trades keep the
+exits they opened with.
+
+1. **Time-only option exits** (`ENGINES_OPT_TIME_EXITS`, spec
+   `optTimeExits`). Reversion and Macro option trades open with no premium
+   take-profit, no premium stop and no stock target or stop: each is held
+   for its setup's `maxSessions` (Reversion 5, Macro 12, the event drift 5)
+   and closes earlier only on a thesis break or two sessions before expiry.
+   `optionExitsFor` / `optTimeOnly` in `config.mjs` (read by `exitsFor`,
+   `book.mjs` and the page view) keep only `maxSessions`. The extreme-fear
+   bounce test and the paper trials keep their own exits. With no stop,
+   `sizeOption` sizes a trade on its whole premium, so a longer-dated option
+   buys fewer contracts for the same risk budget (the washout bounce, under
+   30 days, was already sized that way).
+2. **No Technicals share target** (`ENGINES_TEC_NO_TARGET`, spec
+   `noShareTarget`). Technicals share trades open with no 3 ATR price
+   target; the 3 ATR stop and the session limit stay.
+
+The bench (2007-2026, calibrated option prices, the real engine code with
+the switches on and off): the engines together about $924,000 with the
+fixed exits and $1.16M time-only (worst drop -$77,000 and -$72,000); at
+12-point option costs $807,000 and $1.09M; on the older option prices
+$764,000 and $902,000. Macro options went from about -$65,000 to +$12,000,
+Reversion options from about +$121,000 to +$264,000, Technicals shares about
++$19,000. But random Reversion entries held the same way gained most of it
+(the engine beat 15 of 20 random books), so the gain is mostly the hold, not
+the timing, and Reversion's option profit sits inside the price-fit
+uncertainty. Earnings, Fundamentals, Flow and Downside were not testable and
+keep their exits. The three shadows above (`MAC-fixed-exits`,
+`REV-fixed-exits`, `TEC-target`) keep the old exits on the same signals for
+the paired read; each side is risk sized on its own exits (the fixed side on
+its stop, the live side on the whole premium), so both risk about the same
+budget, as on the bench. The engines page's "Live vs history" rows still
+compare against the committed history test, which ran the fixed exits,
+until that test is run again. No AI call, no new download.
 
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
@@ -1494,6 +1539,8 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_FIX_CONTRACT_FIT` | Owner Settings → Data & desks | Unset / on = an option is taken from the expiry nearest the ideal only when its best strike is within 0.15 of the target delta, else the best fit over the first four expiries; `0` / off = the first expiry with any passing strike. A dated rules change (trade audit fixes, 2026-11-24). |
 | `ENGINES_FIX_LIQUIDITY` | Owner Settings → Data & desks | Unset / on = a strike needs open interest 50 and 10 traded today, or open interest 100; `0` / off = open interest 50 or 10 traded. Same rules step. |
 | `ENGINES_FIX_SHARE_RISK` | Owner Settings → Data & desks | Unset / on = a risk-sized share trade counts at least 1 ATR or 2% of the price of risk a share (the stop is unchanged); `0` / off = the stop distance alone. Same rules step. |
+| `ENGINES_OPT_TIME_EXITS` | Owner Settings → Data & desks | Unset / on = Reversion and Macro option trades open with no premium target, stop or stock levels, held for their sessions and sized on the whole premium; `0` / off = the fixed exits. A dated rules change (exit pack, 2026-11-27). |
+| `ENGINES_TEC_NO_TARGET` | Owner Settings → Data & desks | Unset / on = Technicals share trades have no price target (the 3 ATR stop and the session limit stay); `0` / off = the 3 ATR target. Same rules step. |
 | `ENGINES_LIVE_VIX` | Owner Settings → Data & desks | Unset / on = on the run day the engines' market read (`buildMacro`) uses the day's VIX and VIX3M quote from the bake's macro backdrop, only when that quote is stamped today; `0` / off = the prior close, as before. The history test always reads the prior close. A plain switch, not a rules step (2026-11-22). |
 | `TRADE_POP` | Owner Settings → Research | Unset / on = every new engine trade (and every Top Picks trade) gets a stated chance of profit at entry and its outcome at the close, shown on Open picks with a Why and graded in the Chance of profit check (`docs/trade-pop.md`). Off = no new stamps. Changes no trade |
 | Owner controls | Strategy engines page → Controls; kill switch Owner Settings → Account limits → `OWNER_CONTROLS` | Stop new trades, Avoid (optionally closing open trades as `owner-avoid`), Watch closely, Flag a catalyst and the Risk dial, from the next Top Picks run. Off = nothing saved applies. See "Owner controls" below |
