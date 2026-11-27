@@ -184,6 +184,14 @@ const putPos = (id, symbol, K, q, iv, years, src = "Top Picks") => ({ id, symbol
   ok(BR.bySymbol([], [], null).rows.length === 0, "an empty book has no rows");
   const tiny = BR.bySymbol([sharesPos("a", "Y", 100000, "Trend"), sharesPos("b", "Y", 1000, "Macro")], [{ deltaUsd: 100000, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }, { deltaUsd: -2000, thetaUsd: -5, vegaUsd: 0, valueUsd: 0 }], null);
   ok(!tiny.rows[0].clash && tiny.clashes === 0, "a small put beside a big share lot (under a tenth) is not an opposite bet");
+  // The earnings straddle (2026-11-27): its call and put are one position, not an opposite bet.
+  const leg = (id, type, q) => ({ ...(type === "call" ? call : put)(id, "STR", q, "Earnings"), trade: { straddle: { id: "ERN:STR-C" } } });
+  const sp = [leg("sc", "call", 3), leg("sp", "put", 3)], sg = sp.map(BR.greeksOf);
+  const sb = BR.bySymbol(sp, sg, null);
+  ok(!sb.rows[0].clash && sb.clashes === 0 && sb.rows[0].n === 2, "a straddle's two legs are not tagged as opposite bets");
+  near(sb.rows[0].deltaUsd, sg[0].deltaUsd + sg[1].deltaUsd, 1e-9, "a straddle nets both legs");
+  const sx = BR.bySymbol([...sp, sharesPos("sx", "STR", 30000, "Technicals")], [...sg, { deltaUsd: -30000, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }], null);
+  ok(sx.rows[0].trades.length === 3, "a straddle beside another trade on the stock still lists all three");
   const small = BR.bySymbol([sharesPos("a", "Z", 1000, "A"), sharesPos("b", "Z", 1000, "B")], [{ deltaUsd: 1000, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }, { deltaUsd: -200, thetaUsd: 0, vegaUsd: 0, valueUsd: 0 }], null);
   ok(!small.rows[0].clash, "a side under $250 is not an opposite bet");
   const odd = BR.positionOf({ symbol: "Q", side: "call", lastSpot: 100, contract: { structure: "debit_vertical", strike: 100, expiry: 1900000000, legs: "xx", iv: 0.3 } }, "T", true, { ledger: null, spot: (s, l) => l, yrs: () => 0.1, tradeId: () => "x" });

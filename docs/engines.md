@@ -1001,6 +1001,66 @@ wrapper in `index.mjs`), the third to `sizeShares` from `sharesLeg` in
 `book.mjs`, so the history test runs the same code. No AI call, no new
 download.
 
+### Earnings straddle paper trial (2026-11-27)
+
+Owner, after the 2026-11-26 event tests: "Implement the paper trial straddle
+strategy then". A paper trial on the Earnings engine (setup `straddle`,
+`trials4` layer, the newest rules step on Earnings), opened by
+`lib/engines/straddle.mjs` (`openStraddles`), not by the evaluator. Owner
+Settings `ENGINES_TRIAL_STRADDLE` (on) retires it for new trades; it buys
+options, so it runs with `ENGINES_SHARES=0` too.
+
+- **When.** The 15:30 ET (`late`) run of the last session before a report's
+  reaction: the report day for an after-the-close report, the session
+  before for a before-the-open one (`earn.next.exitBy`). A report whose time
+  is unknown (`TBD`) or whose date only Webull's backup list gives is
+  skipped. Live runs only (`stepBook` input `straddle`); the history test
+  and the variant shadows never open one.
+- **Cheap test.** Expected size = the average absolute reaction-day move
+  (close to close) of the last 8 reports, at least 6 on hand. Implied move =
+  the at-the-money straddle's call mid plus put mid over the stock price, in
+  the first expiry whose pre-expiry exit day (two sessions before it, when
+  the mirror's expiry control closes it) is after the sale day, within 45
+  days. Buys when expected / implied is 1.15 or more (the Earnings week
+  page's cheap line).
+- **What.** The call and the put at one strike (the strike nearest the stock
+  that quotes both sides at 30 cents or more, inside the 18% spread limit,
+  with the engines' liquidity rule, each leg under the $5,000 contract cap,
+  within 5% of the stock, and not a contract another trade holds), the same
+  count of each: the risk budget (`ENGINES_RISK_USD`, $2,000) over one
+  straddle at the ask, at least one; a straddle over twice the budget is not
+  bought. Held under the call and put contract and premium caps; the risk
+  dial scales both legs alike. No conviction, tape, brake or Allocator size.
+- **Exit.** Both legs close as `after-report` ("sold the morning after the
+  report") at the first run on the reaction day (`sellOn`, the 11:00 ET run),
+  whatever they show; no stop, no target. With no quote that day a leg waits
+  one session, then closes at its last mark.
+- **Limits.** At most 2 straddles a day and 4 open, cheapest first. The
+  Owner's Stop and Avoid, a paused or switched-off engine, the never-trade
+  and shares-only lists and the account limits (the pair checked as one
+  position) hold it back. One straddle per stock at a time, one per report
+  (`es.seen`).
+- **Record.** Each leg is an ordinary option trade on the Earnings record
+  (`trial: true`, IDs `ERN:SYM-C|P-MM/DD/YY-HH:MM-ST`), so both reach the
+  Webull paper account as option buys and show in Open picks. `straddle` on
+  each leg links the pair (`id` = the call leg's ID, `pair`, report date and
+  session, expected and implied move, ratio). It teaches the engine nothing
+  and is scored with the paper trials; the engines page's Earnings record
+  tab has an **Earnings straddles** table with each pair as one row
+  (`straddleRows`, view `straddles`). The legs get no chance-of-profit stamp
+  (one leg always loses), are never tagged as opposite bets against each
+  other, and Book risk nets them as one position. If Webull fills only one
+  leg, the paper account holds half a straddle until the sale; the record
+  keeps both.
+- **Evidence.** 2026-11-26 event study (Claude-side, bench folder
+  `event-tests/`): AAPL, AMZN, IBM and GS since 2011, the implied move from
+  Cboe's single-stock volatility indexes before each report (no
+  look-ahead), straddle return = |move| / implied - 1 - 10% costs. Cheap:
+  +44.0% a print over 99 (t 3.6; halves +32% and +54%; +34% at double
+  costs; +33% without the top 3). Rich: -25.7% over 83. The site's own 2026
+  prints (stamped implied moves): cheap +39.9% over 18, but -5.6% without
+  WMT, ACN and BAC. Hence a paper trial, not an engine.
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -1470,6 +1530,7 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_TRIAL_FEAR_INDEX` | Owner Settings → Data & desks | Unset / on = Macro's index-fear paper trial buys SPY, QQQ and IWM shares after Fear & Greed first closes under 25 (own 3 slots, no learning). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
 | `ENGINES_TRIAL_BIG_ORDER` | Owner Settings → Data & desks | Unset / on = Flow's Webull big-order paper trial buys shares (own 3 slots, one a run, 10 sessions). `0` = retired for new trades. Opens nothing while `ENGINES_SHARES` is `0` |
 | `ENGINES_TRIAL_OPTION_SURGE` | Owner Settings → Data & desks | Unset / on = Flow's option-call surge paper trial buys shares. `0` = retired for new trades |
+| `ENGINES_TRIAL_STRADDLE` | Owner Settings → Data & desks | Unset / on = the Earnings engine's straddle paper trial buys a call and a put before a report when past moves are 1.15x+ the straddle's price (2 a day, 4 open, sold at the 11:00 run on the reaction day). `0` = retired for new trades (open ones are still sold on schedule). Runs with `ENGINES_SHARES=0` too |
 | `ENGINES_RUNIN_BY_IV` | Owner Settings → Data & desks | Unset / on = the earnings run-in buys shares when options are rich or very rich. `0` = calls, and very rich skips |
 | `ENGINES_CONV_NO_SCORE` | Owner Settings → Data & desks | Unset / on = Reversion's and Macro's size leaves the setup score out. `0` = the score part is back |
 | `ENGINES_FUN_PUTS5` | Owner Settings → Data & desks | Unset / on = Fundamentals holds up to 3 calls and 5 puts (8 slots). `0` = 5 slots, 2 puts |

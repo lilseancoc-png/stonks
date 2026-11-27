@@ -504,6 +504,22 @@ function engEvidenceNote(t){
     var note = caveat ? '<p class="evb-note">* The test’s gain on these Macro setups came mostly from how it prices options, not from the funds moving the trade’s way. It reads volatility from past moves, which lags a shock, so options bought into a sudden move look cheaper there than they were. With volatility held flat, Macro as a whole went from +2.2% to −2.4% a trade in the replay, and the funds moved only 0.1% the trades’ way on average. Read their test number as unproven until the live record agrees.</p>' : '';
     return lead + table + note;
   }
+  // The earnings straddle trial (2026-11-27): each straddle as one row, both
+  // legs together, on the Earnings engine's record tab.
+  function engStraddleHtml(x){
+    var rows = (x.rows || []).map(function(r){
+      var when = r.reportDate ? escapeHtml(r.reportDate) + (r.session === 'PM' ? ' after the close' : r.session === 'AM' ? ' before the open' : '') : '—';
+      return '<tr><td class="l"><b>' + escapeHtml(r.symbol) + '</b><div class="crd-dim">' + (r.qty > 1 ? r.qty + ' × ' : '') + engStrike(r.strike) + ' call and put · ' + engExp(r.expiry) + '</div></td>' +
+        '<td class="l">' + when + '</td>' +
+        '<td class="num">' + (r.expectedPct == null ? '—' : Number(r.expectedPct).toFixed(1) + '%') + '</td><td class="num">' + (r.impliedPct == null ? '—' : Number(r.impliedPct).toFixed(1) + '%') + '</td>' +
+        '<td class="num">' + (r.costUsd == null ? '—' : engUsdWord(Math.round(r.costUsd))) + '</td>' +
+        '<td class="num">' + (r.open ? '<span class="crd-dim">open, sells ' + escapeHtml(r.sellOn || '') + '</span>' : engUsd(r.usd) + '<div class="crd-dim">' + engPnl(r.pct) + (r.moveAtExitPct != null ? ' · stock ' + (r.moveAtExitPct > 0 ? '+' : '') + Number(r.moveAtExitPct).toFixed(1) + '%' : '') + '</div>') + '</td></tr>';
+    }).join('');
+    var lead = '<p class="evb-note">Unproven, on paper to prove itself' + (x.on === false ? ' (switched off in Owner Settings: opens nothing new, open ones are still sold on schedule)' : '') + '. At the 15:30 ET run before a report whose time is known, when a stock’s last 8 report-day moves average at least ' + x.cheapX + ' times the move its at-the-money straddle prices, it buys the call and the put at that strike, about the risk budget for the pair, and sells both at the 11:00 ET run on the reaction day. No stop or target; at most ' + x.perDay + ' a day and ' + x.slots + ' open. Each leg is also a row in the closed trades below and a Webull order (ERN, IDs end in -ST); one leg always loses, so judge the pair here. In the 26 November event study the cheap side made +44% a straddle over 99 prints since 2011 (four stocks with real pre-report implied moves) and the rich side lost 26%.</p>';
+    var kpis = '<p class="evb-note"><b>' + (x.closed || 0) + '</b> closed (' + (x.wins || 0) + ' made money) · <b>' + (x.open || 0) + '</b> open · ' + engUsd(x.usd) + ' in all' + (x.pct != null ? ' (' + engPnl(x.pct) + ' of premium)' : '') + '</p>';
+    if (!rows) return lead + kpis + '<p class="hint">No straddle yet. Most reports price options rich, so expect a few a season.</p>';
+    return lead + kpis + slpTable([['Straddle', 'l'], ['Report', 'l'], ['Past moves', 1, 'Average of the last 8 report-day moves (close to close)'], ['Priced', 1, 'The straddle’s price over the stock price when bought'], ['Paid', 1, 'Both legs at the ask'], ['Result', 1, 'Both legs sold at the bid']], rows);
+  }
   function engRecordHtml(e, d){
     var s = e.stats || {};
     var arch = s.archived && s.archived.n ? '<p class="evb-note">' + s.archived.n + ' older trades are folded into totals (' + s.archived.wins + ' wins, ' + s.archived.losses + ' losses, ' + engUsd(s.archived.sumUsd) + ' at their sizes) and are not in the tables below.</p>' : '';
@@ -515,10 +531,11 @@ function engEvidenceNote(t){
         engShareKpis(e.sharesStats, [['Open now', (e.sharesStats.open || 0) + ' (' + engUsd(e.sharesStats.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', e.sharesStats.maxDrawdownUsd ? '−$' + Number(e.sharesStats.maxDrawdownUsd).toLocaleString('en-US') : '—']]) +
         engCurveHtml(e.sharesStats.curve, e.name + ' share trades, running total in dollars') +
         ((e.sharesStats.bySetup || []).length ? engDetails('Share trades by setup', engSplitTable(e.sharesStats.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true)) : '')) : '') +
-      (e.trialStats ? slpSection('eng-trials', 'Paper trials', '<p class="evb-note">Unproven setups on paper, added to see how they do live. They buy stock, use their own slots, teach the engine nothing and are scored here on their own, never mixed into the engine’s numbers above. In the history test their edge over random entries held for the same number of sessions was small, so read this record as the real test.</p>' +
+      (e.trialStats ? slpSection('eng-trials', 'Paper trials', '<p class="evb-note">Unproven setups on paper, added to see how they do live. They buy stock (the earnings straddle buys a call and a put), use their own slots, teach the engine nothing and are scored here on their own, never mixed into the engine’s numbers above. In the history test their edge over random entries held for the same number of sessions was small, so read this record as the real test.</p>' +
         engShareKpis(e.trialStats, [['Open now', (e.trialStats.open || 0) + ' (' + engUsd(e.trialStats.openUsd) + ')', 'Unrealized on the latest prices'], ['Largest drop', e.trialStats.maxDrawdownUsd ? '−$' + Number(e.trialStats.maxDrawdownUsd).toLocaleString('en-US') : '—']]) +
         engCurveHtml(e.trialStats.curve, e.name + ' paper trials, running total in dollars') +
         ((e.trialStats.bySetup || []).length ? engDetails('Paper trials by setup', engSplitTable(e.trialStats.bySetup, 'Setup', function(r){ return engSetup(e, r.key); }, true)) : '')) : '') +
+      (e.id === 'earnings' && d.straddles && !d.straddles.error ? slpSection('eng-straddles', 'Earnings straddles (paper trial)', engStraddleHtml(d.straddles)) : '') +
       (e.vsHistory ? slpSection('eng-vs-hist', 'Live against the history test', engVsHistHtml(e, d)) : '') +
       (e.sizing ? slpSection('eng-sizing', 'Conviction size against flat size', engSizingHtml(e.sizing, d)) : '') +
       slpSection('eng-closed', 'Closed trades', arch + more + engClosedTable(e, d)) +
