@@ -1040,7 +1040,11 @@ the timing, and Reversion's option profit sits inside the price-fit
 uncertainty. Earnings, Fundamentals, Flow and Downside were not testable and
 keep their exits. The three shadows above (`MAC-fixed-exits`,
 `REV-fixed-exits`, `TEC-target`) keep the old exits on the same signals for
-the paired read. No AI call, no new download.
+the paired read; each side is risk sized on its own exits (the fixed side on
+its stop, the live side on the whole premium), so both risk about the same
+budget, as on the bench. The engines page's "Live vs history" rows still
+compare against the committed history test, which ran the fixed exits,
+until that test is run again. No AI call, no new download.
 
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
