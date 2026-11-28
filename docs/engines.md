@@ -1121,7 +1121,7 @@ points a year on survivorship alone, so SPY is the wrong yardstick). Growth
 signals worked only on our list and were flat off it; cheapness and quality
 lost. One rules step on Fundamentals (`QUANT_PACK`, step 13, key `|quant:`)
 and three Owner Settings switches, all on; new trades only, open trades keep
-their exits:
+their exits (the re-rank in point 3 can still close one as `rank-out`):
 
 1. **Puts only in a downtrend, three at most** (`ENGINES_FUN_PUTS_DOWN`,
    setup `needDowntrend` on `rank-bottom`). A bottom-of-rank put opens only
@@ -1152,7 +1152,10 @@ their exits:
    on the bench; 60 / 30 / 10 was the best mix for shares (+6.1% a trade,
    $311,000, basket +2.3). The stored rank keeps the weights it was made
    with (`rank.wkey`), so a change re-ranks every stock once on the run it
-   lands, never mixing two weightings. Off: 40 / 30 / 30.
+   lands, never mixing two weightings. That re-rank is the one way the pack
+   can close an open trade: a held stock that leaves its third under the new
+   weights closes as `rank-out` at that run, as it would at any re-rank.
+   Off: 40 / 30 / 30.
 
 Measure only, with no switch: every new signal-engine trade carries `fund`,
 its stock's place on the Fundamentals rank at entry (rank, of, score, the
