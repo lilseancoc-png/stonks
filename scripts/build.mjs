@@ -98,6 +98,7 @@ import { riskScore as regimeLabRiskScore } from "../lib/regime-lab/exits.mjs";
 // quant-labs.json + quant-labs-state.json; measurement only, no AI, kill
 // switch QUANT_LABS=0.
 import { loadQuantLabs, carryQuantLabs, writeQuantLabs, runQuantLabs, loadQuantLabsResearch, quantLabsEnabled, quantLabsTextEnabled, QUANT_LABS_KEY } from "../lib/labs/index.mjs";
+import { quantValuesOf } from "../lib/labs/factors.mjs";
 import { picksTradePop, stampPopResults, webullPopOutcomes, tradePopEnabled, popRows, popLabSources, loopForecastFor } from "../lib/trade-pop.mjs";
 import { refreshFilingText } from "../lib/labs/filing-text.mjs";
 import { joinedRows as loopJoinedRows } from "../lib/self-loop/ledger.mjs";
@@ -111,13 +112,13 @@ import { OWNER_SETTINGS_APPLIED_KEY } from "../lib/owner-settings.mjs";
 // build ran without the preload). picksTag is stamped on new record trades.
 const OWNER_SETTINGS_REPORT = (() => { try { const r = JSON.parse(process.env.OWNER_SETTINGS_REPORT || "null"); return r && typeof r === "object" ? r : null; } catch { return null; } })();
 import { buildCrowdPayload, buildCrowdOwner, readCrowdPrior, writeCrowdFiles, marketGauges, crowdScoresForRow, CROWD_KEY, CROWD_OWNER_KEY } from "../lib/crowd/index.mjs";
-import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY } from "../lib/engines/index.mjs";
+import { loadEngineFiles, carryEngineFiles, writeEngineFiles, runEngines, loadEnginesResearch, flagshipCompare, enginesEnabled, ENGINES_RECORD_KEY, ENGINES_STATE_KEY } from "../lib/engines/index.mjs";
 import { HEDGE as ENGINES_HEDGE } from "../lib/engines/hedge.mjs";
 import { firstFridays as enginesFirstFridays } from "../lib/engines/macro.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 import { updateDisruptionState, buildDisruptionFiles, readDisruptionPrior, writeDisruptionFiles, AI_DISRUPTION_KEY, AI_DISRUPTION_OWNER_KEY } from "../lib/ai-disruption/log.mjs";
 import { updatePolicyNews, readPolicyNewsPrior, writePolicyNewsFile, policyNewsShadow, heldPolicyNews, POLICY_NEWS_KEY } from "../lib/policy-news/index.mjs";
-import { buildScorecard as buildDisruptionScorecard } from "../lib/ai-disruption/scorecard.mjs";
+import { buildScorecard as buildDisruptionScorecard, pressureAt as disruptionPressureAt } from "../lib/ai-disruption/scorecard.mjs";
 import { updatePredictionState, bakeMaxMs, buildPredictionPublic, buildPredictionOwner, analyzePrediction, predictionShadow, predictionContextFor, predictionGraderLines, pricesFromChains, readPredictionPrior, writePredictionFiles, PREDICTION_KEY, PREDICTION_OWNER_KEY } from "../lib/prediction/index.mjs";
 import { buildHistoryRhymes, buildHistoryRhymesOwner, historyRhymesSummary, HISTORY_RHYMES_KEY, HISTORY_RHYMES_OWNER_KEY, HISTORY_RHYMES_FRED, REPORTED_CDS } from "../lib/history-rhymes.mjs";
 import { buildEnginesHistory, ENGINES_HISTORY_KEY, ENGINES_HISTORY_RESULTS } from "../lib/engines-history.mjs";
@@ -42965,6 +42966,29 @@ async function main() {
         const seenIds = new Set();
         const allClosed = [...(accForLabs?.closed || []), ...(accForLabs?.archive || [])].filter((t) => { const k = t?.tradeId || `${t?.symbol}|${t?.side}|${t?.entryDate}`; if (seenIds.has(k)) return false; seenIds.add(k); return true; });
         const engineIds = [...new Set([...(enginesRecord?.open || []), ...(enginesRecord?.closed || [])].map((t) => t?.engine).filter(Boolean))];
+        // The logged-only inputs for the weekly factor panel (the quantamental
+        // pack, 2026-11-28): the Fundamentals engine's stored rank, the
+        // Valuation lab gap and implied growth, estimate revisions, analyst
+        // targets and the AI launch pressure. Logged, never read by a decision.
+        let quantOf = null;
+        try {
+          const enginesState = await readJson(ENGINES_STATE_KEY);
+          let launches = [];
+          try {
+            const adState = aiDisruptionRun?.state || aiDisruptionPrior.state;
+            launches = adState ? buildDisruptionFiles({ state: adState, review: aiDisruptionPrior.review, tickers: TICKERS, builtAt: builtAtIso }).pub.launches : aiDisruptionPrior.pub?.launches || [];
+          } catch { launches = aiDisruptionPrior.pub?.launches || []; }
+          quantOf = quantValuesOf({
+            rank: enginesState?.engines?.fundamentals?.rank || null,
+            valuation: await readJson(VALUATION_LAB_KEY),
+            launches, pressure: disruptionPressureAt,
+            fundamentalsOf: (sym) => chains?.[sym]?.fundamentals || null,
+            spotOf: (sym) => chains?.[sym]?.spot ?? null,
+            today: etDateKey(labNow),
+          });
+        } catch (err) {
+          console.warn(`[quant-labs] logged inputs skipped — ${String(err?.message || err).split("\n")[0]}`);
+        }
         const labsRun = runQuantLabs({
           state: labsState, prior: quantLabsLoaded.prior, research: await loadQuantLabsResearch(ROOT),
           builtAtIso, today: etDateKey(labNow),
@@ -42981,7 +43005,7 @@ async function main() {
             return regimeLabBars(long ? { ...chain, _bars: chain._patternBars } : chain, labNow);
           },
           ivOf: (sym) => ivHistory?.get?.(sym)?.entries || [],
-          fundamentalsOf: (sym) => chains?.[sym]?.fundamentals || null,
+          fundamentalsOf: (sym) => chains?.[sym]?.fundamentals || null, quantOf,
           gradesDaily: dailyForLabs, grades: Object.fromEntries(Object.entries(lastTotals).map(([sym, total]) => [sym, { total }])),
           record: { open: accForLabs?.open || [], closed: allClosed, baseline: accForLabs?.baseline || null },
           engines: { open: enginesRecord?.open || [], closed: enginesRecord?.closed || [], names: Object.fromEntries(engineIds.map((id) => [id, strategyEngineName(id)])) },

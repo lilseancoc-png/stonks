@@ -17,7 +17,8 @@ import { buildDrawdownOdds, gradeDrawdownLog, DD_FEATURES, REC_FEATURES, DD_TARG
 import { scoreChance, scoreScore, scoreRange, buildCalibrationLab, recordSources, engineSources, loopSources, predictionSource, foldPredictionLog, earningsMoveSource } from "../lib/labs/calibration.mjs";
 import { registryRow, buildRegistry, TRIAL_LOG, trialsFor, worstRunPts } from "../lib/labs/registry.mjs";
 import { evaluateVolModels, buildVolLab, VOL_MODELS } from "../lib/labs/vol.mjs";
-import { evaluateFactors, publicFactorRows, exposures, gradeVsFactors, foldPanel, panelSnapshot, percentiles, PRICE_FACTORS, ALL_FACTORS } from "../lib/labs/factors.mjs";
+import { evaluateFactors, publicFactorRows, exposures, gradeVsFactors, foldPanel, panelSnapshot, percentiles, PRICE_FACTORS, ALL_FACTORS, QUANT_FACTORS, PANEL_KEEP, quantValuesOf, earningsTilt } from "../lib/labs/factors.mjs";
+import { pressureAt } from "../lib/ai-disruption/scorecard.mjs";
 import { evaluateUniverse, UNIVERSE_FACTORS } from "../lib/labs/factor-universe.mjs";
 import { universeFixture } from "./fixtures/factor-universe.mjs";
 import { htmlToLines, riskSection, sectionOf, compareSections, refreshFilingText, buildFilingLab, archiveUrl, FILING_TEXT_VERSION } from "../lib/labs/filing-text.mjs";
@@ -345,6 +346,50 @@ async function main() {
     eq(percentiles([1, 2, 3]).filter((v) => v != null).length, 0, "under five values are not ranked");
     const pnl = foldPanel(foldPanel([], panelSnapshot("2026-11-09", ["A"], () => 1)), panelSnapshot("2026-11-12", ["A"], () => 1));
     eq(pnl.map((x) => x.d), ["2026-11-12"], "one snapshot per week, the newest");
+    {
+      // Two years of weeks are kept (the quantamental pack, 2026-11-28).
+      let many = [];
+      for (let w = 0; w < 110; w++) many = foldPanel(many, panelSnapshot(new Date(Date.UTC(2024, 0, 1 + 7 * w)).toISOString().slice(0, 10), ["A"], () => 1));
+      eq(PANEL_KEEP, 104, "the panel keeps 104 weeks"); eq(many.length, 104, "two years of weekly snapshots are kept");
+      // The logged-only inputs: read from the engine rank, the Valuation lab,
+      // the fundamentals and the AI launch log; a rank under 12 names is not read.
+      const syms = fx.ctx.symbols.slice(0, 14);
+      const rankRows = Object.fromEntries(syms.map((sym, i) => [sym, { score: 90 - i, e: 80 - i, q: 50, p: 20 + i, facts: { beats4: 4 - (i % 3), misses4: i % 3 } }]));
+      const launches = [{ date: fx.ctx.today, score: 80, targets: [{ company: syms[0], role: "core" }] }];
+      const qv = quantValuesOf({
+        rank: { n: 14, rows: rankRows }, valuation: { rows: { [syms[0]]: { base: { gapPct: 12.5, impliedGrowth: 7.1 } } } },
+        launches, pressure: pressureAt, today: fx.ctx.today,
+        fundamentalsOf: (sym) => (sym === syms[0] ? { targetMeanPrice: 120, fyEpsRevision: { pct30: 3.2 } } : null), spotOf: () => 100,
+      });
+      eq([qv(syms[0], "funScore"), qv(syms[0], "funEarn"), qv(syms[0], "funPrice"), qv(syms[2], "beatNet")], [90, 80, 20, 0], "the rank parts and the beat record are read");
+      near(qv(syms[0], "tgtUp"), 0.2, 1e-9, "target upside against today's close"); eq([qv(syms[0], "epsRev30"), qv(syms[0], "valGap"), qv(syms[0], "impGrowth")], [3.2, 12.5, 7.1], "revision and the Valuation lab gap");
+      ok(qv(syms[0], "aiPress") > 0 && qv(syms[1], "aiPress") === 0, "AI launch pressure only on the targeted company");
+      eq(quantValuesOf({ rank: { n: 8, rows: rankRows } })(syms[0], "funScore"), null, "a rank of under 12 names is not logged");
+      eq(quantValuesOf()(syms[0], "tgtUp"), null, "no inputs, no values");
+      // In the lab: today's snapshot carries the logged inputs, the backfilled
+      // weeks carry none, and the skill table lists them as logged.
+      const qRun = runQuantLabs({ ...fx.ctx, state: {}, prior: null, quantOf: (sym, key) => (key === "funScore" && syms.includes(sym) ? syms.indexOf(sym) : null) });
+      const qf = qRun.payload.factors, panelQ = qRun.state.panel;
+      ok(panelQ.length > 5 && panelQ.slice(0, -1).every((snap) => !snap.f.funScore) && panelQ[panelQ.length - 1].f.funScore, "only today's snapshot logs the inputs; past weeks are not made up");
+      ok(!panelQ[panelQ.length - 1].f.tgtUp, "an input no stock has is not stored");
+      eq(qf.logged.map((x) => x.key), QUANT_FACTORS.map((x) => x.key), "every logged input is listed");
+      eq(qf.logged.find((x) => x.key === "funScore").names, syms.length, "the count of stocks with a value"); eq(qf.logged.find((x) => x.key === "funScore").since, fx.ctx.today, "logged since today");
+      const sk = qf.skill.find((r) => r.key === "funScore");
+      ok(sk && sk.logged && sk.since === fx.ctx.today && sk.ic.every((x) => x.n === 0), "the skill table lists the input, with no closed window yet");
+      ok(!qf.skill.some((r) => r.key === "tgtUp"), "an input never logged is not in the skill table");
+      const plain = runQuantLabs({ ...fx.ctx, state: {}, prior: null });
+      ok(!plain.state.panel.some((snap) => QUANT_FACTORS.some((x) => snap.f[x.key])) && plain.payload.factors.logged.every((x) => x.names === 0), "no logged inputs without the build's reader");
+      // The earnings tilt watch: collecting under 20 trades at each end, then read.
+      const tr = (i, zone, pnl, extra = {}) => ({ engine: "reversion", setup: i % 2 ? "rsi2-dip" : "oversold-bounce", optionPnlPct: pnl, entryDate: `2026-12-${String(1 + (i % 28)).padStart(2, "0")}`, fund: { eZone: zone }, ...extra });
+      const few = earningsTilt([tr(1, "top", 5), tr(2, "bottom", -3), { engine: "technicals", optionPnlPct: 4 }]);
+      eq(few.trades, 2, "only trades with the stamp count"); ok(few.groups.every((g) => g.status === "collecting" && g.gap == null), "collecting under 20 trades at each end");
+      const lots = [];
+      for (let i = 0; i < 40; i++) lots.push(tr(i, "top", 4), tr(i, "bottom", -2), tr(i, "mid", 1));
+      lots.push(tr(99, "top", -90, { outcome: "void" }), tr(98, "top", -90, { status: "never-trade" }));
+      const read = earningsTilt(lots), rev = read.groups.find((g) => g.id === "reversion"), dip = read.groups.find((g) => g.id === "rsi2-dip");
+      ok(rev.status === "reading" && rev.gap === 6 && rev.top.n === 40 && rev.top.win === 1 && rev.mid.n === 40, "the top minus bottom gap reads once both ends are full; void closes are left out");
+      ok(dip.status === "reading" && dip.top.n === 20 && dip.gap === 6, "the RSI(2) dip trial reads on its own");
+    }
     // The bake's scoring bars cover one year, too short for 12-month momentum
     // and the 52-week high; the factor lab reads the longer bars when given
     // (ctx.longBarsOf), and only the factor lab (2026-11-20 audit).

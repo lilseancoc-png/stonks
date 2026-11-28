@@ -90,6 +90,9 @@ try {
     check(/Limits of this test/.test(uniText) && /Aggregates only/.test(uniText), vp.name + ': the limits and the aggregates note are there');
     check(!/\bU\d{3}\b|Made-up company/.test(uniText) && !JUNK.test(uniText), vp.name + ': the wide factor test names no company and shows no raw values');
     check(!/—%/.test(uniText), vp.name + ': a factor with no spread shows a dash, not a dash with a percent sign');
+    // The quantamental pack (2026-11-28): the logged-only inputs and the earnings tilt watch.
+    const facText = await s.page.locator('#quant-labs-root').innerText();
+    check(/Logged weekly since 28 Nov 2026/i.test(facText) && /AI launch pressure/.test(facText) && /Earnings tilt watch/i.test(facText) && /Every signal engine trade/.test(facText), vp.name + ': the logged inputs and the earnings tilt watch are shown');
     await uni.screenshot({ path: resolve(output, `${vp.name}-universe.png`) });
     // A summary link jumps to its lab and the choice is remembered.
     await s.page.locator('#quant-labs-root [data-ql-tab="summary"]:not(.ql-linkbtn)').first().click();

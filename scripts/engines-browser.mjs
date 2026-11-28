@@ -24,7 +24,7 @@ const output = process.env.ENGINES_BROWSER_OUT || resolve(tmpdir(), 'stonks-engi
 await mkdir(output, { recursive: true });
 const fx = await enginesFixture();
 const view = fx.view;
-assert.ok(view.engines.length === ENGINE_IDS.length && view.total.open > 0 && view.total.n > 20, 'the fixture has open and closed engine trades');
+assert.ok(view.engines.length === ENGINE_IDS.length && view.total.open > 0 && view.total.n >= 15, 'the fixture has open and closed engine trades');
 assert.ok(fx.flagship && view.shared.length >= 1, 'the fixture has a contract shared with Top Picks');
 
 // The Top Picks trade carries a stated chance, as a new enrollment would.
@@ -390,7 +390,7 @@ try {
     await s.page.screenshot({ path: resolve(output, 'experiments-1440.png'), fullPage: true });
 
     await pick(s, 'fundamentals'); await sub(s, 'now');
-    check(/3 calls and 5 puts at most/.test(await s.page.locator('.eng-rules').first().innerText()) && /at most \$200,000 of premium, whichever comes first \(puts 1 to 100 and \$100,000\)/.test(await s.page.locator('.eng-rules').first().innerText()), 'Fundamentals rules read 3 calls and 5 puts, the premium cap, puts capped at 100 contracts and $100,000');
+    check(/3 share trades and 3 puts at most/.test(await s.page.locator('.eng-rules').first().innerText()) && /put in a downtrend|in a downtrend/.test(await s.page.locator('.eng-rules').first().innerText()) && /at most \$200,000 of premium, whichever comes first \(puts 1 to 100 and \$100,000\)/.test(await s.page.locator('.eng-rules').first().innerText()), 'Fundamentals rules read 3 share trades and 3 puts (downtrend only), the premium cap, puts capped at 100 contracts and $100,000');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-now-1440.png'), fullPage: true });
     await sub(s, 'learn');
     await s.page.screenshot({ path: resolve(output, 'fundamentals-learn-1440.png'), fullPage: true });

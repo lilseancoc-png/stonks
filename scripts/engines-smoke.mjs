@@ -126,7 +126,15 @@ const FIXED_IDS = SIGNAL_IDS.filter((id) => !ENGINES[id].ownRules);
 // The exit pack (2026-11-27) sits on top of everything on Reversion, Macro
 // and Technicals: `preExit` takes it off (its rules step, or its key part
 // when both switches are off), so the older checks read the layers under it.
-const preExit = (r) => {
+// The quantamental pack (2026-11-28, Fundamentals only) sits on top of all of
+// them: `preQuant` takes it off the same way, and `preExit` does that first.
+const preQuant = (r) => {
+  if (!r) return r;
+  if (r.before && /^New rules \(quantamental pack\)/.test(r.note || "")) return r.before;
+  return /\|quant:[^|]*$/.test(r.key || "") ? { ...r, key: r.key.replace(/\|quant:[^|]*$/, "") } : r;
+};
+const preExit = (r0) => {
+  const r = preQuant(r0);
   if (!r) return r;
   if (r.before && /^New rules \(exit pack\)/.test(r.note || "")) return r.before;
   return /\|exit:[^|]*$/.test(r.key || "") ? { ...r, key: r.key.replace(/\|exit:[^|]*$/, "") } : r;
@@ -274,7 +282,10 @@ function fundViews({ n = 30, over = {} } = {}) {
     const sym = `F${String(i).padStart(2, "0")}`, g = (n - i) / (n - 1);
     const core = { epsYoy: -40 + g * 90, epsYoyPrev: -30 + g * 60, beats4: Math.round(g * 4), misses4: Math.round((1 - g) * 4), reports: 9, lastDate: "2026-10-20", sessionsSince: 18 };
     const live = { fyEpsRevision: { pct30: -6 + g * 12 }, operatingMargin: 2 + g * 35, returnOnEquity: 3 + g * 35, revenueGrowthYoy: -8 + g * 30, freeCashFlow: (0.005 + g * 0.05) * 1e11, marketCap: 1e11, debtToEquity: 250 - g * 220, forwardPE: 40 - g * 22, targetMeanPrice: 90 + g * 35 };
-    views[sym] = V(sym, baseF(i > n / 2 ? { sma200: 110 } : {}), { fund: { core, live, groupPE: 24 }, earn: { next: { sessionsUntil: 40 } }, ...(over[sym] || {}) });
+    // The weaker half is in a downtrend (a close under a falling 50-day under
+    // the 200-day), so a bottom-of-rank put may open (the quantamental pack's
+    // rule, 2026-11-28).
+    views[sym] = V(sym, baseF(i > n / 2 ? { sma50: 104, sma50Prev: 106, sma200: 110 } : {}), { fund: { core, live, groupPE: 24 }, earn: { next: { sessionsUntil: 40 } }, ...(over[sym] || {}) });
   }
   return views;
 }
@@ -346,8 +357,8 @@ ok("fundamentals: a stock's place is fixed until the month changes or it reports
   assert.equal(rkT.keep, 4); assert.equal(rkT.enter, 4);
   assert.equal(short.F04.fund.rank.enter, "call"); assert.equal(short.F05.fund.rank.enter, null); assert.equal(short.F08.fund.rank.enter, null); assert.equal(short.F09.fund.rank.enter, "put");
   // The page read: both ends, and what is held.
-  const pv = rankView(es, [{ symbol: "F02", side: "call" }, { symbol: "F15", side: "call" }]);
-  assert.equal(pv.top.length, RANK.shown); assert.equal(pv.bottom.length, RANK.shown); assert.equal(pv.top[1].held, "call");
+  const pv = rankView(es, [{ symbol: "F02", side: "call" }, { symbol: "F15", side: "call" }, { symbol: "F01", side: "call", contract: { structure: "shares" } }]);
+  assert.equal(pv.top.length, RANK.shown); assert.equal(pv.bottom.length, RANK.shown); assert.equal(pv.top[1].held, "call"); assert.equal(pv.top[0].held, "shares");
   assert.deepEqual(pv.heldElsewhere.map((r) => r.symbol), ["F15"]);
 });
 ok("flow: signed bullish flow; short squeeze reads borrow and short-sale volume", () => {
@@ -618,12 +629,13 @@ ok("book: the run limits of 2026-11-23 (each signal engine one more a run): Tech
   assert.equal(old.opened.length, 2);
   for (const t of old.opened) { const u = out.opened.find((x) => x.symbol === t.symbol); assert.ok(u, t.symbol); assert.equal(u.score, t.score); assert.equal(u.contract.qty, t.contract.qty); }
   // Fundamentals: the best call and the worst put in one run, as in the old
-  // first two runs; the slots and the rank are unchanged.
+  // first two runs; the rank is unchanged (three puts since the quantamental
+  // pack, 2026-11-28).
   const fs = emptyState(), fr = emptyRecord();
   const runs = ["2026-11-16T16:00:00.000Z", "2026-11-16T20:30:00.000Z", "2026-11-17T16:00:00.000Z", "2026-11-17T20:30:00.000Z", "2026-11-18T16:00:00.000Z", "2026-11-18T20:30:00.000Z"]
     .map((nowIso) => stepBook(fs, fr, bookInput(fundViews(), { engines: ["fundamentals"], nowIso, late: /T20/.test(nowIso) })));
-  assert.deepEqual(runs.map((o) => o.opened.map((t) => `${t.symbol} ${t.side}`).join()), ["F01 call,F30 put", "F02 call,F29 put", "F03 call,F28 put", "F27 put,F26 put", "", ""]);
-  assert.equal(fr.open.filter((t) => t.side === "call").length, 3); assert.equal(fr.open.filter((t) => t.side === "put").length, 5);
+  assert.deepEqual(runs.map((o) => o.opened.map((t) => `${t.symbol} ${t.side}`).join()), ["F01 call,F30 put", "F02 call,F29 put", "F03 call,F28 put", "", "", ""]);
+  assert.equal(fr.open.filter((t) => t.side === "call").length, 3); assert.equal(fr.open.filter((t) => t.side === "put").length, 3);
   // A running engine on today's size rules logs the run-limit step once.
   for (const id of SIGNAL_IDS) {
     const r = preEvent(preExit(ENGINES[id].rules));
@@ -637,8 +649,8 @@ ok("book: the run limits of 2026-11-23 (each signal engine one more a run): Tech
   assert.equal(made.kind, "rules"); assert.equal(made.text, ENGINES.reversion.rules.note); assert.equal(es.rules, ENGINES.reversion.rules.n);
   assert.equal(adoptRules(es, ENGINES.reversion, "2026-11-23"), null, "once");
 });
-ok("book: Fundamentals (two-put rules, ENGINES_FUN_PUTS5 off; run limit before 2026-11-23) holds three calls and two puts, one new trade a run, and swaps only when a name leaves its third", () => {
-  const state = emptyState(), record = emptyRecord(), specs = oldRun(engineSpecs({ funPuts: false }));
+ok("book: Fundamentals (two-put rules, ENGINES_FUN_PUTS5 and ENGINES_FUN_PUTS_DOWN off; run limit before 2026-11-23) holds three calls and two puts, one new trade a run, and swaps only when a name leaves its third", () => {
+  const state = emptyState(), record = emptyRecord(), specs = oldRun(engineSpecs({ funPuts: false, funPutsDown: false }));
   assert.equal(specs.fundamentals.slots, 5); assert.deepEqual({ ...specs.fundamentals.sideSlots }, { call: 3, put: 2 }); assert.match(specs.fundamentals.idea, /puts on the two worst/);
   const run = (nowIso, views = fundViews()) => stepBook(state, record, bookInput(views, { engines: ["fundamentals"], nowIso, late: /T20/.test(nowIso), specs }));
   const runs = ["2026-11-16T16:00:00.000Z", "2026-11-16T20:30:00.000Z", "2026-11-17T16:00:00.000Z", "2026-11-17T20:30:00.000Z", "2026-11-18T16:00:00.000Z"].map((iso) => run(iso));
@@ -669,12 +681,13 @@ ok("book: Fundamentals (two-put rules, ENGINES_FUN_PUTS5 off; run limit before 2
   // A fresh start is already on the new rules: no version bump.
   assert.equal(record.open[0].rulesVersion, "FUN-1"); assert.equal(state.engines.fundamentals.rules, specs.fundamentals.rules.n);
 });
-ok("book: Fundamentals (downtrend pack, 2026-11-20; run limit before 2026-11-23) holds three calls and five puts, eight slots, one new trade a run", () => {
-  assert.equal(ENGINES.fundamentals.slots, 8); assert.deepEqual({ ...ENGINES.fundamentals.sideSlots }, { call: 3, put: 5 }); assert.match(ENGINES.fundamentals.idea, /puts on the five worst/);
+ok("book: Fundamentals (downtrend pack, 2026-11-20, ENGINES_FUN_PUTS_DOWN off; run limit before 2026-11-23) holds three calls and five puts, eight slots, one new trade a run", () => {
+  const FP = engineSpecs({ funPutsDown: false });
+  assert.equal(FP.fundamentals.slots, 8); assert.deepEqual({ ...FP.fundamentals.sideSlots }, { call: 3, put: 5 }); assert.match(FP.fundamentals.idea, /puts on the five worst,/);
   const state = emptyState(), record = emptyRecord();
   const isos = [];
   for (const d of ["16", "17", "18", "19", "20"]) isos.push(`2026-11-${d}T16:00:00.000Z`, `2026-11-${d}T20:30:00.000Z`);
-  const runs = isos.map((nowIso) => stepBook(state, record, bookInput(fundViews(), { engines: ["fundamentals"], nowIso, late: /T20/.test(nowIso), specs: oldRun() })));
+  const runs = isos.map((nowIso) => stepBook(state, record, bookInput(fundViews(), { engines: ["fundamentals"], nowIso, late: /T20/.test(nowIso), specs: oldRun(FP) })));
   assert.deepEqual(runs.slice(0, 8).map((o) => o.opened.map((t) => `${t.symbol} ${t.side}`).join()), ["F01 call", "F30 put", "F02 call", "F29 put", "F03 call", "F28 put", "F27 put", "F26 put"]);
   assert.equal(record.open.filter((t) => t.side === "call").length, 3); assert.equal(record.open.filter((t) => t.side === "put").length, 5);
   assert.equal(runs[8].opened.length, 0); assert.ok(runs[8].candidates.fundamentals.some((c) => c.symbol === "F25" && c.why === "no free put slot"));
@@ -756,13 +769,16 @@ ok("book: take-profit, stop, time limit, event exit, expiry, left coverage", () 
 // ---- share trades (2026-11-17: fit the contract to the signal) -------------
 ok("shares: which setups buy stock, long only, and the switch", () => {
   const S = (id, k, side) => instrumentFor(ENGINES[id], k, side);
-  for (const [id, k] of [["technicals", "pullback"], ["technicals", "breakout"], ["reversion", "capitulation"], ["earnings", "drift"], ["flow", "aggressive-flow"], ["flow", "gamma-wall"], ["flow", "short-squeeze"], ["macro", "gold-rates"], ["macro", "dollar-asia"]]) {
+  for (const [id, k] of [["technicals", "pullback"], ["technicals", "breakout"], ["reversion", "capitulation"], ["earnings", "drift"], ["flow", "aggressive-flow"], ["flow", "gamma-wall"], ["flow", "short-squeeze"], ["macro", "gold-rates"], ["macro", "dollar-asia"], ["fundamentals", "rank-top"]]) {
     assert.equal(S(id, k, "call"), "shares", `${id}.${k}`);
     assert.equal(S(id, k, "put"), "option", `${id}.${k} puts stay options: the engines never short stock`);
   }
   // Since 2026-11-19 (Technicals shares only) the squeeze's up side buys shares too.
   assert.equal(S("technicals", "squeeze", "call"), "shares"); assert.equal(instrumentFor(engineSpecs({ tecShares: false }).technicals, "squeeze", "call"), "option");
-  for (const [id, k] of [["reversion", "oversold-bounce"], ["earnings", "run-in"], ["macro", "rates-fall"], ["macro", "stress-off"], ["macro", "event-drift"], ["fundamentals", "rank-top"]]) assert.equal(S(id, k, "call"), "option", `${id}.${k}`);
+  for (const [id, k] of [["reversion", "oversold-bounce"], ["earnings", "run-in"], ["macro", "rates-fall"], ["macro", "stress-off"], ["macro", "event-drift"]]) assert.equal(S(id, k, "call"), "option", `${id}.${k}`);
+  // The top of the Fundamentals rank buys shares since 2026-11-28 (the
+  // quantamental pack); ENGINES_FUN_SHARES off puts it back on calls.
+  assert.equal(instrumentFor(engineSpecs({ funShares: false }).fundamentals, "rank-top", "call"), "option");
   assert.equal(instrumentFor(ENGINES.technicals, "pullback", "call", { shares: false }), "option");
   assert.equal(engineSwitches({}).shares, true);
   for (const v of ["0", "off", "false", "no"]) assert.equal(engineSwitches({ ENGINES_SHARES: v }).shares, false);
@@ -869,7 +885,7 @@ const WASHOUT = (over = {}) => baseF({ c: 90, pc: 93, sma20: 97, sma200: 85, sd2
 // Off by default: the rate-hike pause (owner, 2026-11-22). Every other fix is on.
 const DEFAULT_OFF_FIXES = new Set(["hikePause"]);
 ok("fixes: the Owner Settings switches, all on by default but the rate-hike pause", () => {
-  assert.deepEqual(ENGINE_FIX_IDS, ["retirePuts", "bounce", "size", "stockStop", "fillBasis", "riskSize", "conviction", "tecShares", "crashStand", "fearBounce", "convNoScore", "runInShares", "funPuts", "newsGate", "tapeSize", "loserBrake", "tecNoScore", "vixPause", "hikePause", "momSectors", "volTarget", "dearFull", "allocAdvise", "heldSameSide", "slotRetry", "runInEarly", "bounceSkip", "contractFit", "liquidAnd", "shareRisk", "optTimeExits", "tecNoTarget"]);
+  assert.deepEqual(ENGINE_FIX_IDS, ["retirePuts", "bounce", "size", "stockStop", "fillBasis", "riskSize", "conviction", "tecShares", "crashStand", "fearBounce", "convNoScore", "runInShares", "funPuts", "newsGate", "tapeSize", "loserBrake", "tecNoScore", "vixPause", "hikePause", "momSectors", "volTarget", "dearFull", "allocAdvise", "heldSameSide", "slotRetry", "runInEarly", "bounceSkip", "contractFit", "liquidAnd", "shareRisk", "optTimeExits", "tecNoTarget", "funPutsDown", "funShares", "funWeights"]);
   const sw = engineSwitches({});
   assert.deepEqual(sw.fixes, Object.fromEntries(ENGINE_FIX_IDS.map((id) => [id, !DEFAULT_OFF_FIXES.has(id)])));
   assert.equal(BOOK.optionUsd, 2000); assert.equal(sw.optionUsd, 2000);
@@ -2572,8 +2588,10 @@ ok("downtrend pack: switches, Owner Settings, rules step and the put cap setting
   assert.match(DR("fundamentals").note, /five worst-ranked/); assert.doesNotMatch(DR("reversion").note, /five worst-ranked/);
   for (const id of CORE_IDS) assert.equal(ENGINES[id].rules?.key?.includes("|down:") || false, false, id);
   // Each switch off moves the key (a logged change); a put cap equal to the calls' cap is no cap of its own.
-  const off = engineSpecs({ newsGate: false, tapeSize: false, funPuts: false });
+  // (The quantamental pack's put rule sets the put slots itself, so it is off here too.)
+  const off = engineSpecs({ newsGate: false, tapeSize: false, funPuts: false, funPutsDown: false });
   assert.equal(off.reversion.newsGate, false); assert.equal(off.reversion.tapeSize, false); assert.equal(off.fundamentals.slots, 5);
+  assert.equal(engineSpecs({ funPuts: false }).fundamentals.slots, 6, "five puts off alone: the quantamental pack's three stand");
   assert.notEqual(off.reversion.rules.key, ENGINES.reversion.rules.key); assert.equal(off.reversion.rules.n, ENGINES.reversion.rules.n, "the put cap alone still makes the step");
   assert.match(off.reversion.rules.switchNote, /News gate.*switched off/);
   assert.equal(engineSpecs(undefined, undefined, null, 200, 100), ENGINES);
@@ -2919,8 +2937,8 @@ ok("exit pack: Reversion and Macro options hold for their sessions with no targe
 ok("variants: the registry stays inside its limits, each changes one thing with a stated hypothesis", () => {
   assert.deepEqual(validateVariants(), []);
   assert.deepEqual({ ...VARIANT_LIMITS }, { perEngine: 3, total: 20, minPaired: 30, holmT: 2.4, months: 6, closedKept: 300 });
-  assert.deepEqual(VARIANTS.map((v) => v.id), ["TEC-bar65", "TEC-stop2.5", "REV-bounce-shares", "REV-rsi2-7500", "MAC-riskoff-aside", "MAC-fall60", "FUN-top-shares", "ERN-runin-shares", "DWN-budget75",
-    "DWN-timeonly", "FLO-loose", "FLO-fade-puts", "FUN-put-downtrend", "ERN-gap-drift", "MAC-fixed-exits", "REV-fixed-exits", "TEC-target"]);
+  assert.deepEqual(VARIANTS.map((v) => v.id), ["TEC-bar65", "TEC-stop2.5", "REV-bounce-shares", "REV-rsi2-7500", "MAC-riskoff-aside", "MAC-fall60", "FUN-top-calls", "ERN-runin-shares", "DWN-budget75",
+    "DWN-timeonly", "FLO-loose", "FLO-fade-puts", "FUN-put-anytrend", "ERN-gap-drift", "MAC-fixed-exits", "REV-fixed-exits", "TEC-target"]);
   const four = [...VARIANTS, { ...VARIANTS[0], id: "TEC-x" }];
   assert.ok(validateVariants(four).some((e) => /technicals: 4 variants/.test(e)));
   assert.ok(validateVariants([{ id: "A", engine: "trend", kind: "behavior", change: "x", hypothesis: "y", promoteIf: "z", patch: {} }]).some((e) => /not a signal engine/.test(e)));
@@ -2933,7 +2951,10 @@ ok("variants: the registry stays inside its limits, each changes one thing with 
   assert.equal(instrumentFor(s2, "oversold-bounce", "call"), "shares"); assert.equal(instrumentFor(ENGINES.reversion, "oversold-bounce", "call"), "option");
   const s3 = variantSpec(ENGINES.macro, VARIANTS.find((v) => v.id === "MAC-fall60"));
   assert.deepEqual(contractFor(s3, "rates-fall"), { ...ENGINES.macro.contract, dteMin: 50, dteIdeal: 60, dteMax: 80 }); assert.deepEqual(contractFor(s3, "rates-rise"), { ...ENGINES.macro.contract });
-  const s4 = variantSpec(ENGINES.fundamentals, VARIANTS.find((v) => v.id === "FUN-top-shares"));
+  // The quantamental pack (2026-11-28) put the top of the rank on shares; its
+  // shadow keeps the calls.
+  const s4 = variantSpec(ENGINES.fundamentals, VARIANTS.find((v) => v.id === "FUN-top-calls"));
+  assert.equal(instrumentFor(s4, "rank-top", "call"), "option"); assert.equal(instrumentFor(ENGINES.fundamentals, "rank-top", "call"), "shares");
   assert.equal(s4.setups["rank-top"].exits.maxSessions, 60); assert.equal(s4.setups["rank-bottom"], ENGINES.fundamentals.setups["rank-bottom"]);
   assert.equal(variantSpec(ENGINES.downside, VARIANTS.find((v) => v.id === "DWN-budget75")).budgetX, 0.75);
   assert.equal(variantEnds(VARIANTS[0]), "2027-05-23");
@@ -2978,14 +2999,18 @@ ok("variants: the shadow pack's changes (time-only exits sized as the parent, lo
   const fadeSpec = variantSpec(ENGINES.flow, find("FLO-fade-puts"));
   assert.equal(instrumentFor(fadeSpec, "aggressive-flow", "call"), "shares");
   assert.equal(fadeSpec.setups["aggressive-flow"].exits.maxSessions, ENGINES.flow.exits.maxSessions, "held as long as the parent's put");
-  // Fundamentals: bottom-of-rank puts only in a confirmed downtrend.
+  // Fundamentals: bottom-of-rank puts only in a confirmed downtrend (live
+  // since the quantamental pack, 2026-11-28); the shadow keeps any trend.
   const views = fundViews(); ranked(views);
-  const funV = { ...CTX, setups: variantSpec(ENGINES.fundamentals, find("FUN-put-downtrend")).setups };
-  assert.equal(evalFundamentals(views.F30, CTX)[0].side, "put");
-  assert.equal(evalFundamentals(views.F30, funV).length, 0, "under the 200-day but not in a downtrend");
+  const funLive = { ...CTX, setups: ENGINES.fundamentals.setups }, funV = { ...CTX, setups: variantSpec(ENGINES.fundamentals, find("FUN-put-anytrend")).setups };
+  const flat = { ...views.F30, f: baseF({ sma200: 110 }) };
+  assert.equal(evalFundamentals(flat, funLive).length, 0, "under the 200-day but not in a downtrend");
+  assert.equal(evalFundamentals(flat, funV)[0]?.side, "put", "the shadow takes it");
   const dt = { ...views.F30, spot: 95, f: baseF({ c: 95, sma50: 100, sma50Prev: 101, sma200: 110 }) };
-  assert.equal(evalFundamentals(dt, funV)[0]?.side, "put");
-  assert.equal(evalFundamentals(views.F01, funV)[0].side, "call", "calls untouched");
+  const dc = evalFundamentals(dt, funLive)[0];
+  assert.equal(dc?.side, "put"); assert.ok(dc.reasons.some((r) => /^In a downtrend: closed at 95, under its 50-day average \(100\), which is under the 200-day \(110\)/.test(r)), dc.reasons.join(" | "));
+  assert.ok(!evalFundamentals(dt, funV)[0].reasons.some((r) => /^In a downtrend/.test(r)), "no downtrend line where the rule is off");
+  assert.equal(evalFundamentals(views.F01, funLive)[0].side, "call", "calls untouched");
   // Earnings: a gap that held against the EPS number trades only in the shadow, scored with no EPS points.
   const last = { date: "2026-11-11", session: "PM", surprisePct: -4, guidance: null, gapPct: 6, movePct: 7, low: 104, high: 109, close: 107, prevClose: 100, volRatio: 1, sessionsSince: 1 };
   const ev = V("DDD", baseF({ c: 108, pc: 107, sma50: 98 }), { earn: { last, hist: [], next: null } });
@@ -3588,5 +3613,103 @@ ok("trade audit fixes (2026-11-24): contract fit, liquidity and the share risk f
   const made = adoptRules(es, ENGINES.flow, "2026-11-24");
   assert.equal(made.kind, "rules"); assert.equal(made.text, `${ft.note} ${ENGINES.flow.rules.note}`); assert.equal(es.rules, ENGINES.flow.rules.n);
   assert.equal(adoptRules(es, ENGINES.flow, "2026-11-24"), null, "once");
+});
+// ---- quantamental pack (2026-11-28) ------------------------------------------
+ok("quantamental pack: switches, Owner Settings, the rules step and the idea on Fundamentals only", () => {
+  const ids = ["funPutsDown", "funShares", "funWeights"], envs = ["ENGINES_FUN_PUTS_DOWN", "ENGINES_FUN_SHARES", "ENGINES_FUN_WEIGHTS"];
+  ids.forEach((id, i) => {
+    assert.equal(engineSwitches({}).fixes[id], true, id); assert.equal(engineSwitches({ [envs[i]]: "0" }).fixes[id], false, id);
+    const d = ownerSettingDef(envs[i]); assert.ok(d && d.kind === "switch" && d.default === true && d.group === "Strategy engines" && d.scope === "build", envs[i]);
+    assert.match(d.help, /Open trades keep their exits/, envs[i]); assert.match(d.help, /Changes no Top Pick/, envs[i]);
+    const f = ENGINE_FIXES.find((x) => x.id === id); assert.equal(f.step, 13); assert.deepEqual(f.engines, ["fundamentals"]); assert.equal(f.env, envs[i]);
+  });
+  // The newest rules step on Fundamentals; nothing on the other engines.
+  const r = ENGINES.fundamentals.rules;
+  assert.equal(r.date, "2026-11-28"); assert.equal(r.n, r.before.n + 1); assert.match(r.key, /\|quant:funPutsDown,funShares,funWeights$/);
+  assert.match(r.note, /^New rules \(quantamental pack\): puts on up to three of the worst-ranked names \(was five\), and only while the stock is in a downtrend/);
+  assert.match(r.note, /the top of the rank buys shares instead of calls: a 3 ATR stop under the entry, no price target, held up to 60 sessions/);
+  assert.match(r.note, /earnings power 60%, quality 30% and price 10% \(was 40 \/ 30 \/ 30\)/);
+  for (const id of ENGINE_IDS.filter((x) => x !== "fundamentals")) assert.doesNotMatch(ENGINES[id].rules?.key || "", /\|quant:/, id);
+  // All three off: no step, only the key moves (a logged change).
+  const off = engineSpecs({ funPutsDown: false, funShares: false, funWeights: false });
+  assert.equal(off.fundamentals.rules.n, r.before.n); assert.match(off.fundamentals.rules.key, /\|quant:$/); assert.match(off.fundamentals.rules.switchNote, /Fundamentals puts: up to 3.*is switched off/);
+  assert.deepEqual(off.reversion, ENGINES.reversion);
+  // One off: the step names the other two only.
+  const one = engineSpecs({ funShares: false }).fundamentals.rules;
+  assert.equal(one.n, r.n); assert.match(one.key, /\|quant:funPutsDown,funWeights$/); assert.doesNotMatch(one.note, /buys shares instead of calls/);
+  // A running engine logs the step once.
+  const es = newEngineState(ENGINES.fundamentals); es.rules = r.n - 1; es.rulesKey = r.before.key;
+  const made = adoptRules(es, ENGINES.fundamentals, "2026-11-28");
+  assert.equal(made.kind, "rules"); assert.equal(made.text, r.note); assert.equal(es.rules, r.n);
+  assert.equal(adoptRules(es, ENGINES.fundamentals, "2026-11-28"), null, "once");
+  // The idea follows the rules in force.
+  assert.match(ENGINES.fundamentals.idea, /\(weighted 60 \/ 30 \/ 10\)\. Buys shares in the three best names it can buy and puts on the three worst that are in a downtrend, in longer-dated options/);
+  assert.match(off.fundamentals.idea, /\(weighted 40 \/ 30 \/ 30\)\. Holds calls on the three best names it can buy and puts on the five worst, in longer-dated options/);
+  assert.match(engineSpecs({ funPutsDown: false, funPuts: false }).fundamentals.idea, /puts on the two worst,/);
+  assert.match(engineSpecs({ funPuts: false }).fundamentals.idea, /puts on the three worst that are in a downtrend/);
+  assert.match(engineSpecs({}, undefined, { fundamentals: "options" }).fundamentals.idea, /Holds calls on the three best/, "the owner's options-only choice");
+  // The registry: six slots, three a side, the downtrend rule on the puts,
+  // shares on the top with a 3 ATR stop, no target and 60 sessions.
+  const F = ENGINES.fundamentals;
+  assert.equal(F.slots, 6); assert.deepEqual({ ...F.sideSlots }, { call: 3, put: 3 });
+  assert.equal(F.setups["rank-bottom"].needDowntrend, true); assert.equal(F.setups["rank-top"].calls, "shares"); assert.equal(F.setups["rank-top"].exits.maxSessions, 60);
+  assert.equal(F.sharesStopAtr, 3); assert.equal(F.sharesOwnStop, false); assert.equal(F.noShareTarget, true);
+  assert.deepEqual({ ...F.rankWeights }, { earn: 0.6, quality: 0.3, price: 0.1 }); assert.deepEqual({ ...off.fundamentals.rankWeights }, { ...RANK.weightsBefore });
+  const o3 = off.fundamentals;
+  assert.equal(o3.slots, 8); assert.deepEqual({ ...o3.sideSlots }, { call: 3, put: 5 }); assert.equal(o3.setups["rank-bottom"].needDowntrend, undefined);
+  assert.equal(o3.setups["rank-top"].calls, undefined); assert.equal(o3.sharesStopAtr, null); assert.equal(o3.noShareTarget, false);
+  assert.equal(o3.exits.tp, 50, "the calls keep their option exits");
+});
+ok("quantamental pack: the book buys shares at the top, puts only in a downtrend (three at most), and stamps each trade's rank", () => {
+  // fundViews: the weaker half is in a downtrend.
+  const state = emptyState(), record = emptyRecord();
+  const isos = [];
+  for (const d of ["16", "17", "18", "19", "20"]) isos.push(`2026-11-${d}T16:00:00.000Z`, `2026-11-${d}T20:30:00.000Z`);
+  const runs = isos.map((nowIso) => stepBook(state, record, bookInput(fundViews(), { engines: ["fundamentals"], nowIso, late: /T20/.test(nowIso), shares: true })));
+  assert.deepEqual(runs.slice(0, 4).map((o) => o.opened.map((t) => `${t.symbol} ${t.side}`).join()), ["F01 call,F30 put", "F02 call,F29 put", "F03 call,F28 put", ""]);
+  assert.ok(runs[3].candidates.fundamentals.some((c) => c.symbol === "F27" && c.why === "no free put slot"));
+  const top = record.open.find((t) => t.symbol === "F01");
+  assert.equal(top.contract.structure, "shares"); assert.equal(top.exits.maxSessions, 60); assert.equal(top.exits.tp, undefined);
+  assert.equal(top.stopLevel, 94, "3 ATR (2) under the 100 entry"); assert.equal(top.targetLevel, null, "no price target");
+  const put = record.open.find((t) => t.symbol === "F30");
+  assert.equal(put.contract.structure, "long"); assert.equal(put.contract.optionType, "put"); assert.equal(put.exits.tp, 50);
+  assert.ok(put.reasons.some((r) => /^In a downtrend/.test(r)));
+  // Every trade carries the stock's place in the rank at entry.
+  assert.deepEqual(Object.keys(top.fund), ["rank", "of", "score", "e", "q", "p", "eZone", "asOf"]);
+  assert.equal(top.fund.rank, 1); assert.equal(top.fund.of, 30); assert.equal(top.fund.eZone, "top"); assert.equal(put.fund.eZone, "bottom");
+  // Not in a downtrend: no put, and the slot stays open for one that is.
+  const st2 = emptyState(), rec2 = emptyRecord();
+  const v2 = fundViews();
+  for (const n of [23, 24, 25, 26, 27, 28, 29, 30]) { const s = `F${n}`; v2[s] = { ...v2[s], f: baseF({ sma200: 110 }) }; }
+  const o2 = stepBook(st2, rec2, bookInput(v2, { engines: ["fundamentals"], shares: true }));
+  assert.deepEqual(o2.opened.map((t) => `${t.symbol} ${t.side}`), ["F01 call", "F02 call"], "the run's room goes to the calls");
+  assert.ok(!o2.candidates.fundamentals.some((c) => c.side === "put"), "a put not in a downtrend is not a candidate");
+  // ENGINES_SHARES=0 puts the top back on calls, as every share setup.
+  const o3 = stepBook(emptyState(), emptyRecord(), bookInput(fundViews(), { engines: ["fundamentals"], shares: false }));
+  assert.equal(o3.opened.find((t) => t.side === "call").contract.structure, "long");
+});
+ok("quantamental pack: new rank weights re-rank every stock once; the earnings third sits on each row", () => {
+  const views = fundViews(), es = newEngineState(ENGINES.fundamentals);
+  // A rank stored before the weights changed (no key: 40 / 30 / 30).
+  standRank(es, views, { today: "2026-11-20", weights: RANK.weightsBefore }); delete es.rank.wkey;
+  for (const r of Object.values(es.rank.rows)) r.asOf = "2026-11-20";
+  let rk = standRank(es, views, { today: "2026-11-21", weights: RANK.weightsBefore });
+  assert.ok(Object.values(rk.rows).every((r) => r.asOf === "2026-11-20"), "same weights, same month: kept");
+  rk = standRank(es, views, { today: "2026-11-28", weights: ENGINES.fundamentals.rankWeights });
+  assert.equal(es.rank.wkey, "0.6/0.3/0.1"); assert.equal(es.rank.refreshed, "2026-11-28");
+  assert.ok(Object.values(rk.rows).every((r) => r.asOf === "2026-11-28"), "new weights: every stock ranked again");
+  rk = standRank(es, views, { today: "2026-11-29", weights: ENGINES.fundamentals.rankWeights });
+  assert.ok(Object.values(rk.rows).every((r) => r.asOf === "2026-11-28"), "then kept until the month changes");
+  // The weights move the order: a stock strong on price and weak on earnings slips.
+  const w = fundViews(), cheap = w.F05;
+  w.F05 = { ...cheap, fund: { ...cheap.fund, core: { ...w.F20.fund.core }, live: { ...cheap.fund.live, forwardPE: 5, targetMeanPrice: 200 } } };
+  const r40 = standRank(newEngineState(ENGINES.fundamentals), w, { today: TODAY, weights: RANK.weightsBefore }), r60 = standRank(newEngineState(ENGINES.fundamentals), w, { today: TODAY, weights: RANK.weights });
+  assert.ok(r60.rows.F05.rank > r40.rows.F05.rank, `${r40.rows.F05.rank} -> ${r60.rows.F05.rank}`);
+  // eZone: thirds by earnings power alone, only on a live rank.
+  const z = standRank(newEngineState(ENGINES.fundamentals), fundViews(), { today: TODAY });
+  const zones = z.order.map((s) => z.rows[s].eZone);
+  assert.equal(zones.filter((x) => x === "top").length, 10); assert.equal(zones.filter((x) => x === "bottom").length, 10); assert.equal(zones[0], "top"); assert.equal(zones[29], "bottom");
+  const few = Object.fromEntries(Object.entries(fundViews()).slice(0, 8)), zf = standRank(newEngineState(ENGINES.fundamentals), few, { today: TODAY });
+  assert.ok(Object.values(zf.rows).every((r) => r.eZone == null), "too few names: no rank, no third");
 });
 console.log(`${passed} engine checks passed${process.exitCode ? " (with failures)" : ""}`);

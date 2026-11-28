@@ -114,7 +114,7 @@ own decay and spread. Those setups now buy stock on their call side
 | Earnings | post-earnings drift (calls) | run-in, drift puts |
 | Flow | aggressive flow (bullish), gamma set-up, short squeeze | bearish flow (puts) |
 | Macro | gold with yields and the dollar, dollar against Asia funds (both still on shadow) | conditions easing, yields falling, event drift, every put |
-| Fundamentals | none | rank-top calls, rank-bottom puts |
+| Fundamentals | rank-top (since 2026-11-28, the quantamental pack) | rank-bottom puts |
 
 A share trade (`sharesContract` in `contracts.mjs`, `BOOK.shares*`):
 
@@ -704,7 +704,7 @@ no new download. The rules part is one dated step on every signal engine
   as $0 for the other; a pair waits while either side is open). A variant
   that changes how a trade is made, not which trades are made (options or
   shares, the contract window, the stop; `match: "same"` on `TEC-stop2.5`,
-  `REV-bounce-shares`, `MAC-fall60`, `FUN-top-shares`, `ERN-runin-shares`,
+  `REV-bounce-shares`, `MAC-fall60`, `FUN-top-calls`, `ERN-runin-shares`,
   `FLO-fade-puts`),
   is read only on signals both books took, so a free slot in the variant's
   younger book or an expiry the run did not load is not read as the change;
@@ -729,7 +729,8 @@ no new download. The rules part is one dated step on every signal engine
 | `REV-rsi2-7500` | Reversion | RSI(2) dip trial sized 1.5x (sizing, from the record) |
 | `MAC-riskoff-aside` | Macro | No new trade while the tape reads risk-off |
 | `MAC-fall60` | Macro | Yields-falling TLT calls about 60 days out (50 to 80) |
-| `FUN-top-shares` | Fundamentals | Top-of-rank calls bought as shares, 60 sessions |
+| ~~`FUN-top-shares`~~ | Fundamentals | Retired 2026-11-28: the live engine buys shares since the quantamental pack; `FUN-top-calls` shadows the old calls instead |
+| `FUN-top-calls` | Fundamentals | From 2026-11-28: top-of-rank trades bought as calls (the old rule) beside the live shares |
 | `ERN-runin-shares` | Earnings & events | Earnings run-in bought as shares |
 | `DWN-budget75` | Downside puts | 0.75x the risk budget |
 
@@ -747,7 +748,8 @@ engines trade exactly as before:
 | `DWN-timeonly` | Downside puts | No premium target or stop (20 sessions); the 200-day stock stop kept | `exits` `tp`/`stop` null, `sizeStop` |
 | `FLO-loose` | Flow | Aggressive flow from 3 flagged trades and $100k (was 5 and $250k); score bar unchanged | `minPrints`, `minPrem` |
 | `FLO-fade-puts` | Flow | Bearish aggressive flow on a stock above its 200-day buys the stock for up to 7 sessions (the put's own limit) instead of a put (only those signals) | `fadeBear: "only"` |
-| `FUN-put-downtrend` | Fundamentals | Bottom-of-rank puts only in a confirmed downtrend (under a falling 50-day under the 200-day) | `needDowntrend` |
+| ~~`FUN-put-downtrend`~~ | Fundamentals | Retired 2026-11-28: the live engine needs the downtrend since the quantamental pack; `FUN-put-anytrend` shadows the old rule instead | |
+| `FUN-put-anytrend` | Fundamentals | From 2026-11-28: bottom-of-rank puts in any trend (the old rule) beside the live downtrend-only puts | `needDowntrend: false` |
 | `ERN-gap-drift` | Earnings & events | Drift on any 5%+ gap that held, whatever the EPS number (a gap against the number scores with no EPS points) | `gapOnly` |
 | `MAC-fixed-exits` | Macro | From 2026-11-27: option trades with the old exits (+30% / -40%, the event drift +25% / -35%, stock levels) beside the live time-only ones | `optTimeExits: false` |
 | `REV-fixed-exits` | Reversion (washout bounce calls) | From 2026-11-27: the old -60% stop, +30% take-profit and 20-day close beside the live time-only bounce | `optTimeExits: false` |
@@ -1106,6 +1108,72 @@ options, so it runs with `ENGINES_SHARES=0` too.
   prints (stamped implied moves): cheap +39.9% over 18, but -5.6% without
   WMT, ACN and BAC. Hence a paper trial, not an engine.
 
+### Quantamental pack (2026-11-28)
+
+Owner, 2026-11-28: "Mingstreet will be quantamental investing", then, after
+the research pass and a second audit, "FUN puts can have 3 slots and if we
+only allow puts in a downtrend then we should double check what constitutes
+a downtrend and how we would actually trade it first". The research (Claude
+Doc "Quantamental research pass", section "Audit before the build") tested
+free point-in-time SEC filings for 992 companies, 2010 to 2026, against the
+same-days basket of every covered stock (our list beats SPY by about 9
+points a year on survivorship alone, so SPY is the wrong yardstick). Growth
+signals worked only on our list and were flat off it; cheapness and quality
+lost. One rules step on Fundamentals (`QUANT_PACK`, step 13, key `|quant:`)
+and three Owner Settings switches, all on; new trades only, open trades keep
+their exits (the re-rank in point 3 can still close one as `rank-out`):
+
+1. **Puts only in a downtrend, three at most** (`ENGINES_FUN_PUTS_DOWN`,
+   setup `needDowntrend` on `rank-bottom`). A bottom-of-rank put opens only
+   when the stock closed under its 50-day average, the 50-day is under the
+   200-day, and the 50-day is lower than 10 sessions ago (`trendDown` in
+   `features.mjs`, the same test the Downside engine reads). The book is
+   three calls and three puts (six slots). On the bench every downtrend
+   rule tried (none, this one, under the 200-day, a falling 50-day, a
+   falling 200-day, plus SPY under its 200-day, plus weak relative strength)
+   lost 7% to 15% a put, and puts from a random rank lost the same, so the
+   rank has no put skill; this rule halves the trades and the loss (about
+   -$177,000 to -$85,000 over 2011-2026). The puts stay because the Owner
+   wants live put data (engine philosophy 2026-11-20); the shadow
+   `FUN-put-anytrend` keeps the old rule beside it. Off: any trend, eight
+   slots, three calls and five puts (five slots, three and two, with
+   `ENGINES_FUN_PUTS5` off too).
+2. **Top of the rank buys shares** (`ENGINES_FUN_SHARES`, `calls: "shares"`
+   on `rank-top`): $5,000 of stock (risk sized like every share trade),
+   a 3 ATR stop under the entry, no price target (`noShareTarget`), 60
+   sessions at most (the setup's own `maxSessions`), and still the
+   `rank-out` close when the stock leaves the top third. Bench: shares about
+   +5.2% a trade and $261,000 against calls about +1.9% and $25,000, about
+   1.3% a trade over the basket; a 2 or 3 ATR target was the worst variant.
+   The shadow `FUN-top-calls` keeps the calls. Off: calls, +50% / -40%.
+3. **Rank weights 60 / 30 / 10** (`ENGINES_FUN_WEIGHTS`, spec `rankWeights`,
+   `RANK.weights`): earnings power 60%, quality 30%, price 10% (was 40 / 30
+   / 30, `RANK.weightsBefore`). The cheap third trailed by about 18% a year
+   on the bench; 60 / 30 / 10 was the best mix for shares (+6.1% a trade,
+   $311,000, basket +2.3). The stored rank keeps the weights it was made
+   with (`rank.wkey`), so a change re-ranks every stock once on the run it
+   lands, never mixing two weightings. That re-rank is the one way the pack
+   can close an open trade: a held stock that leaves its third under the new
+   weights closes as `rank-out` at that run, as it would at any re-rank.
+   Off: 40 / 30 / 30.
+
+Measure only, with no switch: every new signal-engine trade carries `fund`,
+its stock's place on the Fundamentals rank at entry (rank, of, score, the
+three parts and `eZone`, the third it sits in on earnings power alone). The
+Quant labs "Earnings tilt watch" reads closed trades by that third
+(`earningsTilt` in `lib/labs/factors.mjs`): the 2011-2026 filter study found
+RSI(2) dips on the strongest earners did better (t 2.9, under the 3.3 bar),
+so it is watched, not traded. The Factor lab logs the inputs that have no
+free history every week from now on (see docs/quant-labs.md), and the
+quarterly workflow `research-factor-refresh.yml` re-runs the SEC and Yahoo
+collector on the `research-factor-data` branch (the 20th of March, May,
+August and November; no secret, no AI, never touches main).
+
+No AI call, no new download in the build. The long history test has no
+fundamentals, so this engine is judged on the bench and forward (switch ids
+`funPutsDown`, `funShares`, `funWeights` for `--off`). Test:
+`node scripts/engines-smoke.mjs`.
+
 ### Fundamentals: the standing rank (rules 2, 2026-11-16)
 
 Fundamentals change slowly, so this engine no longer waits for the three
@@ -1122,7 +1190,8 @@ one rank of every covered stock (`lib/engines/rank.mjs`).
   growth. *Quality* (30%): operating margin, return on equity, free cash flow
   against market value, debt against equity. *Price* (30%): forward P/E
   against its sector group's, the analysts' average target against the price.
-  A part with no numbers is left out and the others carry its weight.
+  A part with no numbers is left out and the others carry its weight. Since
+  2026-11-28 the parts weigh 60 / 30 / 10 ("Quantamental pack").
 - **Standing.** A stock's number is fixed until the calendar month changes or
   the stock reports again, so one day's quote cannot reshuffle the book.
 - **Entry.** A new call comes only from the 8 best-ranked stocks and a new put
@@ -1133,7 +1202,9 @@ one rank of every covered stock (`lib/engines/rank.mjs`).
   the distance from the end of the rank; it orders the candidates and is not
   compared with an entry bar. The bar does not move for this engine.
 - **Book.** At most three calls and two puts, one new trade a run (two since
-  2026-11-23, "More trades a run").
+  2026-11-23, "More trades a run"). Since 2026-11-28 three and three, the
+  puts only in a downtrend and the top of the rank as shares ("Quantamental
+  pack").
 - **Exit.** +50% / -40% on the option, 60 sessions (was 45), two sessions
   before expiry, or **the stock leaves its third**: a call closes when the
   stock is no longer in the top third of the rank, a put when it is no longer
@@ -1578,7 +1649,10 @@ w = expected / 4, clamped to 0.1x-2x.
 | `ENGINES_TRIAL_STRADDLE` | Owner Settings → Data & desks | Unset / on = the Earnings engine's straddle paper trial buys a call and a put before a report when past moves are 1.15x+ the straddle's price (2 a day, 4 open, sold at the 11:00 run on the reaction day). `0` = retired for new trades (open ones are still sold on schedule). Runs with `ENGINES_SHARES=0` too |
 | `ENGINES_RUNIN_BY_IV` | Owner Settings → Data & desks | Unset / on = the earnings run-in buys shares when options are rich or very rich. `0` = calls, and very rich skips |
 | `ENGINES_CONV_NO_SCORE` | Owner Settings → Data & desks | Unset / on = Reversion's and Macro's size leaves the setup score out. `0` = the score part is back |
-| `ENGINES_FUN_PUTS5` | Owner Settings → Data & desks | Unset / on = Fundamentals holds up to 3 calls and 5 puts (8 slots). `0` = 5 slots, 2 puts |
+| `ENGINES_FUN_PUTS5` | Owner Settings → Data & desks | Unset / on = Fundamentals holds up to 3 calls and 5 puts (8 slots). `0` = 5 slots, 2 puts. Read only while `ENGINES_FUN_PUTS_DOWN` is off |
+| `ENGINES_FUN_PUTS_DOWN` | Owner Settings → Data & desks | Added 2026-11-28. Unset / on = Fundamentals puts open only in a downtrend (close under the 50-day, the 50-day under the 200-day and lower than 10 sessions ago), 3 calls and 3 puts. `0` = puts in any trend, slots from `ENGINES_FUN_PUTS5` |
+| `ENGINES_FUN_SHARES` | Owner Settings → Data & desks | Added 2026-11-28. Unset / on = the top of the Fundamentals rank buys shares (3 ATR stop, no target, 60 sessions, out when it leaves the top third). `0` = calls, +50% / -40% |
+| `ENGINES_FUN_WEIGHTS` | Owner Settings → Data & desks | Added 2026-11-28. Unset / on = the Fundamentals rank weighs earnings power 60%, quality 30%, price 10%. `0` = 40 / 30 / 30. A change re-ranks every stock once |
 | `ENGINES_PUT_MAX_QTY` | Owner Settings → Data & desks | The most contracts a risk-sized engine put buys, 1 to 200 (default 100 since 2026-11-23; 10 from 2026-11-20), never over `ENGINES_MAX_QTY` |
 | `ENGINES_MAX_PREMIUM_USD` | Owner Settings → Data & desks | Added 2026-11-23. The most premium a risk-sized option trade buys, $1,000 to $1,000,000 (default $200,000), whichever of this and `ENGINES_MAX_QTY` comes first; never under one contract. A rules key part (`prem:`), so a change is logged as a rule change |
 | `ENGINES_PUT_MAX_PREMIUM_USD` | Owner Settings → Data & desks | Added 2026-11-23. The most premium a risk-sized put buys (default $100,000), never over `ENGINES_MAX_PREMIUM_USD` (`putprem:` in the downtrend pack's key) |

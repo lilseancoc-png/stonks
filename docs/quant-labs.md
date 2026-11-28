@@ -22,7 +22,7 @@ and `quant-labs-css.mjs`.
 | File | Who reads it | What it holds |
 |---|---|---|
 | `quant-labs.json` | The Quant labs page, the Market odds card, MCP dataset `quant.labs` and feature `quant-labs` | The page file: one block per lab plus `card` |
-| `quant-labs-state.json` | The build only (never the browser, never the MCP) | Fitted market-odds models, the log of chances stated at past closes (800 rows), the weekly factor panel (60 weeks), factor ranks frozen per trade, the settled prediction-market log (3,000 rows), the annual report text store |
+| `quant-labs-state.json` | The build only (never the browser, never the MCP) | Fitted market-odds models, the log of chances stated at past closes (800 rows), the weekly factor panel (104 weeks since 2026-11-28; 60 before), factor ranks frozen per trade, the settled prediction-market log (3,000 rows), the annual report text store |
 
 Both are Owner keys in `lib/premium-keys.mjs` (combined `tr` + `tp` claims,
 `private, no-store`) and optional bake keys in `lib/data-ownership.mjs`. The
@@ -126,6 +126,32 @@ context. The Earnings Forecast ranges are the first user
   names, beside the Top Picks grade scored the same way. Price factors are
   backfilled from stored bars; fundamentals have no free point-in-time history
   and start from the first snapshot.
+- **Logged weekly, no history (2026-11-28, the quantamental pack).** Ten
+  inputs with no free point-in-time history go into the same weekly panel
+  from 2026-11-28, today's snapshot only (`QUANT_FACTORS`, read by the build
+  through `quantValuesOf` as `ctx.quantOf`): the Fundamentals engine's
+  standing rank (overall, earnings power, quality, price; read only with 12+
+  ranked names, from `engines-state.json`), the 30-day full-year EPS
+  estimate revision, the analysts' target against the price, beats minus
+  misses in the last four reports, the Valuation lab's gap and the growth
+  the price implies (`valuation-lab.json`), and AI launch pressure over 91
+  days (`pressureAt` in `lib/ai-disruption/scorecard.mjs` on this build's
+  launch log). An input no stock has that week is not stored, and the
+  backfilled weeks carry none, so nothing is made up. They are listed apart
+  ("Logged weekly since 28 Nov 2026") and join the skill table once a
+  snapshot has one (`logged: true`, `since`); the 21-session skill starts to
+  read after about 30 closed weeks, the 63-session one around June 2027.
+  Two years of weeks are kept (`PANEL_KEEP` 104). No grade, pick or engine
+  reads them.
+- **Earnings tilt watch (2026-11-28).** Closed engine trades split by
+  `fund.eZone`, the earnings-power third their stock sat in on the
+  Fundamentals rank at entry (stamped on every new signal-engine trade):
+  the RSI(2) dip trial, the washout bounce, all Reversion and every signal
+  trade, each with count, average result and win rate at the top, middle
+  and bottom, and the top minus bottom gap once both ends hold 20 closed
+  trades (`earningsTilt`). Void, never-trade, left-coverage and Owner-avoid
+  closes are left out. The 2011-2026 filter study found the tilt at t 2.9,
+  under the 3.3 bar, so it is watched only.
 - **What each book leans on.** The daily return of the grade book (top third
   by grade against the bottom third), the Top Picks direction book and each
   engine's, split into the market, small against large, growth against the
@@ -303,6 +329,12 @@ keeps the block when it rewrites the file. `DIR` holds `universe.json.gz`,
 the site's own SEC identity, run by a push to that branch; about 17 MB, never
 merged). A company that re-registered with the SEC has its earlier filings
 under an old number; the collector's `PREDECESSORS` table joins the two.
+Since 2026-11-28 the workflow `research-factor-refresh.yml` (on main) re-runs
+that collector each quarter (the 20th of March, May, August and November,
+after the large-company 10-K and 10-Q deadlines; or by hand): it checks out
+the research branch, runs the branch's own `check.mjs` and `collect.mjs`, and
+commits only the data folder back to that branch. No secret, no private
+store, no AI call; it never touches main or the site.
 
 ## Switches
 
