@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { normalizeOdds, normalizeInjuries, loadPropSources, normalizeGameLines } from '../lib/sports/prop-sources.mjs';
 import { rankGameProps, lineMatchesGame, playerFor, currentTeam } from '../lib/sports/props.mjs';
 import { handleSportsRequest } from '../lib/sports/http.mjs';
-import { capturePropPicks, propRecordView } from '../lib/sports/prop-record.mjs';
+import { capturePropPicks, propRecordView, breakevenCheck, RECORD_BREAKEVEN } from '../lib/sports/prop-record.mjs';
 import { sportsKey } from '../lib/sports/store.mjs';
 
 const now = Date.parse('2026-11-05T18:00:00Z'), at = new Date(now).toISOString();
@@ -258,6 +258,11 @@ const record = await propRecordView({ load, sport: 'nba', seasons: [2026], now, 
 assert.equal(record.summary.wins, 1); assert.equal(record.summary.losses, 1);
 assert.equal(record.summary.pushes, 1); assert.equal(record.summary.voids, 1); assert.equal(record.summary.pending, 1);
 assert.equal(record.summary.win_rate, 0.5, 'push/void/pending are excluded from win rate');
+assert.deepEqual(record.summary.win_range, { low: 0.0945, high: 0.9055 }, 'Wilson 95% range beside the win rate');
+assert.deepEqual([record.summary.breakeven.rate, record.summary.breakeven.verdict], [0.57735, 'not_proven'], 'two picks prove nothing against the 2-pick 3x break-even');
+assert.ok(record.by_stat[Object.keys(record.by_stat)[0]].win_range !== undefined, 'every split carries its own range');
+assert.equal(RECORD_BREAKEVEN.rate, 0.57735);
+assert.deepEqual([breakevenCheck(159, 283).verdict, breakevenCheck(700, 1000).verdict, breakevenCheck(36, 86).verdict, breakevenCheck(0, 0).verdict], ['not_proven', 'above', 'below', null], 'verdict only when the whole range clears the bar');
 assert.equal(record.records.find((p) => p.game_id === 'pending-game').result, 'awaiting_stats');
 assert.equal(record.records[0].rank_version, 'props-rank-test');
 assert.ok(record.records.every((p) => Array.isArray(p.evidence)), 'research export keeps original rationale');

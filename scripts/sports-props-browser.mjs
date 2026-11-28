@@ -122,6 +122,8 @@ try {
     const staleResponse = page.waitForResponse((r) => r.headers()['x-fixture-stale'] === '1');
     releaseHeldRecord(); await (await staleResponse).finished(); await page.waitForTimeout(100);
     assert.match(await pane.locator('.sp-prop-record').innerText(), /50\.0%/);
+    assert.match(await pane.locator('.sp-prop-record').innerText(), /95% range\s*9\.4–90\.5%/, 'win rate shows its Wilson range');
+    assert.match(await pane.locator('.sp-prop-record').innerText(), /Break-even\s*57\.7% · not proven[\s\S]*the win rate a 2-pick power play at 3x needs/, 'and the break-even with its verdict');
     assert.equal(await pane.getByText('Bust', { exact: true }).count(), 1, 'a slower pending response cannot overwrite the newer settled results');
     const smallDownload = page.waitForEvent('download');
     await pane.locator('[data-sp-record-export]').click();
