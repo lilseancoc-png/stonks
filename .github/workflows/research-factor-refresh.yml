@@ -1,0 +1,43 @@
+name: Research factor data refresh
+# Research-only (the quantamental pack, 2026-11-28). Re-runs the free SEC and
+# Yahoo collector on the never-merged research-factor-data branch once a
+# quarter, so the point-in-time filings panel the quantamental research reads
+# stays current. The job checks out that branch, runs the branch's own
+# collector and commits only its data folder back to it. It never touches
+# main, needs no secret, reads no private store, makes no AI call and
+# publishes nothing to the site.
+#
+# Dates: the 20th of March, May, August and November, after the SEC filing
+# deadlines for large companies (10-K 60 days after a December year end,
+# 10-Q 40 days after a quarter end). Run it by hand any time.
+on:
+  schedule:
+    - cron: "23 14 20 3,5,8,11 *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: research-factor-universe
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research-factor-data
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node research/factor-universe/check.mjs
+      - run: node research/factor-universe/collect.mjs
+      - name: Commit data
+        run: |
+          git config user.name "research-bot"
+          git config user.email "research-bot@users.noreply.github.com"
+          git add research/factor-universe/data
+          git commit -m "Research: quarterly refresh of SEC facts and daily bars" || echo "nothing to commit"
+          git push origin HEAD:research-factor-data

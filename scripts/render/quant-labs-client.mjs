@@ -228,6 +228,31 @@ export function renderQuantLabsJs() {
     var band = v >= 80 ? 'ql-h5' : v >= 60 ? 'ql-h4' : v >= 40 ? 'ql-h3' : v >= 20 ? 'ql-h2' : 'ql-h1';
     return '<span class="ql-heat ' + band + '">' + Math.round(v) + '</span>';
   }
+  // Inputs logged weekly from 28 Nov 2026 (the quantamental pack): no free
+  // history, so their skill reads forward only.
+  function qlLoggedHtml(f){
+    var list = f.logged || [];
+    if (!list.length) return '';
+    var byKey = {}; (f.skill || []).forEach(function(r){ if (r.logged) byKey[r.key] = r; });
+    var rows = list.map(function(x){
+      var r = byKey[x.key], by = {}; ((r && r.ic) || []).forEach(function(y){ by[y.h] = y; });
+      return '<tr><td title="' + escapeHtml(x.hint || '') + '">' + escapeHtml(x.label) + '</td><td class="num">' + (x.names || 0) + '</td><td>' + escapeHtml(x.since || 'not yet') + '</td>' + qlIcCell(by[21]) + qlIcCell(by[63]) + '<td class="num">' + ((by[63] && by[63].n) || 0) + '</td></tr>';
+    }).join('');
+    return qlH('Logged weekly since 28 Nov 2026: inputs with no free history') +
+      '<p class="evb-note">Estimates, revisions, analyst targets, the beat record, the Valuation lab and AI launch exposure have no free point-in-time history, so they cannot be tested backward. One snapshot of each is kept every week from 28 Nov 2026 (two years are kept). The 21-session rank skill starts to read after about 30 closed weeks and the 63-session one around June 2027. Logged only: no grade, pick or engine trade reads them.</p>' +
+      slpTable([['Input'], ['Stocks this week', 1, 'Covered stocks with a value in the newest snapshot'], ['Logged since'], ['21 days', 1, 'Rank skill 21 sessions ahead'], ['63 days', 1, 'Rank skill 63 sessions ahead'], ['Weeks at 63', 1]], rows);
+  }
+  // Closed engine trades by the earnings-power third at entry (watch only).
+  function qlTiltHtml(t){
+    if (!t || !t.groups) return '';
+    var end = function(x){ return '<td class="num">' + x.n + '</td><td class="num ' + slpSign(x.avg) + '">' + (x.avg == null ? '—' : slpPts(x.avg) + '%') + '</td><td class="num">' + qlFrac(x.win) + '</td>'; };
+    var rows = t.groups.map(function(g){
+      return '<tr><td>' + escapeHtml(g.label) + '</td>' + end(g.top) + '<td class="num">' + g.mid.n + '</td>' + end(g.bottom) + '<td class="num ' + slpSign(g.gap) + '">' + (g.gap == null ? '—' : slpPts(g.gap) + ' pts') + '</td><td>' + qlPill(g.status === 'reading' ? ['Reading', 'evb-s-unclear'] : QL_RES.few) + '</td></tr>';
+    }).join('');
+    return qlH('Earnings tilt watch: engine trades by the earnings third at entry') +
+      '<p class="evb-note">From 28 Nov 2026 every new engine trade records which third of the Fundamentals rank its stock sat in on earnings power alone. The 2011 to 2026 study found RSI(2) dips on the strongest earners did better, short of the bar for a rule (t 2.9 against 3.3). A group reads once the top and bottom thirds each hold ' + (t.need || 20) + ' closed trades (' + (t.trades || 0) + ' closed so far). Watch only: nothing here changes a trade.</p>' +
+      slpTable([['Group'], ['Top n', 1], ['Top avg', 1], ['Top wins', 1], ['Mid n', 1], ['Bottom n', 1], ['Bottom avg', 1], ['Bottom wins', 1], ['Top minus bottom', 1], ['Status']], rows);
+  }
   function qlFactorsHtml(d){
     var f = d.factors || {};
     if (f.status !== 'ok') return qlMissing(f, 'The factor lab');
@@ -244,8 +269,9 @@ export function renderQuantLabsJs() {
         slpTable([['Factor'], ['1 day', 1, 'Rank skill 1 session ahead'], ['5 days', 1, 'Rank skill 5 sessions ahead'], ['21 days', 1, 'Rank skill 21 sessions ahead'], ['63 days', 1, 'Rank skill 63 sessions ahead'], ['Spread a year', 1], ['After costs', 1], ['t', 1], ['Worst fall', 1], ['Turnover', 1, 'Share of the top and bottom thirds replaced at each monthly rebalance'], ['Both halves'], ['Verdict']], hrows);
     }
     out += qlUniverseHtml(f.universe);
-    if (f.skill && f.skill.length){
-      var srows = f.skill.map(function(r){
+    var liveSkill = (f.skill || []).filter(function(r){ return !r.logged; });
+    if (liveSkill.length){
+      var srows = liveSkill.map(function(r){
         var by = {}; (r.ic || []).forEach(function(x){ by[x.h] = x; });
         return '<tr' + (r.key === 'grade' ? ' class="is-current"' : '') + '><td>' + escapeHtml(r.label) + '</td>' + qlIcCell(by[1]) + qlIcCell(by[5]) + qlIcCell(by[21]) + qlIcCell(by[63]) + '<td class="num">' + ((by[21] && by[21].n) || 0) + '</td></tr>';
       }).join('');
@@ -253,6 +279,7 @@ export function renderQuantLabsJs() {
         '<p class="evb-note">One snapshot of every factor is kept each week (' + (f.snapshots || 0) + ' so far). The fundamental factors (value, margins, growth, debt) have no free point-in-time history, so their skill can only be measured forward from these snapshots. The grade is scored the same way for comparison.</p>' +
         slpTable([['Factor'], ['1', 1], ['5', 1], ['21', 1], ['63', 1], ['Weeks at 21', 1]], srows);
     }
+    out += qlLoggedHtml(f) + qlTiltHtml(f.tilt);
     if (f.exposures && f.exposures.length){
       var names = [], shortOf = {};
       f.exposures.forEach(function(b){ (b.betas || []).forEach(function(x){ if (names.indexOf(x.label) < 0){ names.push(x.label); shortOf[x.label] = x.short || x.label; } }); });
